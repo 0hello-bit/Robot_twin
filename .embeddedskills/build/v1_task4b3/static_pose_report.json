@@ -1,0 +1,23 @@
+{
+  "task": "4B-3",
+  "stage": "static_pose_validation",
+  "source": "1",
+  "frames": 100,
+  "duration_s": 3.57,
+  "detection_rate": 0.99,
+  "detected": 99,
+  "x_jitter_p95_mm": 0.3871095924525463,
+  "y_jitter_p95_mm": 0.11416384184414596,
+  "yaw_jitter_p95_deg": 1.2479917356314527,
+  "limits": {
+    "xy_mm": 1.0250000000000001,
+    "yaw_deg": 2.0,
+    "detection_rate": 0.95
+  },
+  "verdict": "PASS",
+  "detect_scales": [
+    1.0,
+    2.0,
+    3.0
+  ]
+}

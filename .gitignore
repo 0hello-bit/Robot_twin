@@ -1,0 +1,82 @@
+# ============================================================
+# 第三方工作区 / 工具目录（非项目源码）
+# ============================================================
+/.codex_work/
+/.claude/
+/.easyeda/
+/.superpowers/
+/无关文件/
+
+# ============================================================
+# Python 缓存
+# ============================================================
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+
+# ============================================================
+# 构建产物 / 二进制 / 日志
+# ============================================================
+*.exe
+*.obj
+*.o
+*.axf
+*.hex
+*.lnp
+*.crf
+*.d
+*.sct
+*.pdb
+*.log
+*.rsp
+*.tmp
+*.xml
+thumbs.db
+.DS_Store
+
+# ============================================================
+# 派生数据 / 状态
+# ============================================================
+/simulation/digital_twin/data/
+
+# ============================================================
+# 任务执行记录：根目录 .embeddedskills 只保留 handoff / review /
+# 关键标定 JSON；嵌套的 .embeddedskills 一律排除
+# ============================================================
+**/.embeddedskills/
+/.embeddedskills/*
+!/embeddedskills/build/
+/.embeddedskills/build/*
+!/embeddedskills/build/v1_task4b0/
+!/embeddedskills/build/v1_task4b1/
+!/embeddedskills/build/v1_task4b2/
+!/embeddedskills/build/v1_task4b3/
+!/embeddedskills/build/v1_task4b4/
+!/embeddedskills/build/v1_task4b1_recheck/
+
+/.embeddedskills/build/v1_task4b0/*
+!/.embeddedskills/build/v1_task4b0/handoff.md
+
+/.embeddedskills/build/v1_task4b1/*
+!/.embeddedskills/build/v1_task4b1/handoff.md
+!/.embeddedskills/build/v1_task4b1/gate0_report.json
+
+/.embeddedskills/build/v1_task4b1_recheck/*
+!/.embeddedskills/build/v1_task4b1_recheck/gate0_report.json
+
+/.embeddedskills/build/v1_task4b2/*
+!/.embeddedskills/build/v1_task4b2/handoff.md
+!/.embeddedskills/build/v1_task4b2/intrinsics_final.json
+!/.embeddedskills/build/v1_task4b2/homography.json
+!/.embeddedskills/build/v1_task4b2/track_map.json
+
+/.embeddedskills/build/v1_task4b3/*
+!/.embeddedskills/build/v1_task4b3/handoff.md
+!/.embeddedskills/build/v1_task4b3/static_pose_report.json
+
+/.embeddedskills/build/v1_task4b4/*
+!/.embeddedskills/build/v1_task4b4/review_request_4b4.md
+!/.embeddedskills/build/v1_task4b4/sync_report.json

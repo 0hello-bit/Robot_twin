@@ -1,0 +1,70 @@
+{
+  "task": "4B-2",
+  "stage": "camera_intrinsics",
+  "source": "DroidCam index1 (vivo phone)",
+  "image_size": [
+    1280,
+    720
+  ],
+  "n_views": 20,
+  "views": [
+    "view_01_corners54.png",
+    "view_02_corners54.png",
+    "view_03_corners54.png",
+    "view_04_corners54.png",
+    "view_05_corners54.png",
+    "view_06_corners54.png",
+    "view_07_corners54.png",
+    "view_08_corners54.png",
+    "view_09_corners54.png",
+    "view_10_corners54.png",
+    "view_11_corners54.png",
+    "view_12_corners54.png",
+    "view_13_corners54.png",
+    "view_14_corners54.png",
+    "view_15_corners54.png",
+    "view_16_corners54.png",
+    "view_17_corners54.png",
+    "view_18_corners54.png",
+    "view_19_corners54.png",
+    "view_20_corners54.png"
+  ],
+  "calibration": {
+    "type": "CameraCalibration",
+    "camera_matrix": [
+      [
+        903.8695833691593,
+        0.0,
+        598.9169476245156
+      ],
+      [
+        0.0,
+        892.8739451472431,
+        364.54053490510944
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "dist_coeffs": [
+      -0.07151001099849773,
+      0.21411473115186505,
+      -0.0007932058643786525,
+      -0.006941516535128269,
+      -0.29247254875053835
+    ],
+    "image_size": [
+      1280,
+      720
+    ],
+    "reprojection_error_rms": 1.0707251637830542,
+    "reprojection_error_p95": 1.8407134532928455
+  },
+  "gate": {
+    "reprojection_error_p95": 1.8407134532928455,
+    "gate_threshold_px_min": 2.0,
+    "note": "full gate (with line width) pending track setup"
+  }
+}

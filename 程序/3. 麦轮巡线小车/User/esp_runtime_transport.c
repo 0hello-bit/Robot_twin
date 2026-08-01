@@ -1,0 +1,154 @@
+#include "esp_runtime_transport.h"
+#include <string.h>
+
+static IpdParser s_parser;
+static volatile uint8_t *s_tcp_connected;
+static volatile uint8_t *s_client_id;
+static char s_pending_ack[TWIN_CONTROL_LINE_MAX + 1U];
+static uint16_t s_pending_ack_len;
+static char s_pending_status[TWIN_CONTROL_LINE_MAX + 1U];
+static uint16_t s_pending_status_len;
+static char s_at_line[32];
+static uint8_t s_at_line_len;
+
+/* 连接代次：每次 CONNECT 递增。跨代次的 pending/retry 帧不得互相泄漏
+   （Task 4B-4 fix, Codex review remediation）。 */
+static uint32_t s_connection_generation;
+
+static void clear_pending_frames(void)
+{
+    s_pending_ack_len = 0U;
+    s_pending_status_len = 0U;
+}
+
+static void process_at_line(void)
+{
+    if (s_at_line_len < 2U) return;
+    uint8_t id = (uint8_t)(s_at_line[0] - '0');
+    if (id > 4U) return;
+    if (strstr(s_at_line + 2, "CONNECT") != 0) {
+        /* 新连接代次：丢弃任何旧客户端遗留的 pending ACK/STATUS，
+           协议层随后会为新连接生成 authoritative status。 */
+        s_connection_generation++;
+        clear_pending_frames();
+        *s_client_id = id;
+        *s_tcp_connected = 1U;
+    } else if (strstr(s_at_line + 2, "CLOSED") != 0) {
+        if (*s_client_id == id) {
+            /* Safety: transitioning from connected to disconnected.
+               Stop motors, request baseline restore, and queue TIMEOUT
+               event.  Must happen in the same main-loop iteration as
+               the CLOSED byte, before any PID/MotorOut path. */
+            if (*s_tcp_connected) {
+                twin_control_timeout();
+            }
+            *s_tcp_connected = 0U;
+            *s_client_id = 0xFF;
+            /* 连接已断：transport 内部 pending 帧不再有效。 */
+            clear_pending_frames();
+        }
+    }
+}
+
+void esp_transport_init(volatile uint8_t *tcp_connected_flag,
+                         volatile uint8_t *tcp_client_id_ptr)
+{
+    ipd_parser_init(&s_parser);
+    s_tcp_connected = tcp_connected_flag;
+    s_client_id = tcp_client_id_ptr;
+    s_pending_ack_len = 0U;
+    s_pending_status_len = 0U;
+    s_at_line_len = 0U;
+    s_connection_generation = 0U;
+}
+
+void esp_transport_process_byte(uint8_t byte)
+{
+    uint8_t ipd_state = ipd_parser_feed(&s_parser, byte);
+    if (ipd_state == IPD_STATE_PAYLOAD || ipd_state == IPD_STATE_COMPLETE) {
+        TwinControlResult result;
+        uint8_t has_result = twin_control_receive_byte(byte, &result);
+        if (has_result && result.has_ack) {
+            s_pending_ack_len = twin_control_encode_ack(
+                &result, s_pending_ack, sizeof(s_pending_ack));
+        }
+        return;
+    }
+    if (byte == '\n') {
+        if (s_at_line_len > 0U) process_at_line();
+        s_at_line_len = 0U;
+    } else if (byte != '\r' && byte != '>') {
+        /* '>' 是 CIPSEND 提示符，不属于任何 AT 行；若让它进入 at_line，
+           紧随其后的 "0,CLOSED"/"0,CONNECT" 会被当成脏行跳过，导致
+           断连/连接事件漏检（Task 4B-4 fix, Codex review remediation）。 */
+        if (s_at_line_len < sizeof(s_at_line) - 1U) {
+            s_at_line[s_at_line_len++] = (char)byte;
+            s_at_line[s_at_line_len] = '\0';
+        }
+    }
+}
+
+uint8_t esp_transport_has_pending_ack(void)
+{
+    return (s_pending_ack_len > 0U) ? 1U : 0U;
+}
+
+uint8_t esp_transport_has_pending_status(void)
+{
+    return (s_pending_status_len > 0U) ? 1U : 0U;
+}
+
+uint8_t esp_transport_can_queue_status(void)
+{
+    return (s_pending_status_len == 0U) ? 1U : 0U;
+}
+
+uint16_t esp_transport_get_pending_ack(char *output, uint16_t output_size)
+{
+    if (s_pending_ack_len == 0U || output == 0 || output_size == 0U) return 0U;
+    uint16_t copy_len = s_pending_ack_len;
+    if (copy_len >= output_size) copy_len = output_size - 1U;
+    memcpy(output, s_pending_ack, copy_len);
+    output[copy_len] = '\0';
+    s_pending_ack_len = 0U;
+    return copy_len;
+}
+
+uint16_t esp_transport_get_pending_status(char *output, uint16_t output_size)
+{
+    if (s_pending_status_len == 0U || output == 0 || output_size == 0U) return 0U;
+    uint16_t copy_len = s_pending_status_len;
+    if (copy_len >= output_size) copy_len = output_size - 1U;
+    memcpy(output, s_pending_status, copy_len);
+    output[copy_len] = '\0';
+    s_pending_status_len = 0U;
+    return copy_len;
+}
+
+void esp_transport_queue_status(const TwinControlStatus *status)
+{
+    s_pending_status_len = twin_control_encode_status(
+        status, s_pending_status, sizeof(s_pending_status));
+}
+
+void esp_transport_queue_ack(const TwinControlResult *result)
+{
+    s_pending_ack_len = twin_control_encode_ack(
+        result, s_pending_ack, sizeof(s_pending_ack));
+}
+
+uint8_t esp_transport_apply_and_ack(TwinControlParams *active,
+                                     const TwinControlParams *baseline)
+{
+    TwinControlResult result;
+    uint8_t applied = twin_control_apply_pending(active, baseline, &result);
+    if (applied && result.has_ack) {
+        esp_transport_queue_ack(&result);
+    }
+    return applied;
+}
+
+uint32_t esp_transport_connection_generation(void)
+{
+    return s_connection_generation;
+}

@@ -1,0 +1,14 @@
+{
+  "gate": "G1",
+  "source": "0",
+  "duration_s": 600.301,
+  "frame_count": 17991,
+  "effective_fps": 30.0,
+  "nominal_period_ms": 33.331,
+  "drop_rate_pct": 4.845,
+  "timestamps_monotonic": true,
+  "dropped_frames": 916,
+  "expected_frames": 18907,
+  "drop_detection": "gap>1.5x mean-interval",
+  "verdict": "PASS"
+}
