@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "profile_id": "v1b-first-campaign-20260805-v1",
+  "declared_before_capture": true,
+  "thresholds_locked": true,
+  "input_profiles": [
+    {
+      "profile_id": "nominal-command-260-380",
+      "command_unit": "speed_cap_pwm_command",
+      "speed_command_min": 260,
+      "speed_command_max": 380,
+      "required_track_segments": [
+        "STRAIGHT",
+        "ORDINARY_CURVE",
+        "TARGET_HIGH_SPEED_ACUTE_CURVE"
+      ]
+    },
+    {
+      "profile_id": "target-command-480-680",
+      "command_unit": "speed_cap_pwm_command",
+      "speed_command_min": 480,
+      "speed_command_max": 680,
+      "required_track_segments": [
+        "STRAIGHT",
+        "ORDINARY_CURVE",
+        "TARGET_HIGH_SPEED_ACUTE_CURVE"
+      ]
+    }
+  ],
+  "campaign": {
+    "minimum_calibration_runs": 3,
+    "minimum_holdout_runs": 2,
+    "minimum_distinct_input_profiles": 2,
+    "required_track_segments": [
+      "STRAIGHT",
+      "ORDINARY_CURVE",
+      "TARGET_HIGH_SPEED_ACUTE_CURVE"
+    ],
+    "each_run_must_cover_all_segments": true
+  },
+  "sync_gate": {
+    "common_coverage_min": 0.95,
+    "p95_time_diff_ms_max": 33.3,
+    "timestamps_monotonic_required": true,
+    "pose_and_telemetry_non_empty": true,
+    "camera_fourcc": "MJPG",
+    "camera_width_px": 1280,
+    "camera_height_px": 720,
+    "camera_fps": 30.0,
+    "stop_confirmed_required": true,
+    "one_time_cleanup_required": true
+  },
+  "model_gate": {
+    "lateral_error_p95_mm_max": 10.0,
+    "rms_relative_error_max": 0.15,
+    "max_relative_error_max": 0.15,
+    "completion_time_relative_error_max": 0.10,
+    "min_unseen_groups": 5,
+    "nominal_improvement_min_relative": 0.15,
+    "primary_outputs": [
+      "lateral_error_p95_mm",
+      "rms_relative_error"
+    ],
+    "no_regression_outputs": [
+      "max_relative_error",
+      "completion_time_relative_error"
+    ]
+  },
+  "threshold_basis": [
+    {
+      "metric": "sync_gate.common_coverage_min",
+      "value": 0.95,
+      "source": "v1_twin_dataset.COVERAGE_GATE_THRESHOLD and V1-B plan B3",
+      "basis_status": "VERIFIED_OFFLINE_CONTRACT"
+    },
+    {
+      "metric": "sync_gate.p95_time_diff_ms_max",
+      "value": 33.3,
+      "source": "v1_twin_dataset and capture_sync_run camera-period gate",
+      "basis_status": "VERIFIED_OFFLINE_CONTRACT"
+    },
+    {
+      "metric": "model_gate.lateral_error_p95_mm_max",
+      "value": 10.0,
+      "source": "existing V1TwinValidator G6 contract with the 20 mm reference line width",
+      "basis_status": "VERIFIED_OFFLINE_CONTRACT"
+    },
+    {
+      "metric": "model_gate.rms_relative_error_max",
+      "value": 0.15,
+      "source": "existing V1TwinValidator G7 RMS relative-error gate",
+      "basis_status": "VERIFIED_OFFLINE_CONTRACT"
+    },
+    {
+      "metric": "model_gate.max_relative_error_max",
+      "value": 0.15,
+      "source": "existing V1TwinValidator G7 maximum relative-error gate",
+      "basis_status": "VERIFIED_OFFLINE_CONTRACT"
+    },
+    {
+      "metric": "model_gate.completion_time_relative_error_max",
+      "value": 0.10,
+      "source": "existing V1TwinValidator G7 completion-time gate",
+      "basis_status": "VERIFIED_OFFLINE_CONTRACT"
+    },
+    {
+      "metric": "model_gate.nominal_improvement_min_relative",
+      "value": 0.15,
+      "source": "existing V1 V1-A candidate improvement charter",
+      "basis_status": "INFERENCE_OFFLINE_POLICY"
+    }
+  ],
+  "evidence_boundary": "Frozen before capture. speed_command values are PWM command caps, not measured physical speed. Existing basis is offline contract or policy only; no fresh real measurement-noise evidence exists. Codex must approve this profile before B2 and it cannot be changed after capture begins; changes require a new profile_id."
+}

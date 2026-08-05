@@ -21,8 +21,14 @@ venv/
 *.sct
 !simulation/digital_twin/tests/fixtures/*.hex
 
-# Generated simulation outputs
-simulation/digital_twin/data/
+# Generated simulation outputs. Keep the frozen B1 acceptance profile tracked;
+# all other data files and run products remain ignored.
+simulation/digital_twin/data/*
+!simulation/digital_twin/data/product/
+simulation/digital_twin/data/product/*
+!simulation/digital_twin/data/product/acceptance_profiles/
+simulation/digital_twin/data/product/acceptance_profiles/*
+!simulation/digital_twin/data/product/acceptance_profiles/v1b_first_campaign_v1.json
 simulation/digital_twin/logs/
 simulation/digital_twin/web_showcase/node_modules/
 simulation/digital_twin/web_showcase/dist/

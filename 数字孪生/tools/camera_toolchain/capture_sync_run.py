@@ -59,6 +59,7 @@ from v1_twin.v1_twin_dataset import (
 from v1_twin.v1_twin_pose_tracker import PoseTracker
 from v1_twin.v1_twin_schema import V1TelemetryFrame, V1Pose
 from v1_twin.v1_twin_sync import ClockSync
+from v1_twin.v1_twin_campaign import make_v1_b_run_id
 from real_world.frame_parser import decode_telemetry
 from real_world.runtime_protocol import RunCommand, parse_status
 from transport_soak import MixedStreamParser
@@ -106,10 +107,8 @@ def read_camera_mode(cap, index, width, height):
 
 
 def make_run_id() -> str:
-    """生成独立 run_id（时间戳，秒级粒度）。"""
-    t = time.localtime()
-    return "sync_{0:04d}{1:02d}{2:02d}_{3:02d}{4:02d}{5:02d}".format(
-        t.tm_year, t.tm_mon, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec)
+    """Generate a safe run_id with subsecond and random collision resistance."""
+    return make_v1_b_run_id(prefix="sync")
 
 
 def binarize_sensor(v):

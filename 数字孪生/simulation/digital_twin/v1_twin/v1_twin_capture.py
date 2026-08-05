@@ -52,15 +52,20 @@ def resolve_run_output_dir(
     """解析并创建独立 run_id 输出目录。
 
     - run_id 必须是安全的目录名（`[A-Za-z0-9_-]+`），否则抛错。
-    - 目录 <out_root>/<run_id> 不存在则创建。
+    - 目录 <out_root>/<run_id> 不存在则创建；任何已存在目录都拒绝复用。
     - 目录内任一 *required_filenames* 已存在 → fail closed（不覆盖原始数据）。
     - 返回目录绝对路径。
     """
     if not run_id or not _RUN_ID_RE.match(run_id):
         raise CaptureConfigError("invalid run_id: {0!r}".format(run_id))
     out_dir = os.path.join(out_root, run_id)
-    if not os.path.isdir(out_dir):
-        os.makedirs(out_dir)
+    if os.path.exists(out_dir):
+        raise CaptureConfigError(
+            "refusing to overwrite or reuse existing run directory: {0}".format(
+                out_dir
+            )
+        )
+    os.makedirs(out_dir)
     for name in required_filenames:
         target = os.path.join(out_dir, name)
         if os.path.exists(target):

@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools" / "camera_toolchain"))
 
 import pytest
 
@@ -52,6 +54,25 @@ def test_resolve_run_output_dir_fails_on_existing_artifact(tmp_path):
     with pytest.raises(CaptureConfigError, match="refusing to overwrite"):
         resolve_run_output_dir(str(tmp_path), "sync_run_01",
                                ["raw_poses.json", "raw_telemetry.json"])
+
+
+def test_resolve_run_output_dir_fails_on_existing_empty_run_dir(tmp_path):
+    run_dir = os.path.join(str(tmp_path), "sync_run_01")
+    os.makedirs(run_dir)
+
+    with pytest.raises(CaptureConfigError, match="refusing to overwrite"):
+        resolve_run_output_dir(str(tmp_path), "sync_run_01", [])
+
+
+def test_capture_run_id_factory_is_not_second_granularity():
+    import capture_sync_run
+
+    first = capture_sync_run.make_run_id()
+    second = capture_sync_run.make_run_id()
+
+    assert first != second
+    assert first.startswith("sync-")
+    assert second.startswith("sync-")
 
 
 def test_resolve_run_output_dir_rejects_unsafe_run_id(tmp_path):
