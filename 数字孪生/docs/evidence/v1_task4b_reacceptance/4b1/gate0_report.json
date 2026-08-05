@@ -1,0 +1,41 @@
+{
+  "gate": "G1 (4B-1 Fresh Reacceptance)",
+  "timestamp": "2026-08-02T10:39:28",
+  "source": "DroidCam index-1",
+  "duration_s": 600.043,
+  "wall_clock_s": 601.2,
+  "frame_count": 14285,
+  "effective_fps": 23.81,
+  "nominal_period_ms": 41.999,
+  "drop_rate_pct": 12.2,
+  "timestamps_monotonic": true,
+  "dropped_frames": 1985,
+  "expected_frames": 16270,
+  "duplicate_rate_pct": 29.709,
+  "drop_detection": "gap>1.5x mean-interval",
+  "resolution": {
+    "requested": "1280x720",
+    "actual": "1280x720",
+    "match": true,
+    "actual_width": 1280,
+    "actual_height": 720,
+    "preflight_default": "640x480"
+  },
+  "warmup": {
+    "enabled": true,
+    "frames_discarded": 3
+  },
+  "content_validity": {
+    "invalid_frames_in_official_interval": 0,
+    "duplicate_rate_pct": 29.709
+  },
+  "verdict": "FAIL",
+  "verdict_details": {
+    "fps_gate": true,
+    "drop_gate": false,
+    "monotonic_gate": true,
+    "resolution_gate": true,
+    "content_gate": true
+  },
+  "status": "PENDING_INDEPENDENT_VISUAL_REVIEW"
+}

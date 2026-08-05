@@ -1,0 +1,38 @@
+# Python and local environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+
+# Build products and generated logs
+*.obj
+*.exe
+*.pdb
+*.axf
+*.hex
+*.lnp
+*.crf
+*.d
+*.map
+*.log
+*.tmp
+*.sct
+!simulation/digital_twin/tests/fixtures/*.hex
+
+# Generated simulation outputs
+simulation/digital_twin/data/
+simulation/digital_twin/logs/
+simulation/digital_twin/web_showcase/node_modules/
+simulation/digital_twin/web_showcase/dist/
+
+# Local tool state
+.claude/
+.codex_work/
+.easyeda/
+.superpowers/
+.test_build/
+
+# Physical migration backup; keep it outside version control.
+/archive/legacy_workspace_20260805/

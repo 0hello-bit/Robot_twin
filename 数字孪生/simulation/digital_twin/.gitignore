@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# STM32 / Keil
+*.uvguix.*
+*.uvoptx
+*.bak
+*.dep
+*.d
+*.o
+*.lst
+*.map
+*.axf
+*.htm
+*.lnp
+*.sct
+*.tra
+*.bpt
+*.build_log.htm
+Listings/
+Objects/
+*.hex
+*.bin
+*.elf
+
+# Project data (keep structure, ignore generated data)
+data/*.json
+logs/*.json
+calibration/models/*.json
+!calibration/models/__init__.py
+assets/*.png
+assets/*.jpg
+*.dll
+
+# Temporary
+_gen*.py
+_check*.py
+*.tmp

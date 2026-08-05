@@ -1,0 +1,838 @@
+"""Task 4B-4 同步采集 + 时间对齐验证（真车运行）。
+
+流程:
+  1. 连摄像头 (index1, 1280x720) + 小车 WiFi (ESP01S TCP 8888)
+  2. 读取相机**实际**帧尺寸并与 CameraCalibration.image_size / homography
+     严格核对；不一致立即 FAIL（Task 4B-4 fix，cap.set 不能作为成功证据）。
+  3. 打印 READY，等待小车开始跑（出现第一帧遥测，30s 超时）
+  4. 出现遥测后采集 *duration_s* 秒：相机位姿 (V1Pose) + 遥测 (V1TelemetryFrame)
+     - 相机帧成功读取后**立即**记录 time.monotonic_ns() 并显式传入
+       PoseTracker.track(frame, t_pc_ns=...)，不在检测结束后打采集时间。
+     - 遥测保留有符号 PWM（不钳零丢方向）与 yaw_rad。
+  5. 用 (tick_ms, pc_recv_ns) 拟合 ClockSync（批量投递 → fit_batched）
+  6. build_synchronized_dataset → 共同区间 coverage / 全量 p95 + 诊断指标
+  7. evaluate_sync_gate → PASS / FAIL / INSUFFICIENT EVIDENCE
+  8. 原始数据写入独立 run_id 目录，目标文件已存在时 fail closed
+
+START 之后的资源清理（Task 4B-4 fix, Codex review remediation）:
+  - `run_sync_capture_session()` 把 START→等待→采集 的生命周期与统一、幂等的
+    清理绑定：无论正常、无遥测超时、采集异常、STOP 发送失败，socket.close 与
+    cap.release 都恰好执行一次；START 发送失败时不会假称已发送 STOP。
+  - 该函数接受注入的 sock/cap，离线测试可用 fake socket/camera 验证清理契约。
+
+⚠️ 运行会发送 START/STOP 并驱动小车，必须在用户授权 + 赛道净空下执行。
+   （本任务只修改代码与离线测试，不运行本脚本。）
+
+用法:
+    python capture_sync_run.py --host 192.168.110.236 --duration 12 --out .
+"""
+
+import argparse
+import json
+import math
+import os
+from pathlib import Path
+import socket
+import sys
+import threading
+import time
+
+import numpy as np
+
+_WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_WORKSPACE_ROOT / "simulation" / "digital_twin"))
+sys.path.insert(0, str(_WORKSPACE_ROOT / "tools" / "camera_toolchain"))
+sys.path.insert(0, str(_WORKSPACE_ROOT / "tools" / "shakedown_toolchain"))
+
+import cv2
+import camera_common
+
+from v1_twin.v1_twin_calibration import CameraCalibration, HomographyTransform
+from v1_twin.v1_twin_capture import (
+    resolve_run_output_dir,
+    validate_frame_dimensions,
+)
+from v1_twin.v1_twin_dataset import (
+    build_synchronized_dataset,
+    evaluate_sync_gate,
+)
+from v1_twin.v1_twin_pose_tracker import PoseTracker
+from v1_twin.v1_twin_schema import V1TelemetryFrame, V1Pose
+from v1_twin.v1_twin_sync import ClockSync
+from real_world.frame_parser import decode_telemetry
+from real_world.runtime_protocol import RunCommand, parse_status
+from transport_soak import MixedStreamParser
+
+CAMERA_PERIOD_NS = 33_300_000   # 30fps
+TELEMETRY_PERIOD_NS = 20_000_000  # 50Hz
+TOLERANCE_NS = max(CAMERA_PERIOD_NS, TELEMETRY_PERIOD_NS)
+STOP_CONFIRM_TIMEOUT_S = 1.0
+READER_JOIN_TIMEOUT_S = 1.0
+
+OUTPUT_FILENAMES = ("raw_poses.json", "raw_telemetry.json", "sync_report.json")
+
+
+def open_capture_camera(index: int):
+    """Open the C960 in the mode accepted by the 4B-4 capture gate."""
+    cap, actual_w, actual_h = camera_common.open_camera(
+        int(index),
+        width=1280,
+        height=720,
+        fps=30.0,
+        fourcc="MJPG",
+        backend=cv2.CAP_DSHOW,
+    )
+    if (actual_w, actual_h) != (1280, 720):
+        cap.release()
+        raise SystemExit(
+            "capture requires 1280x720, got {}x{}".format(actual_w, actual_h)
+        )
+    return cap, actual_w, actual_h
+
+
+def read_camera_mode(cap, index, width, height):
+    """Read the actual capture mode for immutable run evidence."""
+    fourcc_value = int(cap.get(cv2.CAP_PROP_FOURCC))
+    fourcc = "".join(
+        chr((fourcc_value >> (8 * i)) & 0xFF) for i in range(4)
+    )
+    return {
+        "index": int(index),
+        "width": int(width),
+        "height": int(height),
+        "fps": float(cap.get(cv2.CAP_PROP_FPS)),
+        "fourcc": fourcc,
+    }
+
+
+def make_run_id() -> str:
+    """生成独立 run_id（时间戳，秒级粒度）。"""
+    t = time.localtime()
+    return "sync_{0:04d}{1:02d}{2:02d}_{3:02d}{4:02d}{5:02d}".format(
+        t.tm_year, t.tm_mon, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec)
+
+
+def binarize_sensor(v):
+    """固件 s0-s3 二值化：>0 → 1（1=白底，0=黑线，权威定义=固件阈值）。"""
+    return 1 if int(v) > 0 else 0
+
+
+# ── 资源清理（Task 4B-4 fix, Codex review remediation）───────────────
+#
+# 所有 START 之后的路径都必须进入同一个清理结构；清理是幂等的，重复调用
+# 不重复执行。STOP 发送失败仍继续关闭 socket 和相机。START 未发出则不
+# 发送 STOP（不得假称已经 STOP）。
+
+
+def _new_action_state():
+    """初始化动作报告字典。"""
+    return {
+        "start_sent": False,
+        "start_error": None,
+        "collect_error": None,
+        "stop_attempted": False,
+        "stop_sent": False,
+        "stop_error": None,
+        "stop_confirmed": False,
+        "stop_status": None,
+        "stop_confirm_error": None,
+        "socket_closed": False,
+        "close_error": None,
+        "camera_released": False,
+        "release_error": None,
+        "reader_joined": False,
+        "reader_join_error": None,
+        "reader_error": None,
+        "status_events": [],
+        "status_parse_errors": [],
+        "cleaned_up": False,
+    }
+
+
+def _status_to_dict(status):
+    return {
+        "campaign_id": status.campaign_id,
+        "run_id": status.run_id,
+        "state": status.state,
+        "reason": status.reason,
+        "tick_ms": int(status.tick_ms),
+    }
+
+
+def evaluate_capture_gate(sync_verdict, actions, outcome):
+    """Combine the numerical sync gate with the safety/cleanup gate."""
+    if sync_verdict != "PASS":
+        return sync_verdict, "sync gate verdict: {}".format(sync_verdict)
+    if outcome != "ok":
+        return "FAIL", "session outcome is {}".format(outcome)
+    required = (
+        "stop_sent",
+        "stop_confirmed",
+        "socket_closed",
+        "camera_released",
+        "reader_joined",
+    )
+    missing = [name for name in required if not actions.get(name, False)]
+    if missing:
+        return "FAIL", "required capture conditions missing: {}".format(
+            ", ".join(missing)
+        )
+    if actions.get("reader_error"):
+        return "FAIL", "reader error: {}".format(actions["reader_error"])
+    return "PASS", "sync and safety/cleanup gates passed"
+
+
+def _wait_for_matching_stop(status_cv, statuses, start_index, run_id,
+                            timeout_s):
+    deadline = time.monotonic() + float(timeout_s)
+    with status_cv:
+        while True:
+            for status in statuses[start_index:]:
+                if (
+                    status.campaign_id == "sync"
+                    and status.run_id == run_id
+                    and status.state == "STOPPED"
+                    and status.reason == "STOP"
+                ):
+                    return status
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.0:
+                return None
+            status_cv.wait(remaining)
+
+
+def cleanup_session(sock, cap, run_id, actions, *, wait_for_stop=None,
+                    status_cursor=None,
+                    stop_confirm_timeout_s=STOP_CONFIRM_TIMEOUT_S):
+    """统一、幂等的清理：STOP（仅当 START 已发出）→ 关 socket → 释放 camera。
+
+    - 仅当 *actions*['start_sent'] 才尝试 STOP；STOP 发送失败记录在
+      'stop_error'，但 socket.close 与 cap.release 仍必须执行。
+    - 重复调用是幂等的（'cleaned_up' 守卫），动作状态如实记录在 *actions*。
+    - *sock* / *cap* 必须是可注入的对象（真 socket/camera 或离线 fake）。
+    """
+    if actions["cleaned_up"]:
+        return
+    actions["cleaned_up"] = True
+
+    if actions["start_sent"]:
+        actions["stop_attempted"] = True
+        stop_cursor = status_cursor() if status_cursor is not None else None
+        try:
+            stop_cmd = RunCommand("sync", run_id, "STOP").encode()
+            sock.sendall(stop_cmd.encode())
+            actions["stop_sent"] = True
+        except BaseException as exc:  # noqa: BLE001 - 清理不得因 STOP 失败而中止
+            actions["stop_error"] = repr(exc)
+
+        if actions["stop_sent"] and wait_for_stop is not None:
+            try:
+                status = wait_for_stop(stop_cursor, run_id,
+                                       stop_confirm_timeout_s)
+                if status is not None:
+                    actions["stop_confirmed"] = True
+                    actions["stop_status"] = _status_to_dict(status)
+            except BaseException as exc:  # noqa: BLE001 - cleanup continues
+                actions["stop_confirm_error"] = repr(exc)
+
+    try:
+        sock.close()
+        actions["socket_closed"] = True
+    except BaseException as exc:    # noqa: BLE001
+        actions["close_error"] = repr(exc)
+        actions["socket_closed"] = False
+
+    try:
+        cap.release()
+        actions["camera_released"] = True
+    except BaseException as exc:    # noqa: BLE001
+        actions["release_error"] = repr(exc)
+        actions["camera_released"] = False
+
+
+def run_sync_capture_session(sock, cap, tracker, run_id,
+                             duration_s, wait_timeout_s,
+                             stop_confirm_timeout_s=STOP_CONFIRM_TIMEOUT_S):
+    """START → 等待首帧遥测 → 采集 的生命周期，附带统一幂等清理。
+
+    *sock* / *cap* / *tracker* 由调用方注入（真硬件或离线 fake）。
+    返回 (telemetry, poses, actions, outcome)：
+      - telemetry: 解析出的 V1TelemetryFrame 列表
+      - poses:    采集到的 V1Pose 列表
+      - actions:  动作报告（start_sent/stop_attempted/socket_closed/...）
+      - outcome:  "ok" | "start_failed" | "no_telemetry_timeout" | "collect_error"
+
+    任何路径（正常 / 超时 / 异常 / START 失败）结束后，cleanup_session 都
+    恰好执行一次。测试用 fake socket/camera 驱动本函数，不连接真车。
+    """
+    actions = _new_action_state()
+    telemetry = []
+    poses = []
+    tele_lock = threading.Lock()
+    stop_reader = threading.Event()
+    status_cv = threading.Condition()
+    statuses = []
+    status_parse_errors = []
+    reader_error = []
+
+    def on_telemetry(payload):
+        d = decode_telemetry(payload)
+        if not d:
+            return
+        pc_ns = time.monotonic_ns()
+        pwm = tuple(int(d[k]) for k in ("m1", "m2", "m3", "m4"))
+        frame = V1TelemetryFrame(
+            sensors=(binarize_sensor(d["s0"]), binarize_sensor(d["s1"]),
+                     binarize_sensor(d["s2"]), binarize_sensor(d["s3"])),
+            error=float(d["error"]),
+            pid_output=float(d["pid_output"]),
+            pwm=pwm,
+            tick_ms=int(d["tick_ms"]),
+            pc_recv_ns=pc_ns,
+            yaw_rad=math.radians(float(d["yaw"])),
+        )
+        with tele_lock:
+            telemetry.append(frame)
+
+    def on_status(line):
+        try:
+            status = parse_status(line)
+        except Exception as exc:  # noqa: BLE001 - retain malformed evidence
+            with status_cv:
+                status_parse_errors.append({"line": line,
+                                             "error": repr(exc)})
+                status_cv.notify_all()
+            return
+        with status_cv:
+            statuses.append(status)
+            status_cv.notify_all()
+
+    def reader_thread():
+        """Read mixed binary telemetry and ASCII status frames."""
+        parser = MixedStreamParser(on_telemetry=on_telemetry,
+                                   on_line=on_status)
+        while not stop_reader.is_set():
+            try:
+                data = sock.recv(4096)
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            except BaseException as exc:  # noqa: BLE001
+                with status_cv:
+                    reader_error.append(repr(exc))
+                    status_cv.notify_all()
+                break
+            if not data:
+                break
+            try:
+                for byte in data:
+                    parser.feed(byte)
+            except BaseException as exc:  # noqa: BLE001
+                with status_cv:
+                    reader_error.append(repr(exc))
+                    status_cv.notify_all()
+                break
+
+    reader = threading.Thread(target=reader_thread, daemon=True)
+    reader.start()
+
+    outcome = "ok"
+    try:
+        # 发送 START 运行指令
+        try:
+            start_cmd = RunCommand("sync", run_id, "START").encode()
+            sock.sendall(start_cmd.encode())
+            actions["start_sent"] = True
+            print("已发送 START，等待小车运行（遥测流）...")
+        except Exception as exc:   # noqa: BLE001 - START 失败也要走清理
+            actions["start_error"] = repr(exc)
+            outcome = "start_failed"
+            return telemetry, poses, actions, outcome
+
+        # 等待第一帧遥测
+        t_wait = time.time()
+        while True:
+            with tele_lock:
+                if telemetry:
+                    break
+            if time.time() - t_wait > wait_timeout_s:
+                print("ERROR: 超时未收到遥测（小车未运行？）")
+                outcome = "no_telemetry_timeout"
+                return telemetry, poses, actions, outcome
+            time.sleep(0.02)
+        print(">>> 检测到遥测，开始采集 {}s".format(duration_s))
+
+        # 采集 duration_s 秒
+        try:
+            start = time.monotonic_ns()
+            duration_ns = int(duration_s * 1e9)
+            while time.monotonic_ns() - start < duration_ns:
+                ok, frame = cap.read()
+                if ok:
+                    # Task 4B-4 fix: 帧读取成功立即打时间戳，显式传入 track()，
+                    # 不在检测结束后才打采集时间（PoseTracker 默认时间戳在
+                    # 检测结束生成）。
+                    t_pc_ns = time.monotonic_ns()
+                    pose = tracker.track(frame, t_pc_ns=t_pc_ns)
+                    if pose is not None:
+                        poses.append(pose)
+        except Exception as exc:   # noqa: BLE001 - 采集异常也要走清理
+            actions["collect_error"] = repr(exc)
+            outcome = "collect_error"
+            return telemetry, poses, actions, outcome
+    finally:
+        def status_cursor():
+            with status_cv:
+                return len(statuses)
+
+        def wait_for_stop(cursor, target_run_id, timeout_s):
+            return _wait_for_matching_stop(
+                status_cv, statuses, cursor if cursor is not None else 0,
+                target_run_id, timeout_s)
+
+        # 统一幂等清理：无论 outcome 是什么都恰好执行一次。
+        cleanup_session(
+            sock, cap, run_id, actions,
+            wait_for_stop=wait_for_stop,
+            status_cursor=status_cursor,
+            stop_confirm_timeout_s=stop_confirm_timeout_s,
+        )
+        stop_reader.set()
+        try:
+            reader.join(timeout=READER_JOIN_TIMEOUT_S)
+            actions["reader_joined"] = not reader.is_alive()
+            if not actions["reader_joined"]:
+                actions["reader_join_error"] = "reader thread did not quiesce"
+        except BaseException as exc:  # noqa: BLE001 - preserve primary outcome
+            actions["reader_join_error"] = repr(exc)
+        with status_cv:
+            actions["status_events"] = [_status_to_dict(status)
+                                         for status in statuses]
+            actions["status_parse_errors"] = list(status_parse_errors)
+            if reader_error:
+                actions["reader_error"] = reader_error[-1]
+
+    return telemetry, poses, actions, outcome
+
+
+def build_sync_report(*, host, duration_s, run_id, camera_mode, actions,
+                      outcome, n_poses, n_telemetry, clock, residuals, sync):
+    """Build the auditable 4B-4 report without touching hardware or files."""
+    actual_camera = dict(camera_mode)
+    report = {
+        "schema_version": 1,
+        "task": "4B-4",
+        "host": host,
+        "duration_s": float(duration_s),
+        "run_id": run_id,
+        "camera": {
+            "requested": {
+                "width": 1280,
+                "height": 720,
+                "fps": 30.0,
+                "fourcc": "MJPG",
+            },
+            "actual": actual_camera,
+        },
+        "actions": dict(actions),
+        "session_outcome": outcome,
+        "telemetry_yaw_unit": "radian",
+        "n_poses": int(n_poses),
+        "n_telemetry": int(n_telemetry),
+        "clock": {
+            "a": float(clock["a"]),
+            "b": float(clock["b"]),
+            "n_samples": int(clock["n_samples"]),
+            "fit": "fit_batched",
+            "residual_rms_ns": float(residuals["rms_ns"]),
+            "residual_max_ns": float(residuals["max_ns"]),
+        },
+    }
+    for key in (
+        "coverage", "p95_time_diff_ns", "tolerance_ns", "n_sync_frames",
+        "common_interval_start_ns", "common_interval_end_ns",
+        "common_interval_duration_ns", "n_common_poses",
+        "telemetry_interval_max_ns", "telemetry_interval_p95_ns",
+        "n_telemetry_distinct", "max_telemetry_reuse", "verdict",
+        "gate_reason",
+    ):
+        report[key] = sync[key]
+    sync_gate_verdict = sync["verdict"]
+    final_verdict, final_reason = evaluate_capture_gate(
+        sync_gate_verdict, actions, outcome)
+    report["sync_gate_verdict"] = sync_gate_verdict
+    report["verdict"] = final_verdict
+    report["gate_reason"] = final_reason
+    return report
+
+
+def build_session_failure_report(*, host, duration_s, run_id, camera_mode,
+                                 actions, outcome, reason, n_poses,
+                                 n_telemetry):
+    """Build a non-passing report for failures before clock fitting."""
+    return {
+        "schema_version": 1,
+        "task": "4B-4",
+        "host": host,
+        "duration_s": float(duration_s),
+        "run_id": run_id,
+        "camera": {
+            "requested": {
+                "width": 1280,
+                "height": 720,
+                "fps": 30.0,
+                "fourcc": "MJPG",
+            },
+            "actual": (dict(camera_mode) if camera_mode is not None else None),
+        },
+        "actions": dict(actions),
+        "session_outcome": outcome,
+        "failure_reason": reason,
+        "verdict": "FAIL",
+        "telemetry_yaw_unit": "radian",
+        "n_poses": int(n_poses),
+        "n_telemetry": int(n_telemetry),
+        "missing_artifacts": ["raw_poses.json", "raw_telemetry.json"],
+    }
+
+
+def write_session_failure_report(out_dir, *, host, duration_s, run_id,
+                                 camera_mode, actions, outcome, reason,
+                                 n_poses, n_telemetry):
+    report = build_session_failure_report(
+        host=host,
+        duration_s=duration_s,
+        run_id=run_id,
+        camera_mode=camera_mode,
+        actions=actions,
+        outcome=outcome,
+        reason=reason,
+        n_poses=n_poses,
+        n_telemetry=n_telemetry,
+    )
+    with open(os.path.join(out_dir, "sync_report.json"), "w",
+              encoding="utf-8") as f:
+        json.dump(report, f, indent=2, ensure_ascii=False)
+    return report
+
+
+def connect_car(host, port, socket_factory=None):
+    """Connect with bounded timeouts and close the socket on connect failure."""
+    factory = socket_factory or socket.socket
+    sock = factory(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.settimeout(3.0)
+        sock.connect((host, port))
+        sock.settimeout(0.1)
+    except BaseException:
+        try:
+            sock.close()
+        except BaseException:
+            pass
+        raise
+    return sock
+
+
+def _load_calibration(calibration_dir):
+    """Load the current camera calibration pair from one explicit directory."""
+    calibration_dir = Path(calibration_dir)
+    with open(calibration_dir / "intrinsics_final.json", encoding="utf-8") as f:
+        calib = CameraCalibration.from_dict(json.load(f)["calibration"])
+    with open(calibration_dir / "homography.json", encoding="utf-8") as f:
+        homography = HomographyTransform.from_dict(json.load(f)["homography"])
+    return calib, homography
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--host", default="192.168.110.236")
+    ap.add_argument("--port", type=int, default=8888)
+    ap.add_argument("--camera", default="1")
+    ap.add_argument("--duration", type=float, default=12.0)
+    ap.add_argument("--wait-timeout", type=float, default=30.0)
+    ap.add_argument("--out", default=".")
+    args = ap.parse_args()
+
+    run_id = make_run_id()
+    out_dir = resolve_run_output_dir(args.out, run_id, OUTPUT_FILENAMES)
+    print("run_id:", run_id, "->", out_dir)
+
+    build = os.path.join(
+        str(_WORKSPACE_ROOT), "simulation", "digital_twin", "data",
+        "calibration")
+    calib, hom = _load_calibration(build)
+    tracker = PoseTracker(calib, hom, tag_id=0, detect_scales=(1.0, 2.0, 3.0))
+
+    src = int(args.camera) if str(args.camera).isdigit() else args.camera
+    try:
+        cap, actual_w, actual_h = open_capture_camera(src)
+    except BaseException as exc:
+        actions = _new_action_state()
+        write_session_failure_report(
+            out_dir,
+            host=args.host,
+            duration_s=args.duration,
+            run_id=run_id,
+            camera_mode=None,
+            actions=actions,
+            outcome="camera_setup_failed",
+            reason=repr(exc),
+            n_poses=0,
+            n_telemetry=0,
+        )
+        print("ERROR: camera setup failed: {}".format(exc))
+        return 1
+
+    # Task 4B-4 fix: cap.set() 不能当作成功证据——读取实际尺寸并 fail closed。
+    try:
+        actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        camera_mode = read_camera_mode(cap, src, actual_w, actual_h)
+    except BaseException as exc:
+        actions = _new_action_state()
+        try:
+            cap.release()
+            actions["camera_released"] = True
+        except BaseException as cleanup_exc:  # noqa: BLE001
+            actions["release_error"] = repr(cleanup_exc)
+        write_session_failure_report(
+            out_dir,
+            host=args.host,
+            duration_s=args.duration,
+            run_id=run_id,
+            camera_mode=None,
+            actions=actions,
+            outcome="camera_probe_failed",
+            reason=repr(exc),
+            n_poses=0,
+            n_telemetry=0,
+        )
+        print("ERROR: camera probe failed: {}".format(exc))
+        return 1
+    print("camera actual frame size:", (actual_w, actual_h),
+          "calibration image_size:", calib.image_size)
+    try:
+        validate_frame_dimensions((actual_w, actual_h), calib.image_size)
+    except BaseException as exc:
+        actions = _new_action_state()
+        try:
+            cap.release()
+            actions["camera_released"] = True
+        except BaseException as cleanup_exc:  # noqa: BLE001
+            actions["release_error"] = repr(cleanup_exc)
+        write_session_failure_report(
+            out_dir,
+            host=args.host,
+            duration_s=args.duration,
+            run_id=run_id,
+            camera_mode=camera_mode,
+            actions=actions,
+            outcome="camera_dimensions_mismatch",
+            reason=repr(exc),
+            n_poses=0,
+            n_telemetry=0,
+        )
+        print("ERROR: {0}".format(exc))
+        return 1
+    if (
+        camera_mode["fourcc"] != "MJPG"
+        or not math.isfinite(camera_mode["fps"])
+        or abs(camera_mode["fps"] - 30.0) > 0.5
+    ):
+        actions = _new_action_state()
+        try:
+            cap.release()
+            actions["camera_released"] = True
+        except BaseException as cleanup_exc:  # noqa: BLE001
+            actions["release_error"] = repr(cleanup_exc)
+        write_session_failure_report(
+            out_dir,
+            host=args.host,
+            duration_s=args.duration,
+            run_id=run_id,
+            camera_mode=camera_mode,
+            actions=actions,
+            outcome="camera_mode_mismatch",
+            reason="actual camera mode does not match MJPG/30fps",
+            n_poses=0,
+            n_telemetry=0,
+        )
+        print("ERROR: camera mode mismatch: {}".format(camera_mode))
+        return 1
+
+    print("connecting to car {}:{} ...".format(args.host, args.port))
+    try:
+        sock = connect_car(args.host, args.port)
+    except BaseException as exc:  # noqa: BLE001 - publish connection failure
+        actions = _new_action_state()
+        try:
+            cap.release()
+            actions["camera_released"] = True
+        except BaseException as cleanup_exc:  # noqa: BLE001
+            actions["release_error"] = repr(cleanup_exc)
+        write_session_failure_report(
+            out_dir,
+            host=args.host,
+            duration_s=args.duration,
+            run_id=run_id,
+            camera_mode=camera_mode,
+            actions=actions,
+            outcome="connect_failed",
+            reason=repr(exc),
+            n_poses=0,
+            n_telemetry=0,
+        )
+        print("ERROR: car connection failed: {}".format(exc))
+        return 1
+
+    # 采集生命周期（START→等待→采集→统一清理）由 session 函数负责。
+    telemetry, poses, actions, outcome = run_sync_capture_session(
+        sock, cap, tracker, run_id, args.duration, args.wait_timeout)
+
+    # 动作状态报告：START 失败时不假称已 STOP。
+    print("cleanup actions:", {k: v for k, v in actions.items()})
+
+    if outcome in ("start_failed", "no_telemetry_timeout", "collect_error"):
+        reason = (actions.get("start_error") or actions.get("collect_error")
+                  or outcome)
+        write_session_failure_report(
+            out_dir,
+            host=args.host,
+            duration_s=args.duration,
+            run_id=run_id,
+            camera_mode=camera_mode,
+            actions=actions,
+            outcome=outcome,
+            reason=reason,
+            n_poses=len(poses),
+            n_telemetry=len(telemetry),
+        )
+        print("ERROR: session outcome={0}: {1}".format(outcome, reason))
+        return 1
+
+    print("采集完成: 位姿 {} 帧, 遥测 {} 帧".format(len(poses), len(telemetry)))
+    if len(poses) < 20 or len(telemetry) < 20:
+        reason = "insufficient capture data"
+        write_session_failure_report(
+            out_dir,
+            host=args.host,
+            duration_s=args.duration,
+            run_id=run_id,
+            camera_mode=camera_mode,
+            actions=actions,
+            outcome="insufficient_data",
+            reason=reason,
+            n_poses=len(poses),
+            n_telemetry=len(telemetry),
+        )
+        print("ERROR: 数据不足")
+        return 1
+
+    # 拟合时钟（批量投递 → fit_batched）
+    try:
+        clock = ClockSync()
+        for t in telemetry:
+            clock.add_sample(t.tick_ms, t.pc_recv_ns)
+        clock.fit_batched()
+        a, b = clock.params()
+        residuals = clock.fit_residuals()
+    except BaseException as exc:  # noqa: BLE001 - publish a structured failure
+        write_session_failure_report(
+            out_dir,
+            host=args.host,
+            duration_s=args.duration,
+            run_id=run_id,
+            camera_mode=camera_mode,
+            actions=actions,
+            outcome="clock_fit_failed",
+            reason=repr(exc),
+            n_poses=len(poses),
+            n_telemetry=len(telemetry),
+        )
+        print("ERROR: ClockSync failed: {}".format(exc))
+        return 1
+    print("ClockSync(batched): pc_ns = {:.3f} * tick + {:.0f}, resid_rms={:.0f}ns".format(
+        a, b, residuals["rms_ns"]))
+
+    # 对齐（共同区间语义 + 全量 p95 + 诊断指标）
+    try:
+        ds = build_synchronized_dataset(poses, telemetry, clock, TOLERANCE_NS,
+                                        model_version="1.0.0")
+        gate = evaluate_sync_gate(ds)
+    except BaseException as exc:  # noqa: BLE001 - publish a structured failure
+        write_session_failure_report(
+            out_dir,
+            host=args.host,
+            duration_s=args.duration,
+            run_id=run_id,
+            camera_mode=camera_mode,
+            actions=actions,
+            outcome="dataset_build_failed",
+            reason=repr(exc),
+            n_poses=len(poses),
+            n_telemetry=len(telemetry),
+        )
+        print("ERROR: synchronized dataset failed: {}".format(exc))
+        return 1
+    print("== 4B-4 同步验证 (Task 4B-4 fix) ==")
+    print("共同区间: {:.1f}ms .. {:.1f}ms (时长 {:.0f}ms)".format(
+        ds.common_interval_start_ns / 1e6, ds.common_interval_end_ns / 1e6,
+        ds.common_interval_duration_ns / 1e6))
+    print("共同区间 pose 数: {} / {}".format(ds.n_common_poses, len(poses)))
+    print("匹配覆盖率: {:.1f}%  (>=95%: {})".format(100 * ds.coverage,
+        ds.coverage >= 0.95))
+    print("p95 时间差(全部最近距离): {:.1f} ms  (<={} ms: {})".format(
+        ds.p95_time_diff_ns / 1e6, TOLERANCE_NS / 1e6,
+        ds.p95_time_diff_ns <= TOLERANCE_NS))
+    print("遥测间隔 max/p95: {:.1f}/{:.1f} ms".format(
+        ds.telemetry_interval_max_ns / 1e6, ds.telemetry_interval_p95_ns / 1e6))
+    print("匹配用不同遥测帧: {}  最大复用: {}".format(
+        ds.n_telemetry_distinct, ds.max_telemetry_reuse))
+    print("时钟拟合残差 RMS: {:.1f} ms".format(ds.clock_fit_residual_rms_ns / 1e6))
+    print("VERDICT: {}".format(gate.verdict))
+
+    report = build_sync_report(
+        host=args.host,
+        duration_s=args.duration,
+        run_id=run_id,
+        camera_mode=camera_mode,
+        actions=actions,
+        outcome=outcome,
+        n_poses=len(poses),
+        n_telemetry=len(telemetry),
+        clock={"a": a, "b": b, "n_samples": len(telemetry)},
+        residuals=residuals,
+        sync={
+            "coverage": ds.coverage,
+            "p95_time_diff_ns": ds.p95_time_diff_ns,
+            "tolerance_ns": TOLERANCE_NS,
+            "n_sync_frames": len(ds.sync_frames),
+            "common_interval_start_ns": ds.common_interval_start_ns,
+            "common_interval_end_ns": ds.common_interval_end_ns,
+            "common_interval_duration_ns": ds.common_interval_duration_ns,
+            "n_common_poses": ds.n_common_poses,
+            "telemetry_interval_max_ns": ds.telemetry_interval_max_ns,
+            "telemetry_interval_p95_ns": ds.telemetry_interval_p95_ns,
+            "n_telemetry_distinct": ds.n_telemetry_distinct,
+            "max_telemetry_reuse": ds.max_telemetry_reuse,
+            "verdict": gate.verdict,
+            "gate_reason": gate.reason,
+        },
+    )
+    with open(os.path.join(out_dir, "sync_report.json"), "w",
+              encoding="utf-8") as f:
+        json.dump(report, f, indent=2, ensure_ascii=False)
+    # 保存原始数据（独立 run_id 目录，不覆盖）
+    with open(os.path.join(out_dir, "raw_poses.json"), "w",
+              encoding="utf-8") as f:
+        json.dump([p.to_dict() for p in poses], f, ensure_ascii=False)
+    with open(os.path.join(out_dir, "raw_telemetry.json"), "w",
+              encoding="utf-8") as f:
+        json.dump([t.to_dict() for t in telemetry], f, ensure_ascii=False)
+    print("report:", os.path.join(out_dir, "sync_report.json"))
+    return 0 if report["verdict"] == "PASS" else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

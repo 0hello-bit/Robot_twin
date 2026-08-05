@@ -1,0 +1,674 @@
+{
+  "schema_version": "1.1",
+  "bundle": "robot-twin-ai-portable-document-bundle",
+  "generated_at": "2026-08-02T16:22:47+08:00",
+  "git_snapshot": {
+    "commit": "a9ea390",
+    "branch": "master",
+    "note": "只读快照，非 Git 写操作"
+  },
+  "sensitive_scan": {
+    "patterns": [
+      "drive_abs_path",
+      "user_home_abs_path",
+      "wechat_download_path",
+      "wxid",
+      "private_ip",
+      "device_serial",
+      "ssid",
+      "credential_value",
+      "password_value"
+    ],
+    "scope": "docs/sources/** + docs/evidence/** 全部字节与文件名 + manifest.json + 主说明书（含改写链接）+ 本任务新增 Markdown + 3 份 PDF（元数据 + 可提取文本）",
+    "pdf_text_extraction": "ok",
+    "hits": 0,
+    "pattern_note": "drive_abs_path = 形如 <盘符>:\\ 的绝对路径；user_home_abs_path = 形如 <盘符>:\\Users\\<用户名>\\ 的路径；均以类别名与泛化示例描述，具体正则由执行工具实现，不在此处展开"
+  },
+  "entries": [
+    {
+      "id": "pdf_1",
+      "category": "source_pdf",
+      "content_mode": "byte_identical",
+      "rel_path": "docs/sources/Robot_Twin_AI_具身智能机器人自主优化平台规划文档.pdf",
+      "origin_repo_path": "",
+      "purpose": "§17.1 原始 PDF；PDF 原始愿景，非当前验证事实",
+      "section_ref": [
+        "§17.1"
+      ],
+      "size_bytes": 7799,
+      "source_sha256": "a1a2e29116460eaabd5cc09c0b20ce5444ccf3ef8ac97a0c3510eff0a17a191c",
+      "portable_sha256": "a1a2e29116460eaabd5cc09c0b20ce5444ccf3ef8ac97a0c3510eff0a17a191c",
+      "redactions": [],
+      "source_category": "pdf_original",
+      "status": "copied",
+      "is_authoritative": true,
+      "pdf_pages": 4
+    },
+    {
+      "id": "pdf_2",
+      "category": "source_pdf",
+      "content_mode": "byte_identical",
+      "rel_path": "docs/sources/Robot_Twin_AI_V1.0_软件架构设计文档.pdf",
+      "origin_repo_path": "",
+      "purpose": "§17.1 原始 PDF；PDF 原始愿景，非当前验证事实",
+      "section_ref": [
+        "§17.1"
+      ],
+      "size_bytes": 10930,
+      "source_sha256": "5a0db475a7a8787c3d5e05f2f3f9c6bc78c0ba34800e72d08011cc1ec3aa9e4c",
+      "portable_sha256": "5a0db475a7a8787c3d5e05f2f3f9c6bc78c0ba34800e72d08011cc1ec3aa9e4c",
+      "redactions": [],
+      "source_category": "pdf_original",
+      "status": "copied",
+      "is_authoritative": true,
+      "pdf_pages": 7
+    },
+    {
+      "id": "pdf_3",
+      "category": "source_pdf",
+      "content_mode": "byte_identical",
+      "rel_path": "docs/sources/Robot_Twin_AI_V1.0_开发任务拆解与里程碑文档.pdf",
+      "origin_repo_path": "",
+      "purpose": "§17.1 原始 PDF；PDF 原始愿景，非当前验证事实",
+      "section_ref": [
+        "§17.1"
+      ],
+      "size_bytes": 11473,
+      "source_sha256": "7389c28abf34cff725e25ab5de1bb90266e991d95f8a06c364dd586c51aae732",
+      "portable_sha256": "7389c28abf34cff725e25ab5de1bb90266e991d95f8a06c364dd586c51aae732",
+      "redactions": [],
+      "source_category": "pdf_original",
+      "status": "copied",
+      "is_authoritative": true,
+      "pdf_pages": 8
+    },
+    {
+      "id": "docs_evidence_task2b-motor-register-diag_report_md",
+      "category": "evidence",
+      "content_mode": "byte_identical",
+      "rel_path": "docs/evidence/task2b-motor-register-diag/report.md",
+      "origin_repo_path": ".embeddedskills/build/task2b-motor-register-diag/report.md",
+      "purpose": "§17.1 链接 / §6 Task 2B 电机寄存器诊断报告（4B-D 自审已复核叙述性扫描；当前权威）",
+      "section_ref": [
+        "§17.1",
+        "§6 Task 2B"
+      ],
+      "size_bytes": 6193,
+      "source_sha256": "7e54743a96d9ae46ef6ad78951c756b4bb2a4b7caa6707c5360e6f0df9bc3dbf",
+      "portable_sha256": "7e54743a96d9ae46ef6ad78951c756b4bb2a4b7caa6707c5360e6f0df9bc3dbf",
+      "redactions": [],
+      "source_category": "embeddedskills_evidence",
+      "status": "copied",
+      "is_authoritative": true
+    },
+    {
+      "id": "docs_evidence_task3-campaign-storage-metrics_report_md",
+      "category": "evidence",
+      "content_mode": "byte_identical",
+      "rel_path": "docs/evidence/task3-campaign-storage-metrics/report.md",
+      "origin_repo_path": ".embeddedskills/build/task3-campaign-storage-metrics/report.md",
+      "purpose": "§17.1 链接 / §6 Task 3 标定战役存储指标报告（当前权威）",
+      "section_ref": [
+        "§17.1",
+        "§6 Task 3"
+      ],
+      "size_bytes": 14951,
+      "source_sha256": "9094036ed1f4bddf2df67c11de5ba76ee2b35bc88e8b3d57b52f3189a8349d90",
+      "portable_sha256": "9094036ed1f4bddf2df67c11de5ba76ee2b35bc88e8b3d57b52f3189a8349d90",
+      "redactions": [],
+      "source_category": "embeddedskills_evidence",
+      "status": "copied",
+      "is_authoritative": true
+    },
+    {
+      "id": "docs_evidence_task4a-digital-twin-audit_report_md",
+      "category": "evidence",
+      "content_mode": "byte_identical",
+      "rel_path": "docs/evidence/task4a-digital-twin-audit/report.md",
+      "origin_repo_path": ".embeddedskills/build/task4a-digital-twin-audit/report.md",
+      "purpose": "§17.1 链接 / §6 Task 4A 数字孪生审计报告（当前权威）",
+      "section_ref": [
+        "§17.1",
+        "§6 Task 4A"
+      ],
+      "size_bytes": 25631,
+      "source_sha256": "83a9a093d414a6dfeeeabed47eab683492ae42046aa31516811e4cadea739238",
+      "portable_sha256": "83a9a093d414a6dfeeeabed47eab683492ae42046aa31516811e4cadea739238",
+      "redactions": [],
+      "source_category": "embeddedskills_evidence",
+      "status": "copied",
+      "is_authoritative": true
+    },
+    {
+      "id": "docs_evidence_v1_task4b1_gate0_report_json",
+      "category": "evidence",
+      "content_mode": "byte_identical",
+      "rel_path": "docs/evidence/v1_task4b1/gate0_report.json",
+      "origin_repo_path": ".embeddedskills/build/v1_task4b1/gate0_report.json",
+      "purpose": "§6 4B-1 初版 Gate 0 报告（历史记录；当前权威见 v1_task4b_reacceptance/4b1/gate0_report.json）",
+      "section_ref": [
+        "§6 4B-1"
+      ],
+      "size_bytes": 331,
+      "source_sha256": "e017ee3882750ef560794cc31af3d18fa62a0976e1549960af07ed2899c96194",
+      "portable_sha256": "e017ee3882750ef560794cc31af3d18fa62a0976e1549960af07ed2899c96194",
+      "redactions": [],
+      "source_category": "embeddedskills_evidence",
+      "status": "copied",
+      "is_authoritative": false
+    },
+    {
+      "id": "docs_evidence_v1_task4b2_handoff_md",
+      "category": "evidence",
+      "content_mode": "byte_identical",
+      "rel_path": "docs/evidence/v1_task4b2/handoff.md",
+      "origin_repo_path": ".embeddedskills/build/v1_task4b2/handoff.md",
+      "purpose": "§17.1 链接 / §6 4B-2 初版 handoff（历史记录；当前权威见 v1_task4b2_c1_open_route/）",
+      "section_ref": [
+        "§17.1",
+        "§6 4B-2"
+      ],
+      "size_bytes": 5492,
+      "source_sha256": "00733abacd969eac94f008a1d9c92b88f0b645af2a54e23357d5955bcb7e5c58",
+      "portable_sha256": "00733abacd969eac94f008a1d9c92b88f0b645af2a54e23357d5955bcb7e5c58",
+      "redactions": [],
+      "source_category": "embeddedskills_evidence",
+      "status": "copied",
+      "is_authoritative": false
+    },
+    {
+      "id": "docs_evidence_v1_task4b2_c1_open_route_handoff_md",
+      "category": "evidence",
+      "content_mode": "byte_identical",
+      "rel_path": "docs/evidence/v1_task4b2_c1_open_route/handoff.md",
+      "origin_repo_path": ".embeddedskills/build/v1_task4b2_c1_open_route/handoff.md",
+      "purpose": "§17.1 链接 / §6 4B-2 C1 开路 handoff（当前权威）",
+      "section_ref": [
+        "§17.1",
+        "§6 4B-2"
+      ],
+      "size_bytes": 15215,
+      "source_sha256": "a941b3590419a83d7c55877f4eff3cff9fc1b28862e6136c5bf62f6c109d9868",
+      "portable_sha256": "a941b3590419a83d7c55877f4eff3cff9fc1b28862e6136c5bf62f6c109d9868",
+      "redactions": [],
+      "source_category": "embeddedskills_evidence",
+      "status": "copied",
+      "is_authoritative": true
+    },
+    {
+      "id": "docs_evidence_v1_task4b2_c1_open_route_metrics_json",
+      "category": "evidence",
+      "content_mode": "byte_identical",
+      "rel_path": "docs/evidence/v1_task4b2_c1_open_route/metrics.json",
+      "origin_repo_path": ".embeddedskills/build/v1_task4b2_c1_open_route/metrics.json",
+      "purpose": "§17.1 链接 / §6 4B-2 C1 开路 metrics（当前权威）",
+      "section_ref": [
+        "§17.1",
+        "§6 4B-2"
+      ],
+      "size_bytes": 684,
+      "source_sha256": "adb5041bdde08fd802952c6d6bddac0e9e58cc2130c22cba3b2672a64366b3aa",
+      "portable_sha256": "adb5041bdde08fd802952c6d6bddac0e9e58cc2130c22cba3b2672a64366b3aa",
+      "redactions": [],
+      "source_category": "embeddedskills_evidence",
+      "status": "copied",
+      "is_authoritative": true
+    },
+    {
+      "id": "docs_evidence_v1_task4b2_c1_open_route_route_selection_json",
+      "category": "evidence",
+      "content_mode": "byte_identical",
+      "rel_path": "docs/evidence/v1_task4b2_c1_open_route/route_selection.json",
+      "origin_repo_path": ".embeddedskills/build/v1_task4b2_c1_open_route/route_selection.json",
+      "purpose": "§6.2 / §17.3 C1 契约 route_selection.json（当前权威）",
+      "section_ref": [
+        "§6.2",
+        "§17.3"
+      ],
+      "size_bytes": 598,
+      "source_sha256": "4819472597c7f9ef1debb3e7af57d496b42f73ac7ffe8e971dd1eed66db76a69",
+      "portable_sha256": "4819472597c7f9ef1debb3e7af57d496b42f73ac7ffe8e971dd1eed66db76a69",
+      "redactions": [],
+      "source_category": "embeddedskills_evidence",
+      "status": "copied",
+      "is_authoritative": true
+    },
+    {
+      "id": "docs_evidence_v1_task4b3_handoff_md",
+      "category": "evidence",
+      "content_mode": "byte_identical",
+      "rel_path": "docs/evidence/v1_task4b3/handoff.md",
+      "origin_repo_path": ".embeddedskills/build/v1_task4b3/handoff.md",
+      "purpose": "§17.1 链接 / §6 4B-3 handoff（当前权威）",
+      "section_ref": [
+        "§17.1",
+        "§6 4B-3"
+      ],
+      "size_bytes": 4846,
+      "source_sha256": "4495ae2c4ee2cdf436c70178e1160bfad867e016bfff7087bfb277d654ce7c9c",
+      "portable_sha256": "4495ae2c4ee2cdf436c70178e1160bfad867e016bfff7087bfb277d654ce7c9c",
+      "redactions": [],
+      "source_category": "embeddedskills_evidence",
+      "status": "copied",
+      "is_authoritative": true
+    },
+    {
+      "id": "docs_evidence_v1_task4b3_static_pose_report_json",
+      "category": "evidence",
+      "content_mode": "byte_identical",
+      "rel_path": "docs/evidence/v1_task4b3/static_pose_report.json",
+      "origin_repo_path": ".embeddedskills/build/v1_task4b3/static_pose_report.json",
+      "purpose": "§6 4B-3 静态位姿报告（当前权威）",
+      "section_ref": [
+        "§6 4B-3"
+      ],
+      "size_bytes": 478,
+      "source_sha256": "5c5d145f9f46b0e319041aeb964ac34eb1c63854724ac099127f213805de567c",
+      "portable_sha256": "5c5d145f9f46b0e319041aeb964ac34eb1c63854724ac099127f213805de567c",
+      "redactions": [],
+      "source_category": "embeddedskills_evidence",
+      "status": "copied",
+      "is_authoritative": true
+    },
+    {
+      "id": "docs_evidence_v1_task4b4_fix_BLOCKED_duplicate_execution_md",
+      "category": "evidence",
+      "content_mode": "byte_identical",
+      "rel_path": "docs/evidence/v1_task4b4_fix/BLOCKED_duplicate_execution.md",
+      "origin_repo_path": ".embeddedskills/build/v1_task4b4_fix/BLOCKED_duplicate_execution.md",
+      "purpose": "§17.1 链接 / §6.2 4B-4 重复执行阻塞说明（当前权威）",
+      "section_ref": [
+        "§17.1",
+        "§6.2"
+      ],
+      "size_bytes": 4977,
+      "source_sha256": "4c868cae741568ffd4f85cec24de8788475f4f603223090debdc1a0c03556f3e",
+      "portable_sha256": "4c868cae741568ffd4f85cec24de8788475f4f603223090debdc1a0c03556f3e",
+      "redactions": [],
+      "source_category": "embeddedskills_evidence",
+      "status": "copied",
+      "is_authoritative": true
+    },
+    {
+      "id": "docs_evidence_v1_task4b4_fix_task4b4_final_offline_acceptance_md",
+      "category": "evidence",
+      "content_mode": "byte_identical",
+      "rel_path": "docs/evidence/v1_task4b4_fix/task4b4_final_offline_acceptance.md",
+      "origin_repo_path": ".embeddedskills/build/v1_task4b4_fix/task4b4_final_offline_acceptance.md",
+      "purpose": "§6 4B-4 最终离线验收（当前权威）",
+      "section_ref": [
+        "§6 4B-4"
+      ],
+      "size_bytes": 9571,
+      "source_sha256": "45f1d325bb4694f05539dbba4edf2bc0284fcdf55a702b89357eaf0e0fedc2bc",
+      "portable_sha256": "45f1d325bb4694f05539dbba4edf2bc0284fcdf55a702b89357eaf0e0fedc2bc",
+      "redactions": [],
+      "source_category": "embeddedskills_evidence",
+      "status": "copied",
+      "is_authoritative": true
+    },
+    {
+      "id": "docs_evidence_v1_task4b_offline_rework_final_report_md",
+      "category": "evidence",
+      "content_mode": "byte_identical",
+      "rel_path": "docs/evidence/v1_task4b_offline_rework/final_report.md",
+      "origin_repo_path": ".embeddedskills/build/v1_task4b_offline_rework/final_report.md",
+      "purpose": "§17.1 链接 / §6 4B 离线返工最终报告（当前权威）",
+      "section_ref": [
+        "§17.1",
+        "§6 4B"
+      ],
+      "size_bytes": 6308,
+      "source_sha256": "9e45535b059138fc7df24bf69f2e428c57213f86d8952e6f95f83807ade46876",
+      "portable_sha256": "9e45535b059138fc7df24bf69f2e428c57213f86d8952e6f95f83807ade46876",
+      "redactions": [],
+      "source_category": "embeddedskills_evidence",
+      "status": "copied",
+      "is_authoritative": true
+    },
+    {
+      "id": "docs_evidence_v1_task4b_reacceptance_4b1_gate0_report_json",
+      "category": "evidence",
+      "content_mode": "byte_identical",
+      "rel_path": "docs/evidence/v1_task4b_reacceptance/4b1/gate0_report.json",
+      "origin_repo_path": ".embeddedskills/build/v1_task4b_reacceptance/4b1/gate0_report.json",
+      "purpose": "§6 4B-1 重新验收 Gate 0 报告（当前权威，2026-08-02 新鲜 FAIL）",
+      "section_ref": [
+        "§6 4B-1"
+      ],
+      "size_bytes": 1058,
+      "source_sha256": "6c4966002bc17e7698c7e2ae4636b00fcd38251014bc85ae29144dca33ef02f8",
+      "portable_sha256": "6c4966002bc17e7698c7e2ae4636b00fcd38251014bc85ae29144dca33ef02f8",
+      "redactions": [],
+      "source_category": "embeddedskills_evidence",
+      "status": "copied",
+      "is_authoritative": true
+    },
+    {
+      "id": "docs_evidence_v1_task4b_reacceptance_4b2_handoff_md",
+      "category": "evidence",
+      "content_mode": "byte_identical",
+      "rel_path": "docs/evidence/v1_task4b_reacceptance/4b2/handoff.md",
+      "origin_repo_path": ".embeddedskills/build/v1_task4b_reacceptance/4b2/handoff.md",
+      "purpose": "§6 4B-2 重新验收 handoff（当前权威）",
+      "section_ref": [
+        "§6 4B-2"
+      ],
+      "size_bytes": 8793,
+      "source_sha256": "fdffcc2ef72e1b33b0df5bafb9af5f8fcbb92b28ca0dcaaec807a55a19660f5c",
+      "portable_sha256": "fdffcc2ef72e1b33b0df5bafb9af5f8fcbb92b28ca0dcaaec807a55a19660f5c",
+      "redactions": [],
+      "source_category": "embeddedskills_evidence",
+      "status": "copied",
+      "is_authoritative": true
+    },
+    {
+      "id": "docs_evidence_v1_task4b_reacceptance_4bd_gate_report_portable_json",
+      "category": "evidence",
+      "content_mode": "sanitized_copy",
+      "rel_path": "docs/evidence/v1_task4b_reacceptance/4bd/gate_report.portable.json",
+      "origin_repo_path": ".embeddedskills/build/v1_task4b_reacceptance/4bd/gate_report.json",
+      "purpose": "§6 4B-D 重新验收 gate 报告（当前权威；本地记忆路径正斜杠形态→占位符）",
+      "section_ref": [
+        "§6 4B-D"
+      ],
+      "size_bytes": 13020,
+      "source_sha256": "e692816107ffc4e649d9612ddc56d4070f37ae58643572cd1b959225d01dbdfc",
+      "portable_sha256": "ffb227209d09effe73d18117023ca2025a153fc3f01fdc59f90ebbb6c494b387",
+      "redactions": [
+        {
+          "category": "user_home_abs_path",
+          "location": "行 90（本地代理记忆路径，正斜杠形态）",
+          "placeholder": "<LOCAL_AGENT_MEMORY>"
+        }
+      ],
+      "source_category": "embeddedskills_evidence",
+      "status": "copied",
+      "is_authoritative": true
+    },
+    {
+      "id": "docs_evidence_v1_task4b0_handoff_portable_md",
+      "category": "evidence",
+      "content_mode": "sanitized_copy",
+      "rel_path": "docs/evidence/v1_task4b0/handoff.portable.md",
+      "origin_repo_path": ".embeddedskills/build/v1_task4b0/handoff.md",
+      "purpose": "§17.1 链接 / §6 4B-0 handoff（历史记录；Python 解释器绝对路径→占位符）",
+      "section_ref": [
+        "§17.1",
+        "§6 4B-0"
+      ],
+      "size_bytes": 6397,
+      "source_sha256": "9d563c9155027d6fd1ae4f5b191f25835449d6c3d851cd14cbd5e2567a7617e2",
+      "portable_sha256": "7fa39fde7e7f1047ee9aff1dea137e8f2596f0fa90d603a0a9c80bd7da193625",
+      "redactions": [
+        {
+          "category": "drive_abs_path",
+          "location": "行 31-34（Python 解释器绝对路径）",
+          "placeholder": "<PYTHON_INTERPRETER>"
+        }
+      ],
+      "source_category": "embeddedskills_evidence",
+      "status": "copied",
+      "is_authoritative": true
+    },
+    {
+      "id": "docs_evidence_v1_task4b1_handoff_portable_md",
+      "category": "evidence",
+      "content_mode": "sanitized_copy",
+      "rel_path": "docs/evidence/v1_task4b1/handoff.portable.md",
+      "origin_repo_path": ".embeddedskills/build/v1_task4b1/handoff.md",
+      "purpose": "§17.1 链接 / §6 4B-1 初版 handoff（历史记录；outdir 工作区根绝对前缀→占位符）",
+      "section_ref": [
+        "§17.1",
+        "§6 4B-1"
+      ],
+      "size_bytes": 6319,
+      "source_sha256": "d361ae254ddc83a5a15d6542ffa1639c9bfff8caa5700ee71dae1d7a6e1d7b57",
+      "portable_sha256": "1a71f90093137193458e83ef91cb4e4b2801a6dfbcdca994714a0193c166f4b1",
+      "redactions": [
+        {
+          "category": "drive_abs_path",
+          "location": "行 41（outdir 参数工作区根前缀）",
+          "placeholder": "<WORKSPACE_ROOT>"
+        }
+      ],
+      "source_category": "embeddedskills_evidence",
+      "status": "copied",
+      "is_authoritative": false
+    },
+    {
+      "id": "docs_evidence_v1_task4b2_c1_open_route_selected_route_portable_json",
+      "category": "evidence",
+      "content_mode": "sanitized_copy",
+      "rel_path": "docs/evidence/v1_task4b2_c1_open_route/selected_route.portable.json",
+      "origin_repo_path": ".embeddedskills/build/v1_task4b2_c1_open_route/selected_route.json",
+      "purpose": "§17.1 链接 / §6 4B-2 C1 契约 selected_route（source 本机绝对路径→相对逻辑标识）",
+      "section_ref": [
+        "§17.1",
+        "§6 4B-2"
+      ],
+      "size_bytes": 2092,
+      "source_sha256": "44312450a6d2f8fdb3b36e25744a568c16f0a3e272d54b3a277049824013c383",
+      "portable_sha256": "1e69a82e32fff74df3a146efd8449666fc38cfdf23a6401c022e98eb93179b41",
+      "redactions": [
+        {
+          "category": "drive_abs_path",
+          "location": "字段 source",
+          "placeholder": "v1_task4b2/track_bare.png"
+        }
+      ],
+      "source_category": "embeddedskills_evidence",
+      "status": "copied",
+      "is_authoritative": true
+    },
+    {
+      "id": "docs_evidence_v1_task4b4_fix_handoff_portable_md",
+      "category": "evidence",
+      "content_mode": "sanitized_copy",
+      "rel_path": "docs/evidence/v1_task4b4_fix/handoff.portable.md",
+      "origin_repo_path": ".embeddedskills/build/v1_task4b4_fix/handoff.md",
+      "purpose": "§17.1 链接 / §6 4B-4 handoff（历史记录；Keil 工具链根→占位符）",
+      "section_ref": [
+        "§17.1",
+        "§6 4B-4"
+      ],
+      "size_bytes": 35676,
+      "source_sha256": "9c079d19674435990a69744f18b5ebbd8f416516d9d80bee75b11131e002b7a2",
+      "portable_sha256": "10f7d09fd7f86ce8a24d13e0e064c34473c31a7e59bd2b75081a0d30d1d51531",
+      "redactions": [
+        {
+          "category": "drive_abs_path",
+          "location": "行 144（Keil 工具链根绝对路径）",
+          "placeholder": "<KEIL_ROOT>"
+        }
+      ],
+      "source_category": "embeddedskills_evidence",
+      "status": "copied",
+      "is_authoritative": true
+    },
+    {
+      "id": "docs_evidence_v1_task4b4_fix_task4b4_hardware_gate_runbook_portable_md",
+      "category": "evidence",
+      "content_mode": "sanitized_copy",
+      "rel_path": "docs/evidence/v1_task4b4_fix/task4b4_hardware_gate_runbook.portable.md",
+      "origin_repo_path": ".embeddedskills/build/v1_task4b4_fix/task4b4_hardware_gate_runbook.md",
+      "purpose": "§17.1 链接 / §6 4B-4 硬件 gate runbook（私网 IP + Keil 路径→占位符）",
+      "section_ref": [
+        "§17.1",
+        "§6 4B-4"
+      ],
+      "size_bytes": 11091,
+      "source_sha256": "0599f4e1189227fb16dce9e05b512b2ac0740b66ddeb08c031d917910edb095a",
+      "portable_sha256": "4a7f6e7975797773d563ea6d39938c66a3c08cb25258fa57e96f0616c11ab8b7",
+      "redactions": [
+        {
+          "category": "private_ip",
+          "location": "行 111、248（ESP 目标 IP）",
+          "placeholder": "<ESP_HOST>"
+        },
+        {
+          "category": "drive_abs_path",
+          "location": "行 73（Keil 工具链根绝对路径）",
+          "placeholder": "<KEIL_ROOT>"
+        }
+      ],
+      "source_category": "embeddedskills_evidence",
+      "status": "copied",
+      "is_authoritative": true
+    },
+    {
+      "id": "docs_evidence_v1_task4bd_handoff_portable_md",
+      "category": "evidence",
+      "content_mode": "sanitized_copy",
+      "rel_path": "docs/evidence/v1_task4bd/handoff.portable.md",
+      "origin_repo_path": ".embeddedskills/build/v1_task4bd/handoff.md",
+      "purpose": "§17.1 链接 / §6 4B-D handoff（历史记录；用户主目录/本地记忆路径→占位符）",
+      "section_ref": [
+        "§17.1",
+        "§6 4B-D"
+      ],
+      "size_bytes": 9782,
+      "source_sha256": "a3dbc4c6fe55ab2511453b35ff4c8be86dd28a37adf9609494cb616ca9a91e65",
+      "portable_sha256": "b69ef4251f9ce61f68ec6f7acb54387d09a421a4adf9b4b763252cda3020c073",
+      "redactions": [
+        {
+          "category": "user_home_abs_path",
+          "location": "行 27（本地代理记忆路径，反斜杠形态）",
+          "placeholder": "<LOCAL_AGENT_MEMORY>"
+        },
+        {
+          "category": "user_home_abs_path",
+          "location": "行 38、76（本地代理记忆路径，正斜杠形态）",
+          "placeholder": "<LOCAL_AGENT_MEMORY>"
+        },
+        {
+          "category": "user_home_abs_path",
+          "location": "行 25、37、75（用户主目录前缀）",
+          "placeholder": "<USER_PROFILE>"
+        }
+      ],
+      "source_category": "embeddedskills_evidence",
+      "status": "copied",
+      "is_authoritative": false
+    }
+  ],
+  "excluded_hash_only": [
+    {
+      "logical_name": "project_plan_v2/deepseek_project_plan_v2_prompt.md",
+      "origin_repo_path": ".embeddedskills/build\\project_plan_v2/deepseek_project_plan_v2_prompt.md",
+      "source_sha256": "6d096bd55b20c217c72c2fab9340eed2fd905224bacfbba5b86015543728cb40",
+      "reason": "执行提示词，含工作区/微信路径与 wxid；非关键验收证据",
+      "regeneration_or_local_history_note": "原件仅存于本地 .embeddedskills/（git 忽略）；交付物为该提示词产出的计划说明书，不复制提示词本身"
+    }
+  ],
+  "external_or_regenerable": [
+    {
+      "name": "state.json",
+      "rel_path": ".embeddedskills/state.json",
+      "reason": "可再生运行状态，含机器/局域网地址，不入可移植包",
+      "regeneration_note": "工具链执行后由工具重写；网络目标地址为当时扫描目标，非任务权威证据"
+    },
+    {
+      "name": "config.json",
+      "rel_path": ".embeddedskills/config.json",
+      "reason": "可再生运行状态，含机器相关 Keil 路径/地址，不入可移植包",
+      "regeneration_note": "工具链执行后由工具重写"
+    },
+    {
+      "name": "intrinsics_final.json",
+      "rel_path": ".embeddedskills/build/v1_task4b2/intrinsics_final.json",
+      "reason": "叙事提及/可再生标定产物，已按 .gitignore 白名单处理，不入可移植包",
+      "regeneration_note": "重跑标定流程再生成"
+    },
+    {
+      "name": "homography.json",
+      "rel_path": ".embeddedskills/build/v1_task4b2/homography.json",
+      "reason": "叙事提及/可再生标定产物，已按 .gitignore 白名单处理，不入可移植包",
+      "regeneration_note": "重跑标定流程再生成"
+    },
+    {
+      "name": "track_map.json",
+      "rel_path": ".embeddedskills/build/v1_task4b2/track_map.json",
+      "reason": "叙事提及/可再生标定产物，已按 .gitignore 白名单处理，不入可移植包",
+      "regeneration_note": "重跑标定流程再生成"
+    },
+    {
+      "name": "sync_report.json",
+      "rel_path": ".embeddedskills/build/v1_task4b4/sync_report.json",
+      "reason": "叙事提及/可再生同步报告，含采集目标地址，不入可移植包",
+      "regeneration_note": "重跑采集脚本再生成"
+    },
+    {
+      "name": "baseline_hashes.json",
+      "rel_path": ".embeddedskills/build/v1_task4b4_fix/baseline_hashes.json",
+      "reason": "叙事提及/可再生哈希基线，不入可移植包",
+      "regeneration_note": "工具链重跑再生成"
+    },
+    {
+      "name": "closed_path_scope_review.json",
+      "rel_path": ".embeddedskills/build/v1_task4b4_fix/closed_path_scope_review.json",
+      "reason": "叙事提及/可再生范围审查产物，不入可移植包",
+      "regeneration_note": "重跑范围审查脚本再生成"
+    },
+    {
+      "name": "selected_route_centerline.npy",
+      "rel_path": ".embeddedskills/build/v1_task4b2_c1_open_route/selected_route_centerline.npy",
+      "reason": "大体积二进制数据，不入可移植包",
+      "regeneration_note": "重跑 extract_selected_route.py 再生成"
+    },
+    {
+      "name": "selected_route_overlay.png",
+      "rel_path": ".embeddedskills/build/v1_task4b2_c1_open_route/selected_route_overlay.png",
+      "reason": "大体积图像，不入可移植包",
+      "regeneration_note": "重跑渲染脚本再生成"
+    },
+    {
+      "name": "route_choices.json",
+      "rel_path": ".embeddedskills/build/v1_task4b_offline_rework/4b2/route_choices.json",
+      "reason": "历史阻塞证据，原件保留于 .embeddedskills/，不在可移植包内",
+      "regeneration_note": "原件保留本地，未入包"
+    },
+    {
+      "name": "*.jsonl 遥测流",
+      "rel_path": ".embeddedskills/build/<task>-run/stdout.jsonl",
+      "reason": "代理运行遥测流，无论体积不入可移植包",
+      "regeneration_note": "重跑对应代理任务再生成"
+    },
+    {
+      "name": "frames/",
+      "rel_path": ".embeddedskills/build/v1_task4b1/frames/",
+      "reason": "帧缓存目录，不入可移植包",
+      "regeneration_note": "重跑采集再生成"
+    },
+    {
+      "name": "raw_poses.json",
+      "rel_path": ".embeddedskills/build/v1_task4b4/raw_poses.json",
+      "reason": "原始位姿数据，不入可移植包",
+      "regeneration_note": "原始采集数据重跑采集脚本"
+    },
+    {
+      "name": "raw_telemetry.json",
+      "rel_path": ".embeddedskills/build/v1_task4b4/raw_telemetry.json",
+      "reason": "原始遥测数据，不入可移植包",
+      "regeneration_note": "原始采集数据重跑采集脚本"
+    },
+    {
+      "name": "v1_task4b1_recheck/gate0_report.json",
+      "rel_path": ".embeddedskills/build/v1_task4b1_recheck/gate0_report.json",
+      "reason": "未被主说明书引用，不入可移植包；原件保留仓库已跟踪状态",
+      "regeneration_note": "原件保留本地，未入包"
+    }
+  ],
+  "validation": {
+    "links_checked": 33,
+    "links_ok": 33,
+    "candidates_scanned": 23,
+    "byte_identical_copied": 15,
+    "sanitized_copied": 7,
+    "excluded_hash_only": 1,
+    "pdfs_copied": 3,
+    "pdf_pages_ok": 3,
+    "hashes_match": true,
+    "redactions_complete": true
+  }
+}

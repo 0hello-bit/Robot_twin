@@ -1,0 +1,53 @@
+{
+  "camera": {
+    "mode": "device",
+    "index": 0,
+    "stream_url": "",
+    "width": 1280,
+    "height": 720,
+    "fps": 30
+  },
+  "tag": {
+    "dictionary": "DICT_APRILTAG_36h11",
+    "id": 0,
+    "front_edge": "top",
+    "yaw_offset_deg": 0.0,
+    "car_center_offset_forward": 0.0,
+    "car_center_offset_right": 0.0,
+    "minimum_pixel_area": 500.0
+  },
+  "floor": {
+    "calibrated": false,
+    "width": 2.0,
+    "height": 1.5,
+    "homography": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "image_points": []
+  },
+  "filter": {
+    "position_alpha": 0.35,
+    "yaw_alpha": 0.3,
+    "max_jump": 0.35
+  },
+  "output": {
+    "websocket_url": "ws://127.0.0.1:8787/live",
+    "send_hz": 30.0,
+    "preview": true,
+    "auto_start_with_panel": true
+  }
+}

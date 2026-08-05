@@ -1,0 +1,23 @@
+{
+  "route_type": "open_traversal_on_cyclic_mask",
+  "selected_components": [
+    "C1"
+  ],
+  "point_count": 2859,
+  "route_length_px": 3125.58,
+  "max_consecutive_jump_px": 1.414,
+  "blank_space_point_count": 0,
+  "repeated_edge_count": 0,
+  "waypoint_count": 12,
+  "waypoints_visited_in_order": true,
+  "start_to_finish_distance_px": 168.29,
+  "terminal_policy": "cross_marker_then_stop_on_white",
+  "closed_loop": false,
+  "mask_border_touch_count": 167,
+  "route_border_point_count": 131,
+  "route_points_within_2px_of_border": 135,
+  "min_route_border_clearance_px": 0.0,
+  "input_cropped": true,
+  "gates_pass": false,
+  "status": "BLOCKED_INPUT_CROPPED"
+}

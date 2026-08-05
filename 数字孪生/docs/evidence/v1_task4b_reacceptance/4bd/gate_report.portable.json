@@ -1,0 +1,190 @@
+{
+  "task": "4B-D",
+  "title": "计划同步与旧 Task 4 文档更新 — 返工重新验收",
+  "timestamp": "2026-08-01T00:00:00",
+  "checklist_version": "reacceptance-v1",
+  "methodology": "逐条复核原 4B-D handoff 自评 9 项 + 纲领 §18 迁移清单 5 项 + 设计文档要求 3 跨文件一致性项",
+  "total_items": 17,
+  "passed": 17,
+  "failed": 0,
+  "unresolved_contradictions": [
+    {
+      "id": "C1",
+      "severity": "HISTORICAL",
+      "description": "4B-D 人工验收 gate 状态为 NOT MET，但 Task 4B-0、4B-1、4B-2、4B-3 已在后续会话中实际执行。这是计划状态与执行事实之间的历史矛盾。",
+      "resolution": "本返工不修改历史状态。重新验收时逐项检查文档当前事实是否满足设计规格。满足则标记 PASS，不满足则 FAIL。不将 NOT MET 直接改为 PASS。",
+      "evidence": ".embeddedskills/build/v1_task4bd/handoff.md L7: '4B-D 人工验收 gate: ⬜ 尚未满足'; .embeddedskills/build/v1_task4b0/, v1_task4b1/, v1_task4b2/, v1_task4b3/ 目录存在且含完整报告。"
+    }
+  ],
+  "checklist": [
+    {
+      "id": "D01",
+      "requirement": "旧 Task 4 方案已废弃；两份文档不再把旧数字孪生当作可信 PID 预筛选依据",
+      "source": "4B-D handoff self-assessment item 1; 纲领 §5 Phase A 目标",
+      "files_checked": [
+        {"path": "docs/superpowers/specs/2026-07-28-line-following-pid-closed-loop-design.md", "lines": "L100-108", "finding": "优化器章节引用 v1_twin_candidate_generator.py + v1_twin_ranker.py，关键限制'4C 必须等待 4B-8 READY'。"},
+        {"path": "docs/superpowers/plans/2026-07-28-line-following-pid-closed-loop.md", "lines": "L282, L387", "finding": "'废弃旧 Task 4'，'sim_candidate_filter.py 和 campaign_optimizer.py 不再实现'。"}
+      ],
+      "grep_evidence": "grep 'sim_candidate_filter|campaign_optimizer' spec → No matches; grep '废弃旧 Task 4' plan → L282",
+      "verdict": "PASS"
+    },
+    {
+      "id": "D02",
+      "requirement": "4B-0→4B-8、4C 顺序与依赖一致；4B-8 未 READY 时 4C 不得开始",
+      "source": "4B-D handoff self-assessment item 2; 纲领 §4 依赖关系",
+      "files_checked": [
+        {"path": "docs/superpowers/plans/2026-07-28-line-following-pid-closed-loop.md", "lines": "L288-387", "finding": "Phase B 含 4B-0→4B-8 完整序列；L373 '硬性禁止跳转: 4B-8 未 READY → 不得开始 Task 4C'；L381 4C 前置条件 '🔴 4B-8 READY'。"},
+        {"path": "docs/superpowers/specs/2026-07-28-line-following-pid-closed-loop-design.md", "lines": "L108", "finding": "'关键限制：4C 必须等待 4B-8 READY 后才能开始。模型未通过 G1-G8 可信门前，不得进行候选预筛选。'"}
+      ],
+      "grep_evidence": "grep -n '4B-8.*READY' plan → L373, L381, L437",
+      "verdict": "PASS"
+    },
+    {
+      "id": "D03",
+      "requirement": "Task 5B 章节存在，依赖 4B-8 READY + 4C PASS + 5A PASS + 用户当次授权",
+      "source": "4B-D handoff self-assessment item 3 (P1); 纲领 §8b",
+      "files_checked": [
+        {"path": "docs/superpowers/plans/2026-07-28-line-following-pid-closed-loop.md", "lines": "L434-481", "finding": "Task 5B 章节完整存在。L436-440 前置条件含 4B-8 READY + 4C PASS + 5A PASS + 用户本次明确硬件授权。L447 '用户必须在场。赛道净空、急停可用、一次一个动作。每次部署需用户逐次授权。'"}
+      ],
+      "grep_evidence": "grep -n 'Task 5B' plan → L434, L457 命中",
+      "verdict": "PASS"
+    },
+    {
+      "id": "D04",
+      "requirement": "calibration 与 holdout 按 run_id 硬隔离，程序硬检查交集为空",
+      "source": "4B-D handoff self-assessment item 4; 纲领 §12 第三项",
+      "files_checked": [
+        {"path": "docs/superpowers/specs/2026-07-28-line-following-pid-closed-loop-design.md", "lines": "L96-98", "finding": "'模型按 run_id 严格分离校准集与 holdout 集，程序硬检查两集合交集为空。模型冻结后不得查看 holdout 数据或调整参数。'"},
+        {"path": "docs/superpowers/plans/2026-07-28-line-following-pid-closed-loop.md", "lines": "L355-362", "finding": "4B-7 卡片: '不可变 calibration_run_ids, 冻结模型 + 哈希, 空 holdout 注册表'，Gate 'run_id 交集为空硬检查, 冻结后修改检测'。"}
+      ],
+      "grep_evidence": "grep -n 'run_id.*交集' spec → L98; grep -n 'calibration_run_ids' plan → (implied in 4B-7 section)",
+      "verdict": "PASS"
+    },
+    {
+      "id": "D05",
+      "requirement": "全部候选被拒绝只能证明编排/回滚闭环完成，不能宣称 V1 已找到更优 PID；V1 不得标记完成、回 4C 且不得降低门槛",
+      "source": "4B-D handoff self-assessment item 5; 纲领 §8b V1 成功 gate",
+      "files_checked": [
+        {"path": "docs/superpowers/plans/2026-07-28-line-following-pid-closed-loop.md", "lines": "L450-457", "finding": "'全部候选被拒绝时，只能证明编排和回滚闭环完成，不能宣称 V1 已找到更优 PID'；'若无候选满足，Task 5B 可标 COMPLETE / NO_ACCEPTED_CANDIDATE，但 V1 不得标记完成；应回到 4C 生成下一批候选，不得降低门槛'。"}
+      ],
+      "grep_evidence": "grep -n 'V1 不得标记完成' plan → L457",
+      "verdict": "PASS"
+    },
+    {
+      "id": "D06",
+      "requirement": "plan 文件结构无幽灵条目，编排器指向 v1_twin/v1_twin_orchestrator.py",
+      "source": "4B-D handoff self-assessment item 6 (P2); 纲领 §18 迁移清单",
+      "files_checked": [
+        {"path": "docs/superpowers/plans/2026-07-28-line-following-pid-closed-loop.md", "lines": "L22-76 (文件结构表)", "finding": "文件结构表中无 analysis/campaign_orchestrator.py 或 test_campaign_orchestrator.py。编排器在 L58: v1_twin_orchestrator.py。"}
+      ],
+      "grep_evidence": "grep 'analysis/campaign_orchestrator|test_campaign_orchestrator' plan → No matches",
+      "verdict": "PASS"
+    },
+    {
+      "id": "D07",
+      "requirement": "Changed files 表述如实、无越权/错误路径声明",
+      "source": "4B-D handoff self-assessment item 7 (P3/P4)",
+      "files_checked": [
+        {"path": ".embeddedskills/build/v1_task4bd/handoff.md", "lines": "L21-27 (AGENTS.md 更正), L28 (memory entries 路径更正)", "finding": "AGENTS.md 已更正为不计入交付物，源路径准确。Memory entries 已更正为真实路径。磁盘核查确认 AGENTS.md 存在于 docs/superpowers/，mtime 2026-07-30；三条 memory 存在于正确路径。"}
+      ],
+      "disk_evidence": "docs/superpowers/AGENTS.md EXISTS; <LOCAL_AGENT_MEMORY>/ 含 camera-droidcam.md, markers-chessboard-sizes.md, agents-md-copied.md",
+      "verdict": "PASS"
+    },
+    {
+      "id": "D08",
+      "requirement": "回滚快照与前后哈希已留存",
+      "source": "4B-D handoff self-assessment item 8 (P6); 纲领 §21",
+      "files_checked": [
+        {"path": ".embeddedskills/rollback/v1_task4bd/", "finding": "含 3 文件: plan.before-rework.md, spec.before-rework.md, manifest.md。manifest 含前后哈希对照。"}
+      ],
+      "disk_evidence": "ls .embeddedskills/rollback/v1_task4bd/ → 3 files present",
+      "verdict": "PASS"
+    },
+    {
+      "id": "D09",
+      "requirement": "摄像头实时能力仍为待实测事实，未写成已验证",
+      "source": "4B-D handoff self-assessment item 9",
+      "files_checked": [
+        {"path": ".embeddedskills/build/v1_task4bd/handoff.md", "lines": "L85-86", "finding": "'摄像头实时能力、标定板、车顶标记等硬件事实 — 仍为待实测状态（未连接硬件）'。"}
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "id": "D10",
+      "requirement": "spec §4.3 数字模型已更新为依赖新 v1_twin",
+      "source": "纲领 §18 迁移清单 item 1",
+      "files_checked": [
+        {"path": "docs/superpowers/specs/2026-07-28-line-following-pid-closed-loop-design.md", "lines": "L66-98", "finding": "'数字模型 — v1_twin 最小可信二维数字孪生' 章节描述 6 个子模块（数据契约、固件等价控制器、虚拟四路传感器、车辆行为模型、外部真值链、验证与版本），全部引用 v1_twin 命名空间。含 G1-G8 可信门阈值表和校准/holdout 硬隔离规则。"}
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "id": "D11",
+      "requirement": "spec §4.4 优化器明确使用新候选生成器",
+      "source": "纲领 §18 迁移清单 item 2",
+      "files_checked": [
+        {"path": "docs/superpowers/specs/2026-07-28-line-following-pid-closed-loop-design.md", "lines": "L100-108", "finding": "'优化器（Task 4C，v1_twin_candidate_generator.py + v1_twin_ranker.py）' 使用确定性算法，候选生成使用可复现方法，AI Agent 职责限于调用确定性工具。关键限制: 4C 必须等待 4B-8 READY。"}
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "id": "D12",
+      "requirement": "plan Task 4 已拆分为 Phase B (4B-0~8) + Phase C (4C)",
+      "source": "纲领 §18 迁移清单 item 3",
+      "files_checked": [
+        {"path": "docs/superpowers/plans/2026-07-28-line-following-pid-closed-loop.md", "lines": "L277-387", "finding": "Phase A (4B-D) 标记已完成；Phase B 含 4B-0→4B-8 完整子任务卡片，每卡片含文件/输出/Gate/硬件属性；Phase C (4C) 含前置条件、Gate 和禁止规则。"}
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "id": "D13",
+      "requirement": "plan 文件结构移除旧 Task 4 文件，加入 v1_twin 文件",
+      "source": "纲领 §18 迁移清单 item 4",
+      "files_checked": [
+        {"path": "docs/superpowers/plans/2026-07-28-line-following-pid-closed-loop.md", "lines": "L39-75", "finding": "文件结构表含 v1_twin/ 下全部 20 个文件（schema, errors, isolation, camera, calibration, track_map, pose_tracker, sync, dataset, controller, virtual_sensor, plant, identification, calibration_set, model_registry, validator, runner, candidate_generator, ranker, orchestrator）+ 对应 17 个测试文件。无 sim_candidate_filter.py 或 campaign_optimizer.py（旧版本）条目。"}
+      ],
+      "grep_evidence": "grep 'sim_candidate_filter|旧.*campaign_optimizer' plan 文件结构表 → No matches",
+      "verdict": "PASS"
+    },
+    {
+      "id": "D14",
+      "requirement": "plan Task 5/6 更新依赖为新 4B/4C",
+      "source": "纲领 §18 迁移清单 item 5",
+      "files_checked": [
+        {"path": "docs/superpowers/plans/2026-07-28-line-following-pid-closed-loop.md", "lines": "L389-391, L436-440", "finding": "Task 5A 前置条件 '✅ Task 4C (候选生成)'；Task 5B 前置条件 '🔴 4B-8 READY, ✅ Task 4C PASS, ✅ Task 5A PASS'。"}
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "id": "D15",
+      "requirement": "spec 与 plan 的 Task 4 描述一致：spec 的 4C 与 plan 的 4C 门槛、边界、前置条件匹配",
+      "source": "跨文件一致性检查",
+      "files_checked": [
+        {"path": "docs/superpowers/specs/2026-07-28-line-following-pid-closed-loop-design.md", "lines": "L100-108", "finding": "spec: 4C 在固件边界内生成 ≤12 候选，经冻结后 v1_twin 模型预筛选，4C 必须等待 4B-8 READY。"},
+        {"path": "docs/superpowers/plans/2026-07-28-line-following-pid-closed-loop.md", "lines": "L377-387", "finding": "plan: 4C 前置条件 4B-8 READY，候选数 ≤12、全部在固件边界内、去重唯一。一致。"}
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "id": "D16",
+      "requirement": "spec 自动化流程图不再引用旧数字孪生作为可信筛选依据",
+      "source": "设计文档要求",
+      "files_checked": [
+        {"path": "docs/superpowers/specs/2026-07-28-line-following-pid-closed-loop-design.md", "lines": "L125-136", "finding": "流程图显示 '计算基线指标并校准数字模型 → 生成候选 → 数字模型预筛选 → STM32 校验 → 真机运行 → 评价'。数字模型预筛选是流程中的一个步骤，且 spec L108 明确要求模型通过 G1-G8 后才可预筛选。"}
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "id": "D17",
+      "requirement": "plan 中无引用 spec 不存在的函数/文件/接口",
+      "source": "纲领 §20 自检清单第 2 项",
+      "files_checked": [
+        {"path": "docs/superpowers/plans/2026-07-28-line-following-pid-closed-loop.md", "lines": "L22-76 (文件结构表)", "finding": "所有引用的文件名与 spec 中描述的模块一致，v1_twin_* 命名空间规范统一。"}
+      ],
+      "verdict": "PASS"
+    }
+  ],
+  "final_verdict": "PASS",
+  "qualified_verdict_note": "全部 17 项检查通过。C1 历史矛盾（NOT MET 后继续执行）已记录为独立条目，不影响当前文档事实的逐项验收。用户或独立验证者可根据本次 recheck 结果决定是否将人工验收 gate 更新为 PASS。",
+  "evidence_boundary": "纯离线文档核查，无硬件操作，无代码修改。"
+}

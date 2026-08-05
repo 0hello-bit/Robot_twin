@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "stm32-digital-twin"
+version = "6.2.0"
+description = "Digital twin platform for STM32 mecanum line-following car"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "STM32 Digital Twin Contributors"}
+]
+keywords = ["stm32", "digital-twin", "line-following", "mecanum", "reinforcement-learning", "pid"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+dependencies = [
+    "pygame>=2.5.0",
+    "numpy>=1.24.0",
+    "opencv-python>=4.8.0",
+    "gymnasium>=0.29.0",
+    "stable-baselines3>=2.1.0",
+    "scipy>=1.11.0",
+    "matplotlib>=3.7.0",
+    "pyserial>=3.5",
+    "pyglet>=2.0.0",
+    "trimesh>=4.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+full = ["scikit-learn>=1.3.0", "open3d>=0.17.0"]
+
+[project.urls]
+Homepage = "https://github.com/your-username/stm32-digital-twin"
+Documentation = "https://github.com/your-username/stm32-digital-twin/tree/main/docs"
+Repository = "https://github.com/your-username/stm32-digital-twin"
+Issues = "https://github.com/your-username/stm32-digital-twin/issues"
+
+[tool.setuptools.packages.find]
+include = ["digital_twin*"]

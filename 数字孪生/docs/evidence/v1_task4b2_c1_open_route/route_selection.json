@@ -1,0 +1,14 @@
+{
+  "task": "4B-2-C1-open-route",
+  "source": ".embeddedskills/build/v1_task4b2/track_bare.png",
+  "selected_components": ["C1"],
+  "route_type": "open_traversal_on_cyclic_mask",
+  "start_semantics": "launch_zone_FA_enter_then_turn_right",
+  "terminal_marker": "all_black",
+  "after_terminal_surface": "all_white",
+  "terminal_policy": "cross_marker_then_stop_on_white",
+  "semantic_branches": 0,
+  "closed_loop": false,
+  "waypoint_snap_radius_px": 60.0,
+  "waypoints_px": [[928,599],[929,480],[1120,480],[1220,160],[900,50],[500,50],[390,190],[185,420],[390,690],[610,500],[760,480],[810,480]]
+}

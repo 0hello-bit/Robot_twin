@@ -1,0 +1,146 @@
+{
+  "task": "4B-2-C1-open-route",
+  "source": "v1_task4b2/track_bare.png",
+  "route_type": "open_traversal_on_cyclic_mask",
+  "selected_components": [
+    "C1"
+  ],
+  "start_semantics": "launch_zone_FA_enter_then_turn_right",
+  "terminal_policy": "cross_marker_then_stop_on_white",
+  "closed_loop": false,
+  "waypoints_px": [
+    [
+      928,
+      599
+    ],
+    [
+      929,
+      480
+    ],
+    [
+      1120,
+      480
+    ],
+    [
+      1220,
+      160
+    ],
+    [
+      900,
+      50
+    ],
+    [
+      500,
+      50
+    ],
+    [
+      390,
+      190
+    ],
+    [
+      185,
+      420
+    ],
+    [
+      390,
+      690
+    ],
+    [
+      610,
+      500
+    ],
+    [
+      760,
+      480
+    ],
+    [
+      810,
+      480
+    ]
+  ],
+  "snapped_waypoints_px": [
+    [
+      928,
+      599
+    ],
+    [
+      929,
+      477
+    ],
+    [
+      1120,
+      476
+    ],
+    [
+      1216,
+      161
+    ],
+    [
+      900,
+      44
+    ],
+    [
+      500,
+      52
+    ],
+    [
+      394,
+      190
+    ],
+    [
+      178,
+      419
+    ],
+    [
+      390,
+      719
+    ],
+    [
+      628,
+      505
+    ],
+    [
+      760,
+      480
+    ],
+    [
+      809,
+      480
+    ]
+  ],
+  "start_px": [
+    928,
+    599
+  ],
+  "finish_px": [
+    809,
+    480
+  ],
+  "point_count": 2859,
+  "route_length_px": 3125.58,
+  "input_cropped": true,
+  "status": "BLOCKED_INPUT_CROPPED",
+  "metrics": {
+    "route_type": "open_traversal_on_cyclic_mask",
+    "selected_components": [
+      "C1"
+    ],
+    "point_count": 2859,
+    "route_length_px": 3125.58,
+    "max_consecutive_jump_px": 1.414,
+    "blank_space_point_count": 0,
+    "repeated_edge_count": 0,
+    "waypoint_count": 12,
+    "waypoints_visited_in_order": true,
+    "start_to_finish_distance_px": 168.29,
+    "terminal_policy": "cross_marker_then_stop_on_white",
+    "closed_loop": false,
+    "mask_border_touch_count": 167,
+    "route_border_point_count": 131,
+    "route_points_within_2px_of_border": 135,
+    "min_route_border_clearance_px": 0.0,
+    "input_cropped": true,
+    "gates_pass": false,
+    "status": "BLOCKED_INPUT_CROPPED"
+  }
+}
