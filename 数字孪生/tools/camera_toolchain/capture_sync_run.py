@@ -28,6 +28,7 @@ START 之后的资源清理（Task 4B-4 fix, Codex review remediation）:
 """
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -57,20 +58,53 @@ from v1_twin.v1_twin_dataset import (
     evaluate_sync_gate,
 )
 from v1_twin.v1_twin_pose_tracker import PoseTracker
+from v1_twin.v1_twin_pose_fusion import V1PoseFusion
+from v1_twin.v1_twin_imu_control import summarize_imu_evidence
+from v1_twin.v1_twin_motion_evidence import build_camera_motion_evidence
 from v1_twin.v1_twin_schema import V1TelemetryFrame, V1Pose
 from v1_twin.v1_twin_sync import ClockSync
-from v1_twin.v1_twin_campaign import make_v1_b_run_id
-from real_world.frame_parser import decode_telemetry
-from real_world.runtime_protocol import RunCommand, parse_status
-from transport_soak import MixedStreamParser
+from real_world.frame_parser import decode_health, decode_telemetry
+from real_world.runtime_protocol import (
+    RunCommand,
+    make_runtime_identifier,
+    parse_status,
+)
+from transport_soak import (
+    HEARTBEAT_PERIOD_S,
+    HeartbeatCommand,
+    MixedStreamParser,
+    RawIoLogger,
+    compute_health_summary,
+)
 
 CAMERA_PERIOD_NS = 33_300_000   # 30fps
-TELEMETRY_PERIOD_NS = 20_000_000  # 50Hz
+TELEMETRY_PERIOD_NS = 30_000_000  # firmware generation interval
 TOLERANCE_NS = max(CAMERA_PERIOD_NS, TELEMETRY_PERIOD_NS)
 STOP_CONFIRM_TIMEOUT_S = 1.0
 READER_JOIN_TIMEOUT_S = 1.0
 
-OUTPUT_FILENAMES = ("raw_poses.json", "raw_telemetry.json", "sync_report.json")
+OUTPUT_FILENAMES = (
+    "pose.jsonl",
+    "telemetry.jsonl",
+    "frame_index.jsonl",
+    "fusion.jsonl",
+    "raw_poses.json",
+    "raw_telemetry.json",
+    "raw_health.json",
+    "raw_io.json",
+    "sync_report.json",
+    "imu_evidence.json",
+    "camera_motion.jsonl",
+    "motion_evidence.json",
+)
+B3_RAW_FILENAMES = ("pose.jsonl", "telemetry.jsonl", "frame_index.jsonl")
+B3_DIAGNOSTIC_FILENAMES = ("raw_health.json", "raw_io.json")
+
+FAILURE_FRAME_DIRNAME = "failed_frames"
+MAX_FAILURE_FRAME_THUMBNAILS = 12
+FAILURE_FRAME_SAMPLE_STRIDE = 30
+FAILURE_FRAME_MAX_WIDTH = 640
+FAILURE_FRAME_JPEG_QUALITY = 70
 
 
 def open_capture_camera(index: int):
@@ -107,8 +141,8 @@ def read_camera_mode(cap, index, width, height):
 
 
 def make_run_id() -> str:
-    """Generate a safe run_id with subsecond and random collision resistance."""
-    return make_v1_b_run_id(prefix="sync")
+    """Generate a wire-compatible capture run ID for directory and status evidence."""
+    return make_runtime_identifier("c")
 
 
 def binarize_sensor(v):
@@ -128,6 +162,8 @@ def _new_action_state():
     return {
         "start_sent": False,
         "start_error": None,
+        "heartbeat_sent": 0,
+        "heartbeat_error": None,
         "collect_error": None,
         "stop_attempted": False,
         "stop_sent": False,
@@ -146,6 +182,198 @@ def _new_action_state():
         "status_parse_errors": [],
         "cleaned_up": False,
     }
+
+
+def _new_failure_frame_summary(failure_frame_dir, max_saved):
+    return {
+        "enabled": failure_frame_dir is not None and int(max_saved) > 0,
+        "directory": (
+            Path(failure_frame_dir).name if failure_frame_dir is not None else None
+        ),
+        "max_saved": max(0, int(max_saved)),
+        "sample_stride": FAILURE_FRAME_SAMPLE_STRIDE,
+        "saved": 0,
+        "observed": 0,
+        "by_reason": {},
+        "saved_by_reason": {},
+        "save_errors": [],
+    }
+
+
+def _failure_frame_filename(frame_index, reason):
+    safe_reason = "".join(
+        char if char.isalnum() or char in "-_" else "_"
+        for char in str(reason)
+    ) or "unknown"
+    return "frame_{:06d}_{}.jpg".format(int(frame_index), safe_reason)
+
+
+def _save_failure_frame_thumbnail(frame, frame_index, reason, failure_frame_dir):
+    """Save one bounded diagnostic image and return its run-relative path."""
+    if not isinstance(frame, np.ndarray) or frame.size == 0:
+        return None, "frame is not a non-empty numpy array"
+    try:
+        output_dir = Path(failure_frame_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        image = frame
+        if image.ndim < 2:
+            return None, "frame has no image dimensions"
+        height, width = image.shape[:2]
+        if width > FAILURE_FRAME_MAX_WIDTH:
+            target_height = max(1, round(height * FAILURE_FRAME_MAX_WIDTH / width))
+            image = cv2.resize(
+                image,
+                (FAILURE_FRAME_MAX_WIDTH, target_height),
+                interpolation=cv2.INTER_AREA,
+            )
+        filename = _failure_frame_filename(frame_index, reason)
+        path = output_dir / filename
+        if not cv2.imwrite(
+            str(path), image,
+            [cv2.IMWRITE_JPEG_QUALITY, FAILURE_FRAME_JPEG_QUALITY],
+        ):
+            return None, "cv2.imwrite returned false"
+        return "{}/{}".format(output_dir.name, filename), None
+    except BaseException as exc:  # noqa: BLE001 - diagnostics must not stop capture
+        return None, repr(exc)
+
+
+def _maybe_save_failure_frame(
+    frame, frame_index, frame_record, failure_frame_dir, summary
+):
+    reason = frame_record.get("failure_reason")
+    if not reason:
+        return
+    reason = str(reason)
+    summary["observed"] += 1
+    summary["by_reason"][reason] = summary["by_reason"].get(reason, 0) + 1
+    if not summary["enabled"] or summary["saved"] >= summary["max_saved"]:
+        return
+    count = summary["by_reason"][reason]
+    if count != 1 and count % summary["sample_stride"] != 0:
+        return
+    relative_path, error = _save_failure_frame_thumbnail(
+        frame, frame_index, reason, failure_frame_dir
+    )
+    if relative_path is None:
+        summary["save_errors"].append({
+            "frame_index": int(frame_index),
+            "reason": reason,
+            "error": error,
+        })
+        return
+    summary["saved"] += 1
+    summary["saved_by_reason"][reason] = (
+        summary["saved_by_reason"].get(reason, 0) + 1
+    )
+    frame_record["failure_frame_path"] = relative_path
+
+
+def build_fusion_records(sync_frames, clock_sync=None):
+    """Generate fusion evidence from unique synchronized telemetry samples.
+
+    ``pc_recv_ns`` remains the raw arrival timestamp.  When a fitted
+    ``ClockSync`` is supplied, fusion state uses the MCU-tick-derived time so
+    batched TCP delivery cannot look like a non-monotonic sensor stream.
+    """
+    fusion = V1PoseFusion()
+    records = []
+    seen_ticks = set()
+    for sync_frame in sync_frames:
+        tick_ms = sync_frame.telemetry.tick_ms
+        if tick_ms in seen_ticks:
+            continue
+        seen_ticks.add(tick_ms)
+        timestamp_ns = None
+        if clock_sync is not None:
+            timestamp_ns = int(round(clock_sync.tick_to_pc_ns(tick_ms)))
+        records.append(
+            fusion.update(
+                sync_frame.pose,
+                sync_frame.telemetry,
+                timestamp_ns=timestamp_ns,
+            )
+        )
+    return tuple(records)
+
+
+def write_capture_artifacts(out_dir, poses, telemetry, frame_index=None,
+                            diagnostics=None, fusion_records=None,
+                            fusion_evidence_source="SYNTHETIC",
+                            sync_gate_verdict=None):
+    """Publish B3 raw files plus the health/TCP diagnostic evidence."""
+    pose_records = [pose.to_dict() for pose in poses]
+    telemetry_records = [frame.to_dict() for frame in telemetry]
+    frame_records = list(frame_index or ())
+    fusion_records = list(fusion_records or ())
+
+    with open(os.path.join(out_dir, "pose.jsonl"), "w", encoding="utf-8") as f:
+        for record in pose_records:
+            f.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+    with open(os.path.join(out_dir, "telemetry.jsonl"), "w", encoding="utf-8") as f:
+        for record in telemetry_records:
+            f.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+    with open(os.path.join(out_dir, "frame_index.jsonl"), "w", encoding="utf-8") as f:
+        for record in frame_records:
+            f.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+    with open(os.path.join(out_dir, "fusion.jsonl"), "w", encoding="utf-8") as f:
+        for fusion_record in fusion_records:
+            record = fusion_record.to_dict()
+            record["imu_yaw_wire_unit"] = "degrees_x100"
+            record["imu_yaw_model_unit"] = "radians"
+            f.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+    imu_evidence = summarize_imu_evidence(
+        fusion_records,
+        source=fusion_evidence_source,
+        sync_gate_verdict=sync_gate_verdict,
+    )
+    evidence_report = imu_evidence.to_dict()
+    evidence_report["imu_yaw_wire_unit"] = "degrees_x100"
+    evidence_report["imu_yaw_model_unit"] = "radians"
+    with open(os.path.join(out_dir, "imu_evidence.json"), "w", encoding="utf-8") as f:
+        json.dump(evidence_report, f, indent=2, ensure_ascii=False)
+
+    camera_motion, motion_evidence = build_camera_motion_evidence(
+        poses,
+        source=fusion_evidence_source,
+        sync_gate_verdict=sync_gate_verdict,
+        imu_report=imu_evidence,
+    )
+    with open(os.path.join(out_dir, "camera_motion.jsonl"), "w",
+              encoding="utf-8") as f:
+        for motion in camera_motion:
+            f.write(json.dumps(motion.to_dict(), ensure_ascii=False,
+                               sort_keys=True) + "\n")
+    with open(os.path.join(out_dir, "motion_evidence.json"), "w",
+              encoding="utf-8") as f:
+        json.dump(motion_evidence.to_dict(), f, indent=2,
+                  ensure_ascii=False)
+
+    with open(os.path.join(out_dir, "raw_poses.json"), "w", encoding="utf-8") as f:
+        json.dump(pose_records, f, ensure_ascii=False)
+    with open(os.path.join(out_dir, "raw_telemetry.json"), "w", encoding="utf-8") as f:
+        json.dump(telemetry_records, f, ensure_ascii=False)
+
+    diagnostics = diagnostics or {}
+    with open(os.path.join(out_dir, "raw_health.json"), "w", encoding="utf-8") as f:
+        json.dump(diagnostics.get("health_frames", []), f, indent=2,
+                  ensure_ascii=False)
+    with open(os.path.join(out_dir, "raw_io.json"), "w", encoding="utf-8") as f:
+        json.dump(diagnostics.get("raw_io", {}), f, indent=2,
+                  ensure_ascii=False)
+    with open(os.path.join(out_dir, "failure_frame_summary.json"),
+              "w", encoding="utf-8") as f:
+        json.dump(diagnostics.get("failure_frame_summary", {
+            "enabled": False,
+            "directory": None,
+            "max_saved": 0,
+            "sample_stride": FAILURE_FRAME_SAMPLE_STRIDE,
+            "saved": 0,
+            "observed": 0,
+            "by_reason": {},
+            "saved_by_reason": {},
+            "save_errors": [],
+        }), f, indent=2, ensure_ascii=False)
 
 
 def _status_to_dict(status):
@@ -202,7 +430,8 @@ def _wait_for_matching_stop(status_cv, statuses, start_index, run_id,
 
 def cleanup_session(sock, cap, run_id, actions, *, wait_for_stop=None,
                     status_cursor=None,
-                    stop_confirm_timeout_s=STOP_CONFIRM_TIMEOUT_S):
+                    stop_confirm_timeout_s=STOP_CONFIRM_TIMEOUT_S,
+                    raw_io=None):
     """统一、幂等的清理：STOP（仅当 START 已发出）→ 关 socket → 释放 camera。
 
     - 仅当 *actions*['start_sent'] 才尝试 STOP；STOP 发送失败记录在
@@ -220,6 +449,8 @@ def cleanup_session(sock, cap, run_id, actions, *, wait_for_stop=None,
         try:
             stop_cmd = RunCommand("sync", run_id, "STOP").encode()
             sock.sendall(stop_cmd.encode())
+            if raw_io is not None:
+                raw_io.log_send(stop_cmd.encode())
             actions["stop_sent"] = True
         except BaseException as exc:  # noqa: BLE001 - 清理不得因 STOP 失败而中止
             actions["stop_error"] = repr(exc)
@@ -251,7 +482,10 @@ def cleanup_session(sock, cap, run_id, actions, *, wait_for_stop=None,
 
 def run_sync_capture_session(sock, cap, tracker, run_id,
                              duration_s, wait_timeout_s,
-                             stop_confirm_timeout_s=STOP_CONFIRM_TIMEOUT_S):
+                             stop_confirm_timeout_s=STOP_CONFIRM_TIMEOUT_S,
+                             frame_index=None, diagnostics=None,
+                             failure_frame_dir=None,
+                             max_failure_frame_thumbnails=MAX_FAILURE_FRAME_THUMBNAILS):
     """START → 等待首帧遥测 → 采集 的生命周期，附带统一幂等清理。
 
     *sock* / *cap* / *tracker* 由调用方注入（真硬件或离线 fake）。
@@ -267,12 +501,38 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
     actions = _new_action_state()
     telemetry = []
     poses = []
+    diagnostics = diagnostics if diagnostics is not None else {}
+    failure_frame_summary = _new_failure_frame_summary(
+        failure_frame_dir, max_failure_frame_thumbnails
+    )
+    diagnostics["failure_frame_summary"] = failure_frame_summary
+    raw_io = RawIoLogger(None)
+    health_frames = []
+    diagnostics["health_frames"] = health_frames
     tele_lock = threading.Lock()
     stop_reader = threading.Event()
     status_cv = threading.Condition()
     statuses = []
     status_parse_errors = []
     reader_error = []
+    heartbeat_cmd = HeartbeatCommand("sync", run_id).encode().encode("ascii")
+    next_heartbeat = None
+
+    def send_heartbeat(force=False):
+        """Keep the firmware's one-second lease alive on the capture thread."""
+        nonlocal next_heartbeat
+        now = time.monotonic()
+        if not force and next_heartbeat is not None and now < next_heartbeat:
+            return True
+        try:
+            sock.sendall(heartbeat_cmd)
+            raw_io.log_send(heartbeat_cmd)
+        except BaseException as exc:  # noqa: BLE001 - cleanup still runs
+            actions["heartbeat_error"] = repr(exc)
+            return False
+        actions["heartbeat_sent"] += 1
+        next_heartbeat = time.monotonic() + HEARTBEAT_PERIOD_S
+        return True
 
     def on_telemetry(payload):
         d = decode_telemetry(payload)
@@ -289,9 +549,26 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
             tick_ms=int(d["tick_ms"]),
             pc_recv_ns=pc_ns,
             yaw_rad=math.radians(float(d["yaw"])),
+            imu_yaw_deg_x100=int(d["imu_yaw_deg_x100"]),
+            imu_validity=int(d["imu_validity"]),
+            imu_validity_known=bool(d["imu_validity_known"]),
+            imu_init_status=int(d["imu_init_status"]),
+            imu_init_status_known=bool(d["imu_init_status_known"]),
         )
         with tele_lock:
             telemetry.append(frame)
+
+    def on_health(payload):
+        d = decode_health(payload)
+        if not d:
+            return
+        record = {
+            "frame_ts_s": round(time.time(), 6),
+            "pc_recv_ns": time.monotonic_ns(),
+        }
+        record.update({key: int(value) for key, value in d.items()})
+        with tele_lock:
+            health_frames.append(record)
 
     def on_status(line):
         try:
@@ -309,7 +586,8 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
     def reader_thread():
         """Read mixed binary telemetry and ASCII status frames."""
         parser = MixedStreamParser(on_telemetry=on_telemetry,
-                                   on_line=on_status)
+                                   on_line=on_status,
+                                   on_health=on_health)
         while not stop_reader.is_set():
             try:
                 data = sock.recv(4096)
@@ -324,6 +602,7 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                 break
             if not data:
                 break
+            raw_io.log_recv(data)
             try:
                 for byte in data:
                     parser.feed(byte)
@@ -342,11 +621,15 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
         try:
             start_cmd = RunCommand("sync", run_id, "START").encode()
             sock.sendall(start_cmd.encode())
+            raw_io.log_send(start_cmd.encode())
             actions["start_sent"] = True
             print("已发送 START，等待小车运行（遥测流）...")
         except Exception as exc:   # noqa: BLE001 - START 失败也要走清理
             actions["start_error"] = repr(exc)
             outcome = "start_failed"
+            return telemetry, poses, actions, outcome
+        if not send_heartbeat(force=True):
+            outcome = "heartbeat_failed"
             return telemetry, poses, actions, outcome
 
         # 等待第一帧遥测
@@ -355,6 +638,9 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
             with tele_lock:
                 if telemetry:
                     break
+            if not send_heartbeat():
+                outcome = "heartbeat_failed"
+                return telemetry, poses, actions, outcome
             if time.time() - t_wait > wait_timeout_s:
                 print("ERROR: 超时未收到遥测（小车未运行？）")
                 outcome = "no_telemetry_timeout"
@@ -366,16 +652,52 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
         try:
             start = time.monotonic_ns()
             duration_ns = int(duration_s * 1e9)
+            camera_frame_number = 0
             while time.monotonic_ns() - start < duration_ns:
+                if not send_heartbeat():
+                    outcome = "heartbeat_failed"
+                    return telemetry, poses, actions, outcome
                 ok, frame = cap.read()
-                if ok:
-                    # Task 4B-4 fix: 帧读取成功立即打时间戳，显式传入 track()，
-                    # 不在检测结束后才打采集时间（PoseTracker 默认时间戳在
-                    # 检测结束生成）。
-                    t_pc_ns = time.monotonic_ns()
-                    pose = tracker.track(frame, t_pc_ns=t_pc_ns)
-                    if pose is not None:
-                        poses.append(pose)
+                frame_record = {
+                    "frame_index": camera_frame_number,
+                    "read_ok": bool(ok),
+                    "t_pc_ns": None,
+                    "pose_detected": False,
+                }
+                camera_frame_number += 1
+                try:
+                    if ok:
+                        # Task 4B-4 fix: 帧读取成功立即打时间戳，显式传入 track()，
+                        # 不在检测结束后才打采集时间（PoseTracker 默认时间戳在
+                        # 检测结束生成）。
+                        t_pc_ns = time.monotonic_ns()
+                        frame_record["t_pc_ns"] = t_pc_ns
+                        track_with_diagnostics = getattr(
+                            tracker, "track_with_diagnostics", None
+                        )
+                        if track_with_diagnostics is not None:
+                            pose, detector_diagnostics = track_with_diagnostics(
+                                frame, t_pc_ns=t_pc_ns
+                            )
+                            frame_record.update(detector_diagnostics)
+                        else:
+                            pose = tracker.track(frame, t_pc_ns=t_pc_ns)
+                        if pose is not None:
+                            frame_record["pose_detected"] = True
+                            poses.append(pose)
+                        else:
+                            _maybe_save_failure_frame(
+                                frame,
+                                frame_record["frame_index"],
+                                frame_record,
+                                failure_frame_dir,
+                                failure_frame_summary,
+                            )
+                    else:
+                        frame_record["failure_reason"] = "frame_read_failed"
+                finally:
+                    if frame_index is not None:
+                        frame_index.append(frame_record)
         except Exception as exc:   # noqa: BLE001 - 采集异常也要走清理
             actions["collect_error"] = repr(exc)
             outcome = "collect_error"
@@ -396,6 +718,7 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
             wait_for_stop=wait_for_stop,
             status_cursor=status_cursor,
             stop_confirm_timeout_s=stop_confirm_timeout_s,
+            raw_io=raw_io,
         )
         stop_reader.set()
         try:
@@ -411,12 +734,16 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
             actions["status_parse_errors"] = list(status_parse_errors)
             if reader_error:
                 actions["reader_error"] = reader_error[-1]
+        diagnostics["health_frames"] = list(health_frames)
+        diagnostics["health"] = compute_health_summary(health_frames)
+        diagnostics["raw_io"] = raw_io.write()
 
     return telemetry, poses, actions, outcome
 
 
 def build_sync_report(*, host, duration_s, run_id, camera_mode, actions,
-                      outcome, n_poses, n_telemetry, clock, residuals, sync):
+                      outcome, n_poses, n_telemetry, clock, residuals, sync,
+                      calibration_evidence=None, diagnostics=None):
     """Build the auditable 4B-4 report without touching hardware or files."""
     actual_camera = dict(camera_mode)
     report = {
@@ -439,6 +766,12 @@ def build_sync_report(*, host, duration_s, run_id, camera_mode, actions,
         "telemetry_yaw_unit": "radian",
         "n_poses": int(n_poses),
         "n_telemetry": int(n_telemetry),
+        "calibration": dict(calibration_evidence or {}),
+        "diagnostics": {
+            "health": dict((diagnostics or {}).get("health", {})),
+            "raw_health_file": "raw_health.json",
+            "raw_io_file": "raw_io.json",
+        },
         "clock": {
             "a": float(clock["a"]),
             "b": float(clock["b"]),
@@ -492,7 +825,7 @@ def build_session_failure_report(*, host, duration_s, run_id, camera_mode,
         "telemetry_yaw_unit": "radian",
         "n_poses": int(n_poses),
         "n_telemetry": int(n_telemetry),
-        "missing_artifacts": ["raw_poses.json", "raw_telemetry.json"],
+        "missing_artifacts": list(B3_RAW_FILENAMES),
     }
 
 
@@ -533,14 +866,82 @@ def connect_car(host, port, socket_factory=None):
     return sock
 
 
-def _load_calibration(calibration_dir):
-    """Load the current camera calibration pair from one explicit directory."""
-    calibration_dir = Path(calibration_dir)
-    with open(calibration_dir / "intrinsics_final.json", encoding="utf-8") as f:
-        calib = CameraCalibration.from_dict(json.load(f)["calibration"])
-    with open(calibration_dir / "homography.json", encoding="utf-8") as f:
-        homography = HomographyTransform.from_dict(json.load(f)["homography"])
-    return calib, homography
+def _sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _manifest_path(manifest_path, value):
+    path = Path(value)
+    if not path.is_absolute():
+        path = Path(manifest_path).parent / path
+    path = path.resolve()
+    if not path.is_relative_to(_WORKSPACE_ROOT):
+        raise ValueError("calibration input must stay inside the workspace")
+    if not path.is_file():
+        raise FileNotFoundError(str(path))
+    return path
+
+
+def _load_calibration(manifest_path):
+    """Load an explicitly selected calibration manifest and its evidence."""
+    manifest_path = Path(manifest_path).resolve()
+    if not manifest_path.is_file():
+        raise FileNotFoundError(str(manifest_path))
+    with open(manifest_path, encoding="utf-8") as f:
+        manifest = json.load(f)
+    if manifest.get("schema_version") != 1:
+        raise ValueError("unsupported calibration manifest schema")
+
+    intrinsics_path = _manifest_path(
+        manifest_path, manifest["intrinsics_path"]
+    )
+    profile_path = _manifest_path(manifest_path, manifest["profile_path"])
+    with open(intrinsics_path, encoding="utf-8") as f:
+        intrinsics_data = json.load(f)
+    with open(profile_path, encoding="utf-8") as f:
+        profile = json.load(f)
+
+    calibration_data = dict(
+        intrinsics_data.get("calibration", intrinsics_data)
+    )
+    dist_coeffs = calibration_data.get("dist_coeffs")
+    if (
+        isinstance(dist_coeffs, list)
+        and len(dist_coeffs) == 1
+        and isinstance(dist_coeffs[0], list)
+    ):
+        calibration_data["dist_coeffs"] = dist_coeffs[0]
+    calibration_data.setdefault(
+        "reprojection_error_rms",
+        calibration_data.get("reprojection_error_rms_px"),
+    )
+    calibration_data.setdefault(
+        "reprojection_error_p95",
+        calibration_data.get("reprojection_error_p95_px"),
+    )
+    transform_data = profile.get("ground_transform") or profile.get("homography")
+    if not isinstance(transform_data, dict):
+        raise ValueError("calibration profile has no ground transform")
+    calib = CameraCalibration.from_dict(calibration_data)
+    homography = HomographyTransform.from_dict(transform_data)
+    workspace = _WORKSPACE_ROOT
+    evidence = {
+        "manifest_path": manifest_path.relative_to(workspace).as_posix(),
+        "manifest_sha256": _sha256_file(manifest_path),
+        "intrinsics_path": intrinsics_path.relative_to(workspace).as_posix(),
+        "intrinsics_sha256": _sha256_file(intrinsics_path),
+        "profile_path": profile_path.relative_to(workspace).as_posix(),
+        "profile_sha256": _sha256_file(profile_path),
+        "calibration_id": profile.get("calibration_id"),
+        "quality": profile.get("quality"),
+        "camera_model": profile.get("camera", {}).get("model"),
+        "image_size": profile.get("camera", {}).get("image_size"),
+    }
+    return calib, homography, evidence
 
 
 def main():
@@ -550,6 +951,7 @@ def main():
     ap.add_argument("--camera", default="1")
     ap.add_argument("--duration", type=float, default=12.0)
     ap.add_argument("--wait-timeout", type=float, default=30.0)
+    ap.add_argument("--calibration-manifest", required=True)
     ap.add_argument("--out", default=".")
     args = ap.parse_args()
 
@@ -557,10 +959,26 @@ def main():
     out_dir = resolve_run_output_dir(args.out, run_id, OUTPUT_FILENAMES)
     print("run_id:", run_id, "->", out_dir)
 
-    build = os.path.join(
-        str(_WORKSPACE_ROOT), "simulation", "digital_twin", "data",
-        "calibration")
-    calib, hom = _load_calibration(build)
+    try:
+        calib, hom, calibration_evidence = _load_calibration(
+            args.calibration_manifest
+        )
+    except BaseException as exc:
+        actions = _new_action_state()
+        write_session_failure_report(
+            out_dir,
+            host=args.host,
+            duration_s=args.duration,
+            run_id=run_id,
+            camera_mode=None,
+            actions=actions,
+            outcome="calibration_setup_failed",
+            reason=repr(exc),
+            n_poses=0,
+            n_telemetry=0,
+        )
+        print("ERROR: calibration setup failed: {}".format(exc))
+        return 1
     tracker = PoseTracker(calib, hom, tag_id=0, detect_scales=(1.0, 2.0, 3.0))
 
     src = int(args.camera) if str(args.camera).isdigit() else args.camera
@@ -686,13 +1104,22 @@ def main():
         return 1
 
     # 采集生命周期（START→等待→采集→统一清理）由 session 函数负责。
+    frame_index = []
+    diagnostics = {}
     telemetry, poses, actions, outcome = run_sync_capture_session(
-        sock, cap, tracker, run_id, args.duration, args.wait_timeout)
+        sock, cap, tracker, run_id, args.duration, args.wait_timeout,
+        frame_index=frame_index, diagnostics=diagnostics,
+        failure_frame_dir=Path(out_dir) / FAILURE_FRAME_DIRNAME)
 
     # 动作状态报告：START 失败时不假称已 STOP。
     print("cleanup actions:", {k: v for k, v in actions.items()})
 
-    if outcome in ("start_failed", "no_telemetry_timeout", "collect_error"):
+    if outcome in (
+        "start_failed", "heartbeat_failed", "no_telemetry_timeout",
+        "collect_error",
+    ):
+        write_capture_artifacts(out_dir, poses, telemetry, frame_index,
+                                diagnostics)
         reason = (actions.get("start_error") or actions.get("collect_error")
                   or outcome)
         write_session_failure_report(
@@ -713,6 +1140,8 @@ def main():
     print("采集完成: 位姿 {} 帧, 遥测 {} 帧".format(len(poses), len(telemetry)))
     if len(poses) < 20 or len(telemetry) < 20:
         reason = "insufficient capture data"
+        write_capture_artifacts(out_dir, poses, telemetry, frame_index,
+                                diagnostics)
         write_session_failure_report(
             out_dir,
             host=args.host,
@@ -737,6 +1166,8 @@ def main():
         a, b = clock.params()
         residuals = clock.fit_residuals()
     except BaseException as exc:  # noqa: BLE001 - publish a structured failure
+        write_capture_artifacts(out_dir, poses, telemetry, frame_index,
+                                diagnostics)
         write_session_failure_report(
             out_dir,
             host=args.host,
@@ -759,7 +1190,10 @@ def main():
         ds = build_synchronized_dataset(poses, telemetry, clock, TOLERANCE_NS,
                                         model_version="1.0.0")
         gate = evaluate_sync_gate(ds)
+        fusion_records = build_fusion_records(ds.sync_frames, clock)
     except BaseException as exc:  # noqa: BLE001 - publish a structured failure
+        write_capture_artifacts(out_dir, poses, telemetry, frame_index,
+                                diagnostics)
         write_session_failure_report(
             out_dir,
             host=args.host,
@@ -818,17 +1252,23 @@ def main():
             "verdict": gate.verdict,
             "gate_reason": gate.reason,
         },
+        calibration_evidence=calibration_evidence,
+        diagnostics=diagnostics,
     )
     with open(os.path.join(out_dir, "sync_report.json"), "w",
               encoding="utf-8") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
     # 保存原始数据（独立 run_id 目录，不覆盖）
-    with open(os.path.join(out_dir, "raw_poses.json"), "w",
-              encoding="utf-8") as f:
-        json.dump([p.to_dict() for p in poses], f, ensure_ascii=False)
-    with open(os.path.join(out_dir, "raw_telemetry.json"), "w",
-              encoding="utf-8") as f:
-        json.dump([t.to_dict() for t in telemetry], f, ensure_ascii=False)
+    write_capture_artifacts(
+        out_dir,
+        poses,
+        telemetry,
+        frame_index,
+        diagnostics,
+        fusion_records=fusion_records,
+        fusion_evidence_source="REAL_SYNC",
+        sync_gate_verdict=gate.verdict,
+    )
     print("report:", os.path.join(out_dir, "sync_report.json"))
     return 0 if report["verdict"] == "PASS" else 2
 

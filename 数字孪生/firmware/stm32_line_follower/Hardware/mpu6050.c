@@ -8,6 +8,21 @@
 #define SDA_PIN   GPIO_Pin_11
 
 MPU6050_Data mpu_data;
+static uint8_t s_validity_flags;
+static uint8_t s_init_status = MPU6050_INIT_STATUS_NOT_ATTEMPTED;
+static uint8_t s_observed_id;
+
+#define MPU6050_INIT_MAX_RETRIES 3U
+
+/* Bounded compatibility candidate: 0x70 is admitted only to test the
+   register sequence shared by the observed alternate identity. Unknown IDs
+   remain fail-closed, and hardware acceptance still requires passive runtime
+   evidence from init, bias sampling, and subsequent reads. */
+static uint8_t MPU6050_IsCompatibleID(uint8_t id)
+{
+    return (uint8_t)(id == MPU6050_WHO_AM_I_MPU6050 ||
+                     id == MPU6050_WHO_AM_I_MPU6500);
+}
 
 /* ---- 软件I2C ---- */
 static void SDA_OUT(void)
@@ -167,17 +182,81 @@ static uint8_t MPU6050_ReadBytes(uint8_t reg, uint8_t *buf, uint8_t len)
     return ok;
 }
 
-/* ---- 公共接口 ---- */
-void MPU6050_Init(void)
+static uint8_t MPU6050_InitAttempt(void)
 {
-    GPIO_InitTypeDef g;
     uint8_t id;
     uint8_t i;
     uint8_t buf[6];
     int32_t bias_sum = 0;
 
+    /* The diagnostic ID must belong to this final initialization attempt.
+       Clear it before the WHO_AM_I transaction so a later read failure cannot
+       be paired with an ID from an earlier retry. */
+    s_observed_id = 0U;
+
+    /* Identify the responder before writing configuration registers.  This
+       keeps a wrong device or a bad read from being mutated by reset/config
+       writes and preserves the raw value for the diagnostic path. */
+    if (!MPU6050_ReadReg(MPU6050_WHO_AM_I, &id))
+        return MPU6050_INIT_STATUS_WHO_AM_I_READ;
+    s_observed_id = id;
+    if (!MPU6050_IsCompatibleID(id))
+        return MPU6050_INIT_STATUS_WHO_AM_I_MISMATCH;
+
+    /* 复位 */
+    if (!MPU6050_WriteReg(MPU6050_PWR_MGMT_1, 0x80))
+        return MPU6050_INIT_STATUS_RESET_WRITE;
+    Delay_ms(100);
+
+    /* 唤醒, 时钟源=PLL X轴陀螺 */
+    if (!MPU6050_WriteReg(MPU6050_PWR_MGMT_1, 0x01))
+        return MPU6050_INIT_STATUS_WAKE_WRITE;
+    Delay_ms(10);
+
+    /* 采样率 = 1kHz / (1+4) = 200Hz */
+    if (!MPU6050_WriteReg(MPU6050_SMPLRT_DIV, 0x04))
+        return MPU6050_INIT_STATUS_SAMPLE_RATE_WRITE;
+
+    /* 低通滤波 ~44Hz */
+    if (!MPU6050_WriteReg(MPU6050_CONFIG, 0x03))
+        return MPU6050_INIT_STATUS_CONFIG_WRITE;
+
+    /* 陀螺仪: ±500°/s */
+    if (!MPU6050_WriteReg(MPU6050_GYRO_CONFIG, 0x08))
+        return MPU6050_INIT_STATUS_GYRO_CONFIG_WRITE;
+
+    /* 加速度计: ±4g */
+    if (!MPU6050_WriteReg(MPU6050_ACCEL_CONFIG, 0x08))
+        return MPU6050_INIT_STATUS_ACCEL_CONFIG_WRITE;
+
+    Delay_ms(50);
+
+    /* 小车静止时采样陀螺仪零偏，避免 yaw 上电后快速漂移。 */
+    for (i = 0; i < 100; i++) {
+        if (!MPU6050_ReadBytes(MPU6050_GYRO_XOUT_H, buf, 6))
+            return MPU6050_INIT_STATUS_BIAS_READ;
+        mpu_data.gz = (int16_t)((buf[4] << 8) | buf[5]);
+        bias_sum += mpu_data.gz;
+        Delay_ms(2);
+    }
+    mpu_data.gz_bias = (int16_t)(bias_sum / 100);
+    mpu_data.gz = 0;
+    return MPU6050_INIT_STATUS_OK;
+}
+
+/* ---- 公共接口 ---- */
+void MPU6050_Init(void)
+{
+    GPIO_InitTypeDef g;
+    uint8_t attempt;
+    uint8_t status = MPU6050_INIT_STATUS_NOT_ATTEMPTED;
+
+    s_validity_flags = 0U;
+    s_init_status = MPU6050_INIT_STATUS_NOT_ATTEMPTED;
+    s_observed_id = 0U;
     mpu_data.ready = 0;
     mpu_data.gz_bias = 0;
+    mpu_data.gz = 0;
     mpu_data.yaw = 0.0f;
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
 
@@ -188,56 +267,51 @@ void MPU6050_Init(void)
 
     SDA_OUT();
 
-    /* 复位 */
-    if (!MPU6050_WriteReg(MPU6050_PWR_MGMT_1, 0x80)) return;
-    Delay_ms(100);
-
-    /* 唤醒, 时钟源=PLL X轴陀螺 */
-    if (!MPU6050_WriteReg(MPU6050_PWR_MGMT_1, 0x01)) return;
-    Delay_ms(10);
-
-    /* 采样率 = 1kHz / (1+4) = 200Hz */
-    if (!MPU6050_WriteReg(MPU6050_SMPLRT_DIV, 0x04)) return;
-
-    /* 低通滤波 ~44Hz */
-    if (!MPU6050_WriteReg(MPU6050_CONFIG, 0x03)) return;
-
-    /* 陀螺仪: ±500°/s */
-    if (!MPU6050_WriteReg(MPU6050_GYRO_CONFIG, 0x08)) return;
-
-    /* 加速度计: ±4g */
-    if (!MPU6050_WriteReg(MPU6050_ACCEL_CONFIG, 0x08)) return;
-
-    Delay_ms(50);
-
-    id = MPU6050_ReadID();
-    if (id != 0x68) return;
-
-    /* 小车静止时采样陀螺仪零偏，避免 yaw 上电后快速漂移。 */
-    for (i = 0; i < 100; i++) {
-        if (!MPU6050_ReadBytes(MPU6050_GYRO_XOUT_H, buf, 6)) return;
-        mpu_data.gz = (int16_t)((buf[4] << 8) | buf[5]);
-        bias_sum += mpu_data.gz;
-        Delay_ms(2);
+    for (attempt = 0U; attempt <= MPU6050_INIT_MAX_RETRIES; attempt++) {
+        status = MPU6050_InitAttempt();
+        s_init_status = status;
+        if (status == MPU6050_INIT_STATUS_OK) {
+            s_validity_flags = MPU6050_VALIDITY_INIT |
+                               MPU6050_VALIDITY_BIAS;
+            mpu_data.ready = 0;
+            return;
+        }
+        if (attempt < MPU6050_INIT_MAX_RETRIES) Delay_ms(10);
     }
-    mpu_data.gz_bias = (int16_t)(bias_sum / 100);
+
+    /* No later readable sample may promote this boot to initialized. */
+    s_validity_flags = 0U;
+    mpu_data.ready = 0;
+    mpu_data.gz_bias = 0;
     mpu_data.gz = 0;
-    mpu_data.ready = 1;
+    mpu_data.yaw = 0.0f;
 }
 
 uint8_t MPU6050_ReadID(void)
 {
     uint8_t id = 0;
-    if (!MPU6050_ReadReg(MPU6050_WHO_AM_I, &id)) return 0;
+    if (!MPU6050_ReadReg(MPU6050_WHO_AM_I, &id)) {
+        s_observed_id = 0U;
+        return 0;
+    }
+    s_observed_id = id;
     return id;
+}
+
+uint8_t MPU6050_GetObservedID(void)
+{
+    return s_observed_id;
 }
 
 void MPU6050_ReadAll(void)
 {
     uint8_t buf[14];
+    s_validity_flags &= (uint8_t)(0xFFU ^
+                                   (MPU6050_VALIDITY_READ |
+                                    MPU6050_VALIDITY_UPDATED));
+    mpu_data.ready = 0;
     if (!MPU6050_ReadBytes(MPU6050_ACCEL_XOUT_H, buf, 14)) {
         /* 读失败时冻结姿态积分，避免把通信故障当成零速率继续积分。 */
-        mpu_data.ready = 0;
         return;
     }
 
@@ -248,17 +322,47 @@ void MPU6050_ReadAll(void)
     mpu_data.gx = (int16_t)((buf[8]  << 8) | buf[9]);
     mpu_data.gy = (int16_t)((buf[10] << 8) | buf[11]);
     mpu_data.gz = (int16_t)((buf[12] << 8) | buf[13]);
-    mpu_data.ready = 1;
+    s_validity_flags |= MPU6050_VALIDITY_READ;
+    if ((s_validity_flags & (MPU6050_VALIDITY_INIT |
+                             MPU6050_VALIDITY_BIAS)) ==
+        (MPU6050_VALIDITY_INIT | MPU6050_VALIDITY_BIAS)) {
+        mpu_data.ready = 1;
+    }
 }
 
 /* Z轴角速度积分得到偏航角, ±500°/s => 65.5 LSB/(°/s) */
 void MPU6050_UpdateYaw(float dt)
 {
     float gz_dps;
+    s_validity_flags &= (uint8_t)(0xFFU ^ MPU6050_VALIDITY_UPDATED);
     if (!mpu_data.ready || dt <= 0.0f) return;
     gz_dps = (float)(mpu_data.gz - mpu_data.gz_bias) / 65.5f;
     /* 低通滤波去除噪声 */
     static float yaw_vel = 0;
     yaw_vel = yaw_vel * 0.85f + gz_dps * 0.15f;
     mpu_data.yaw += yaw_vel * dt;
+    s_validity_flags |= MPU6050_VALIDITY_UPDATED;
+}
+
+uint8_t MPU6050_GetValidityFlags(void)
+{
+    return s_validity_flags;
+}
+
+uint8_t MPU6050_GetInitStatus(void)
+{
+    return s_init_status;
+}
+
+void MPU6050_SetDtClamped(uint8_t clamped)
+{
+    if (clamped) s_validity_flags |= MPU6050_VALIDITY_DT_CLAMPED;
+    else s_validity_flags &= (uint8_t)(0xFFU ^ MPU6050_VALIDITY_DT_CLAMPED);
+}
+
+uint8_t MPU6050_ValidityAllowsFusion(uint8_t flags)
+{
+    return ((flags & MPU6050_VALIDITY_FUSION_REQUIRED) ==
+            MPU6050_VALIDITY_FUSION_REQUIRED &&
+            (flags & MPU6050_VALIDITY_DT_CLAMPED) == 0U) ? 1U : 0U;
 }

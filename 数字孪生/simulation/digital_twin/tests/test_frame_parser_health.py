@@ -19,10 +19,13 @@ from real_world.frame_parser import (  # noqa: E402
     FRAME_TYPE_HEALTH,
     FRAME_TYPE_STATUS,
     FRAME_TYPE_TELEMETRY,
+    FRAME_TYPE_IMU_DIAGNOSTIC,
     PAYLOAD_LEN_HEALTH,
+    PAYLOAD_LEN_IMU_DIAGNOSTIC,
     PAYLOAD_LEN_STATUS,
     PAYLOAD_LEN_MAX,
     decode_health,
+    decode_imu_diagnostic,
     decode_status,
     decode_telemetry,
 )
@@ -141,6 +144,54 @@ def test_telemetry_still_decodes():
     d = decode_telemetry(results[0][1])
     assert d["tick_ms"] == 1234
     assert d["m1"] == 650
+    assert d["imu_yaw_deg_x100"] == 0
+    assert d["imu_validity"] == 0
+    assert d["imu_validity_known"] is False
+    assert d["imu_init_status_known"] is False
+
+
+def test_current_telemetry_decodes_imu_value_and_validity():
+    """The 26-byte payload carries explicit IMU unit and validity evidence."""
+    parser = FrameParser()
+    payload = bytearray(26)
+    payload[0:4] = bytes([1, 0, 0, 1])
+    payload[4:6] = (400).to_bytes(2, "little", signed=True)
+    payload[6:8] = (-250).to_bytes(2, "little", signed=True)
+    payload[8:10] = (-250).to_bytes(2, "little", signed=True)
+    payload[10:12] = (400).to_bytes(2, "little", signed=True)
+    payload[12:14] = (-125).to_bytes(2, "little", signed=True)
+    payload[14:16] = (75).to_bytes(2, "little", signed=True)
+    payload[16:20] = (9876).to_bytes(4, "little")
+    payload[20:24] = (-1234).to_bytes(4, "little", signed=True)
+    payload[24] = 0x0F
+    payload[25] = 0x21
+
+    results = parser.feed_buffer(build_frame(FRAME_TYPE_TELEMETRY, payload))
+    assert len(results) == 1
+    decoded = decode_telemetry(results[0][1])
+    assert decoded["imu_yaw_deg_x100"] == -1234
+    assert decoded["imu_validity"] == 0x0F
+    assert decoded["imu_validity_known"] is True
+    assert decoded["imu_init_status"] == 0x21
+    assert decoded["imu_init_status_known"] is True
+    assert decoded["yaw"] == -12.34
+
+
+def test_imu_diagnostic_frame_reports_hardware_i2c_identity_cross_check():
+    payload = bytes([0x70, 0x21, 0x04, 0x00])
+    assert len(payload) == PAYLOAD_LEN_IMU_DIAGNOSTIC
+    parser = FrameParser()
+    results = parser.feed_buffer(
+        build_frame(FRAME_TYPE_IMU_DIAGNOSTIC, payload))
+    assert len(results) == 1
+    frame_type, decoded_payload = results[0]
+    assert frame_type == FRAME_TYPE_IMU_DIAGNOSTIC
+    assert decode_imu_diagnostic(decoded_payload) == {
+        "observed_id": 0x70,
+        "init_status": 0x21,
+        "validity_flags": 0x04,
+        "hardware_observed_id": 0,
+    }
 
 
 def test_three_concatenated_telemetry_frames_parse_individually():

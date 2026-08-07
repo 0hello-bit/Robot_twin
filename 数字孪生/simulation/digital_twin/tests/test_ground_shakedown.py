@@ -48,6 +48,7 @@ from ground_shakedown import (  # noqa: E402
     ControlAwareMixedStreamParser,
     CameraStartError,
     FfmpegCameraRecorder,
+    _connect_and_run_ground_session,
     compute_shakedown_verdict,
     make_evidence_dir,
     normalize_telemetry_units,
@@ -171,6 +172,12 @@ def test_ground_session_applies_all_speed_steps_before_start_and_stops():
     assert result["start"]["confirmed"] is True
     assert result["stop"]["confirmed"] is True
     assert result["control_verdict"] == "PASS"
+    socket_report = result["socket"]
+    assert socket_report["connect"]["state"] == "NOT_EXECUTED"
+    assert socket_report["close"]["state"] == "COMPLETED"
+    assert socket_report["close"]["call_count"] == 1
+    assert socket_report["close"]["completed_monotonic_s"] is not None
+    assert socket_report["close"]["failed_monotonic_s"] is None
 
 
 def _corrupt_checksum(line):
@@ -307,6 +314,425 @@ def test_running_window_sends_heartbeat_before_final_stop():
     final_stop_index = len(transport.control_bodies) - 1
     assert len(heartbeat_indexes) >= 2
     assert max(heartbeat_indexes) < final_stop_index
+
+
+class _FakeMonotonic(object):
+    def __init__(self):
+        self.value = 100.0
+
+    def monotonic(self):
+        return self.value
+
+    def monotonic_ns(self):
+        return int(self.value * 1e9)
+
+
+class ConnectTrackingTransport(object):
+    def __init__(self, fail_connect=False):
+        self.fail_connect = fail_connect
+        self.connect_calls = 0
+        self.close_calls = 0
+
+    def connect(self):
+        self.connect_calls += 1
+        if self.fail_connect:
+            raise OSError("connect exploded")
+
+    def close(self):
+        self.close_calls += 1
+
+
+class CloseFailTrackingTransport(ConnectTrackingTransport):
+    def __init__(self, fail_connect=False, fail_close=False, close_exception=None):
+        super().__init__(fail_connect=fail_connect)
+        self.fail_close = fail_close
+        self.close_exception = close_exception
+
+    def close(self):
+        self.close_calls += 1
+        if self.close_exception is not None:
+            raise self.close_exception
+        if self.fail_close:
+            raise OSError("close exploded")
+
+
+def test_connect_wrapper_records_completed_and_failed_connect_states():
+    success_transport = ConnectTrackingTransport()
+    success_result = _connect_and_run_ground_session(
+        success_transport,
+        "shake",
+        "gnd00000999",
+        0.05,
+        session_runner=lambda transport, campaign_id, run_id, duration_s, raw_logger: {
+            "control_verdict": "PASS",
+            "raw_io": {"published": True},
+            "telemetry": {"frames": [{}]},
+        },
+        raw_logger_factory=lambda: object(),
+    )
+    assert success_transport.connect_calls == 1
+    assert success_result["socket"]["connect"]["state"] == "COMPLETED"
+    assert success_result["socket"]["connect"]["call_count"] == 1
+    assert success_result["socket"]["connect"]["completed_monotonic_s"] is not None
+    assert success_result["socket"]["connect"]["failed_monotonic_s"] is None
+
+    failed_transport = ConnectTrackingTransport(fail_connect=True)
+    failed_result = _connect_and_run_ground_session(
+        failed_transport,
+        "shake",
+        "gnd00001000",
+        0.05,
+        session_runner=lambda *args, **kwargs: pytest.fail("session_runner should not run"),
+        raw_logger_factory=lambda: object(),
+    )
+    assert failed_transport.connect_calls == 1
+    assert failed_transport.close_calls == 1
+    assert failed_result["control_verdict"] == "FAIL"
+    assert failed_result["socket"]["connect"]["state"] == "FAILED"
+    assert failed_result["socket"]["connect"]["failed_monotonic_s"] is not None
+    assert failed_result["socket"]["connect"]["error"]
+    assert failed_result["socket"]["close"]["state"] == "COMPLETED"
+
+
+def test_connect_wrapper_closes_once_when_raw_logger_factory_or_session_runner_fail():
+    transport = ConnectTrackingTransport()
+    with pytest.raises(RuntimeError, match="logger exploded"):
+        _connect_and_run_ground_session(
+            transport,
+            "shake",
+            "gnd00001001",
+            0.05,
+            raw_logger_factory=lambda: (_ for _ in ()).throw(RuntimeError("logger exploded")),
+        )
+    assert transport.connect_calls == 1
+    assert transport.close_calls == 1
+
+    transport = ConnectTrackingTransport()
+    with pytest.raises(RuntimeError, match="session exploded"):
+        _connect_and_run_ground_session(
+            transport,
+            "shake",
+            "gnd00001002",
+            0.05,
+            session_runner=lambda *args, **kwargs: (_ for _ in ()).throw(
+                RuntimeError("session exploded")),
+            raw_logger_factory=lambda: object(),
+        )
+    assert transport.connect_calls == 1
+    assert transport.close_calls == 1
+
+
+def test_connect_wrapper_does_not_double_close_canonical_session_and_reports_close_failure():
+    transport = ConnectTrackingTransport()
+    result = _connect_and_run_ground_session(
+        transport,
+        "shake",
+        "gnd00001003",
+        0.05,
+        session_runner=lambda transport, campaign_id, run_id, duration_s, raw_logger: {
+            "control_verdict": "PASS",
+            "raw_io": {"published": True},
+            "telemetry": {"frames": [{}]},
+            "socket": {
+                "connect": {"state": "NOT_EXECUTED"},
+                "close": {
+                    "state": "COMPLETED",
+                    "call_count": 1,
+                    "started_monotonic_s": 1.0,
+                    "completed_monotonic_s": 1.1,
+                    "failed_monotonic_s": None,
+                    "elapsed_s": 0.1,
+                    "error": None,
+                },
+            },
+        },
+        raw_logger_factory=lambda: object(),
+    )
+    assert result["socket"]["connect"]["state"] == "COMPLETED"
+    assert transport.close_calls == 0
+
+    failing_transport = CloseFailTrackingTransport(fail_close=True)
+    with pytest.raises(RuntimeError, match="logger exploded"):
+        _connect_and_run_ground_session(
+            failing_transport,
+            "shake",
+            "gnd00001004",
+            0.05,
+            raw_logger_factory=lambda: (_ for _ in ()).throw(RuntimeError("logger exploded")),
+        )
+    assert failing_transport.connect_calls == 1
+    assert failing_transport.close_calls == 1
+
+
+def test_connect_wrapper_does_not_retry_canonical_failed_close_attempt():
+    transport = ConnectTrackingTransport()
+    result = _connect_and_run_ground_session(
+        transport,
+        "shake",
+        "gnd00001005",
+        0.05,
+        session_runner=lambda transport, campaign_id, run_id, duration_s, raw_logger: {
+            "control_verdict": "FAIL",
+            "raw_io": {"published": False, "write_error": "not published"},
+            "telemetry": {"frames": []},
+            "socket": {
+                "connect": {"state": "NOT_EXECUTED"},
+                "close": {
+                    "state": "FAILED",
+                    "call_count": 1,
+                    "started_monotonic_s": 1.0,
+                    "completed_monotonic_s": None,
+                    "failed_monotonic_s": 1.1,
+                    "elapsed_s": 0.1,
+                    "error": "canonical close failed",
+                },
+            },
+        },
+        raw_logger_factory=lambda: object(),
+    )
+    assert transport.close_calls == 0
+    assert result["socket"]["close"]["state"] == "FAILED"
+    assert result["socket"]["close"]["call_count"] == 1
+    assert result["socket"]["close"]["error"] == "canonical close failed"
+
+
+def test_connect_wrapper_keyboard_interrupt_still_closes_and_preserves_original_exception():
+    transport = CloseFailTrackingTransport(fail_close=True)
+    with pytest.raises(KeyboardInterrupt, match="ctrl-c"):
+        _connect_and_run_ground_session(
+            transport,
+            "shake",
+            "gnd00001006",
+            0.05,
+            raw_logger_factory=lambda: (_ for _ in ()).throw(
+                KeyboardInterrupt("ctrl-c")),
+        )
+    assert transport.connect_calls == 1
+    assert transport.close_calls == 1
+
+
+def test_connect_wrapper_non_dict_session_result_closes_and_attaches_failure_report():
+    transport = ConnectTrackingTransport()
+    with pytest.raises(TypeError, match="session_runner must return dict") as exc_info:
+        _connect_and_run_ground_session(
+            transport,
+            "shake",
+            "gnd00001008",
+            0.05,
+            session_runner=lambda *args, **kwargs: ["not", "a", "dict"],
+            raw_logger_factory=lambda: object(),
+        )
+    assert transport.connect_calls == 1
+    assert transport.close_calls == 1
+    failure_report = exc_info.value.failure_report
+    socket_report = failure_report["control"]["socket"]
+    assert socket_report["connect"]["state"] == "COMPLETED"
+    assert socket_report["close"]["state"] == "COMPLETED"
+    assert socket_report["close"]["call_count"] == 1
+
+
+def test_connect_wrapper_close_keyboard_interrupt_does_not_override_original_exception():
+    transport = CloseFailTrackingTransport(
+        close_exception=KeyboardInterrupt("close ctrl-c"))
+    with pytest.raises(RuntimeError, match="logger exploded") as exc_info:
+        _connect_and_run_ground_session(
+            transport,
+            "shake",
+            "gnd00001009",
+            0.05,
+            raw_logger_factory=lambda: (_ for _ in ()).throw(
+                RuntimeError("logger exploded")),
+        )
+    assert transport.connect_calls == 1
+    assert transport.close_calls == 1
+    failure_report = exc_info.value.failure_report
+    socket_report = failure_report["control"]["socket"]
+    assert socket_report["close"]["state"] == "FAILED"
+    assert socket_report["close"]["call_count"] == 1
+    assert "close ctrl-c" in socket_report["close"]["error"]
+
+
+def test_orchestrate_failure_report_keeps_socket_lifecycle_from_wrapper_exception(
+        tmp_path):
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    process = _FakeProcess(returncode=None)
+    recorder = FfmpegCameraRecorder(
+        evidence,
+        popen_factory=lambda command, **kwargs: process,
+        ffprobe_runner=lambda *args, **kwargs: _valid_ffprobe(),
+        executable_resolver=lambda name: name,
+        sleep_fn=lambda seconds: None,
+    )
+    transport = CloseFailTrackingTransport(fail_close=True)
+
+    def failing_session():
+        return _connect_and_run_ground_session(
+            transport,
+            "shake",
+            "gnd00001007",
+            0.05,
+            raw_logger_factory=lambda: (_ for _ in ()).throw(
+                RuntimeError("logger exploded")),
+        )
+
+    with pytest.raises(RuntimeError, match="logger exploded"):
+        orchestrate_shakedown(recorder, failing_session, evidence, "ground")
+    report = json.loads((evidence / "shakedown_report.json").read_text(
+        encoding="utf-8"))
+    socket_report = report["control"]["socket"]
+    assert socket_report["connect"]["state"] == "COMPLETED"
+    assert socket_report["close"]["state"] == "FAILED"
+    assert socket_report["close"]["call_count"] == 1
+    assert socket_report["close"]["error"]
+
+
+def test_orchestrate_failure_report_keeps_socket_lifecycle_for_non_dict_session_result(
+        tmp_path):
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    process = _FakeProcess(returncode=None)
+    recorder = FfmpegCameraRecorder(
+        evidence,
+        popen_factory=lambda command, **kwargs: process,
+        ffprobe_runner=lambda *args, **kwargs: _valid_ffprobe(),
+        executable_resolver=lambda name: name,
+        sleep_fn=lambda seconds: None,
+    )
+    transport = ConnectTrackingTransport()
+
+    def failing_session():
+        return _connect_and_run_ground_session(
+            transport,
+            "shake",
+            "gnd00001010",
+            0.05,
+            session_runner=lambda *args, **kwargs: "not-a-dict",
+            raw_logger_factory=lambda: object(),
+        )
+
+    with pytest.raises(TypeError, match="session_runner must return dict"):
+        orchestrate_shakedown(recorder, failing_session, evidence, "ground")
+    report = json.loads((evidence / "shakedown_report.json").read_text(
+        encoding="utf-8"))
+    socket_report = report["control"]["socket"]
+    assert socket_report["connect"]["state"] == "COMPLETED"
+    assert socket_report["close"]["state"] == "COMPLETED"
+    assert socket_report["close"]["call_count"] == 1
+
+
+class ContinuousRxUntilStopTransport(FirmwareScriptTransport):
+    """Keeps RX non-empty after the running deadline until 0.3 s."""
+
+    def __init__(self, run_id, clock):
+        super().__init__(run_id)
+        self.clock = clock
+        self.start_time = None
+        self.stop_time = None
+
+    def send(self, data):
+        text = data.decode("ascii")
+        body = ",".join(text.rstrip("\n").split(",")[:-1])
+        super().send(data)
+        if body.endswith(",START"):
+            self.start_time = self.clock.value
+        elif body.endswith(",STOP") and self.start_time is not None:
+            self.stop_time = self.clock.value
+
+    def recv(self, _max_bytes):
+        if self._closed:
+            return None
+        try:
+            return self._rx.get_nowait()
+        except queue.Empty:
+            if (self.start_time is not None and self.stop_time is None
+                    and self.clock.value < self.start_time + 0.3):
+                self.clock.value += 0.02
+                return b"\x00"
+            return b""
+
+
+class DelayedStartConfirmationTransport(FirmwareScriptTransport):
+    def __init__(self, run_id):
+        super().__init__(run_id)
+        self.start_time = None
+        self.stop_time = None
+        self.pending_start = False
+
+    def send(self, data):
+        text = data.decode("ascii")
+        body = ",".join(text.rstrip("\n").split(",")[:-1])
+        if body.endswith(",START"):
+            self.control_bodies.append(body)
+            self.start_time = time.monotonic()
+            self.pending_start = True
+            return
+        super().send(data)
+        if body.endswith(",STOP") and self.start_time is not None:
+            self.stop_time = time.monotonic()
+
+    def recv(self, max_bytes):
+        if self.pending_start:
+            if time.monotonic() - self.start_time < 0.2:
+                time.sleep(0.05)
+                return b""
+            if self.pending_start:
+                self._put_status("RUNNING", "START")
+                self.pending_start = False
+        return super().recv(max_bytes)
+
+
+class SlowFinalStopTransport(FirmwareScriptTransport):
+    def __init__(self, run_id):
+        super().__init__(run_id)
+        self.start_time = None
+        self.stop_time = None
+
+    def send(self, data):
+        text = data.decode("ascii")
+        body = ",".join(text.rstrip("\n").split(",")[:-1])
+        if body.endswith(",START"):
+            self.start_time = time.monotonic()
+        is_final_stop = body.endswith(",STOP") and self.start_time is not None
+        if is_final_stop:
+            time.sleep(0.1)
+        super().send(data)
+        if is_final_stop:
+            self.stop_time = time.monotonic()
+
+
+def test_terminal_stop_is_sent_at_running_deadline_without_input_drain(monkeypatch):
+    clock = _FakeMonotonic()
+    monkeypatch.setattr(ground_shakedown.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(ground_shakedown.time, "monotonic_ns", clock.monotonic_ns)
+    transport = ContinuousRxUntilStopTransport("gnd00000006", clock)
+
+    result = run_ground_session(transport, "shake", "gnd00000006", 0.1)
+
+    assert result["control_verdict"] == "PASS"
+    assert transport.stop_time is not None
+    assert transport.stop_time - transport.start_time <= 0.12
+
+
+def test_running_deadline_includes_start_command_latency(monkeypatch):
+    del monkeypatch
+    transport = DelayedStartConfirmationTransport("gnd00000007")
+
+    result = run_ground_session(transport, "shake", "gnd00000007", 0.3)
+
+    assert result["control_verdict"] == "PASS"
+    assert transport.stop_time is not None
+    assert transport.stop_time - transport.start_time <= 0.32
+
+
+def test_terminal_stop_reserves_transport_send_budget():
+    transport = SlowFinalStopTransport("gnd00000008")
+
+    result = run_ground_session(transport, "shake", "gnd00000008", 0.3)
+
+    assert result["control_verdict"] == "PASS"
+    assert transport.stop_time is not None
+    assert transport.stop_time - transport.start_time <= 0.31
 
 
 # ── Fix Round 1 regression suite (2026-08-05) ──────────────────────────────
@@ -1245,6 +1671,12 @@ class FailingCloseTransport(FirmwareScriptTransport):
         raise RuntimeError("injected close failure")
 
 
+class KeyboardInterruptCloseTransport(FirmwareScriptTransport):
+    def close(self):
+        self.close_count += 1
+        raise KeyboardInterrupt("close interrupt")
+
+
 def test_late_or_failing_close_forces_fail_and_unproven_quiescence():
     for transport, expected_code in (
         (LateCloseTransport("gnd00000032"), "IO_CALL_BUDGET_EXCEEDED"),
@@ -1255,6 +1687,17 @@ def test_late_or_failing_close_forces_fail_and_unproven_quiescence():
         assert result["control_verdict"] == "FAIL"
         assert result["quiescence"]["proven"] is False
         assert result["primary_failure"]["code"] == expected_code
+
+
+def test_keyboard_interrupt_close_still_returns_structured_failure_report():
+    transport = KeyboardInterruptCloseTransport("gnd00000038")
+    result = run_ground_session(transport, "shake", transport.run_id, 0.05)
+    assert transport.close_count == 1
+    assert result["control_verdict"] == "FAIL"
+    assert result["primary_failure"]["code"] == "TRANSPORT_CLOSE_EXCEPTION"
+    assert any("transport_close" in item for item in result["cleanup_errors"])
+    assert result["socket"]["close"]["state"] == "FAILED"
+    assert "close interrupt" in result["socket"]["close"]["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -1355,7 +1798,11 @@ class _FakeProcess(object):
 def _valid_ffprobe(stdout=None, returncode=0):
     if stdout is None:
         stdout = json.dumps({"streams": [{
-            "codec_name": "mjpeg", "width": 1280, "height": 720,
+            "codec_name": "mjpeg",
+            "codec_tag_string": "MJPG",
+            "codec_tag": "0x47504a4d",
+            "width": 1280,
+            "height": 720,
             "avg_frame_rate": "30/1",
         }]})
     return subprocess.CompletedProcess(
@@ -1419,7 +1866,117 @@ def test_camera_graceful_shutdown_requires_mjpeg_720p_30fps(tmp_path):
     assert stopped["clean_exit"] is True
     assert report["verdict"] == "PASS"
     assert report["video"]["fps"] == 30.0
+    assert report["video"]["codec_name"] == "mjpeg"
+    assert report["video"]["codec_tag_string"] == "MJPG"
+    assert report["video"]["codec_tag"] == "0x47504a4d"
+    assert report["codec_tag_evidence"]["status"] == "PASS"
+    assert "codec_tag_string" in " ".join(report["ffprobe_command"])
     assert "video=EMEET SmartCam C960" in recorder.command
+
+
+def test_camera_validation_accepts_matroska_when_directshow_input_tag_is_verified(
+        tmp_path):
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    process = _FakeProcess(returncode=None)
+    stdout = json.dumps({"streams": [{
+        "codec_name": "mjpeg",
+        "codec_tag_string": "[0][0][0][0]",
+        "codec_tag": "0x0000",
+        "width": 1280,
+        "height": 720,
+        "avg_frame_rate": "30/1",
+    }]})
+    recorder = FfmpegCameraRecorder(
+        evidence,
+        popen_factory=lambda command, **kwargs: process,
+        ffprobe_runner=lambda *args, **kwargs: _valid_ffprobe(stdout=stdout),
+        executable_resolver=lambda name: name,
+        sleep_fn=lambda seconds: None,
+    )
+    recorder.start()
+    (evidence / "camera.mkv").write_bytes(b"mkv")
+    recorder.stop()
+    (evidence / "camera_ffmpeg.log").write_text(
+        "Input #0, dshow, from 'video=EMEET SmartCam C960':\n"
+        "  Stream #0:0: Video: mjpeg (Baseline) "
+        "(MJPG / 0x47504A4D), yuvj422p(pc), 1280x720, 30 fps\n",
+        encoding="utf-8",
+    )
+    report = recorder.validate()
+    assert report["verdict"] == "PASS"
+    assert report["video"]["codec_tag_string"] == "[0][0][0][0]"
+    assert report["codec_tag_evidence"]["status"] == "CONTAINER_UNSPECIFIED"
+    assert report["input_codec_tag_evidence"]["status"] == "PASS"
+    assert report["input_codec_tag_evidence"]["codec_tag_string"] == "MJPG"
+
+
+def test_camera_validation_keeps_codec_name_and_marks_missing_codec_tag_unknown(
+        tmp_path):
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    process = _FakeProcess(returncode=None)
+    stdout = json.dumps({"streams": [{
+        "codec_name": "mjpeg",
+        "width": 1280,
+        "height": 720,
+        "avg_frame_rate": "30/1",
+    }]})
+    recorder = FfmpegCameraRecorder(
+        evidence,
+        popen_factory=lambda command, **kwargs: process,
+        ffprobe_runner=lambda *args, **kwargs: _valid_ffprobe(stdout=stdout),
+        executable_resolver=lambda name: name,
+        sleep_fn=lambda seconds: None,
+    )
+    recorder.start()
+    (evidence / "camera.mkv").write_bytes(b"mkv")
+    recorder.stop()
+    report = recorder.validate()
+    assert report["verdict"] == "FAIL"
+    assert report["camera_verdict"] == "FAIL"
+    assert report["video"]["codec_name"] == "mjpeg"
+    assert report["video"]["codec_tag_string"] == "UNKNOWN"
+    assert report["video"]["codec_tag"] is None
+    assert report["codec_tag_evidence"]["status"] == "INSUFFICIENT_EVIDENCE"
+    assert any("codec tag" in error.lower() for error in report["errors"])
+
+
+@pytest.mark.parametrize("codec_tag_string, codec_tag", [
+    ("H264", "0x34363248"),
+    ("MJPX", "0x47504a58"),
+    ("MJPG", "0x00000000"),
+])
+def test_camera_validation_fails_closed_on_wrong_codec_tag(
+        tmp_path, codec_tag_string, codec_tag):
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    process = _FakeProcess(returncode=None)
+    stdout = json.dumps({"streams": [{
+        "codec_name": "mjpeg",
+        "codec_tag_string": codec_tag_string,
+        "codec_tag": codec_tag,
+        "width": 1280,
+        "height": 720,
+        "avg_frame_rate": "30/1",
+    }]})
+    recorder = FfmpegCameraRecorder(
+        evidence,
+        popen_factory=lambda command, **kwargs: process,
+        ffprobe_runner=lambda *args, **kwargs: _valid_ffprobe(stdout=stdout),
+        executable_resolver=lambda name: name,
+        sleep_fn=lambda seconds: None,
+    )
+    recorder.start()
+    (evidence / "camera.mkv").write_bytes(b"mkv")
+    recorder.stop()
+    report = recorder.validate()
+    assert report["verdict"] == "FAIL"
+    assert report["camera_verdict"] == "FAIL"
+    assert report["video"]["codec_name"] == "mjpeg"
+    assert report["codec_tag_evidence"]["status"] == "FAIL"
+    assert report["codec_tag_evidence"]["codec_tag_string"] == codec_tag_string
+    assert report["codec_tag_evidence"]["codec_tag"] == codec_tag
 
 
 def test_recorder_default_factories_are_resolved_at_instance_time(tmp_path,
@@ -1562,8 +2119,35 @@ def test_camera_stop_reaps_after_non_timeout_wait_failure(tmp_path):
     assert any("wait" in item for item in report["cleanup_errors"])
 
 
+def _valid_socket_report():
+    return {
+        "connect": {
+            "state": "COMPLETED",
+            "call_count": 1,
+            "started_monotonic_s": 1.0,
+            "completed_monotonic_s": 1.1,
+            "failed_monotonic_s": None,
+            "elapsed_s": 0.1,
+            "error": None,
+        },
+        "close": {
+            "state": "COMPLETED",
+            "call_count": 1,
+            "started_monotonic_s": 2.0,
+            "completed_monotonic_s": 2.1,
+            "failed_monotonic_s": None,
+            "elapsed_s": 0.1,
+            "error": None,
+        },
+    }
+
+
 def test_verdict_precedence_failure_then_missing_evidence_then_pass():
-    control = {"control_verdict": "FAIL", "telemetry": {"frames": [1]}}
+    control = {
+        "control_verdict": "FAIL",
+        "telemetry": {"frames": [1]},
+        "socket": _valid_socket_report(),
+    }
     camera = {"verdict": "PASS", "clean_exit": True}
     complete = {name: True for name in (
         "camera.mkv", "camera_ffmpeg.log", "raw_io.json",
@@ -1626,6 +2210,7 @@ def test_verdict_rejects_conflicting_control_failure_evidence(failure_field):
         "cut_power_warning": False,
         "raw_io": {"published": True, "write_error": None},
         "stop": {"confirmed": True, "send_outcome": "COMPLETED"},
+        "socket": _valid_socket_report(),
     }
     if failure_field == "heartbeat_not_ok":
         control["heartbeat"] = {"ok": False}
@@ -1656,6 +2241,7 @@ def test_external_raw_io_path_cannot_satisfy_evidence_gate(tmp_path):
         "control_verdict": "PASS",
         "telemetry": {"frames": [{}]},
         "raw_io": {"published": True, "path": str(external)},
+        "socket": _valid_socket_report(),
     }
     artifact_map = _relative_artifact_map(evidence, control, include_report=True)
     assert artifact_map["raw_io.json"]["present"] is False
@@ -1664,6 +2250,55 @@ def test_external_raw_io_path_cannot_satisfy_evidence_gate(tmp_path):
         {"verdict": "PASS", "clean_exit": True},
         artifact_map,
     ) == "INSUFFICIENT_EVIDENCE"
+
+
+def test_verdict_requires_socket_lifecycle_evidence_for_pass():
+    complete = {name: True for name in (
+        "camera.mkv", "camera_ffmpeg.log", "raw_io.json",
+        "shakedown_report.json")}
+    control = {
+        "control_verdict": "PASS",
+        "telemetry": {"frames": [{}]},
+        "raw_io": {"published": True, "write_error": None},
+    }
+    camera = {"verdict": "PASS", "clean_exit": True}
+    assert compute_shakedown_verdict(control, camera, complete) == (
+        "INSUFFICIENT_EVIDENCE")
+
+
+@pytest.mark.parametrize("socket_report", [
+    {"connect": {"state": "FAILED", "call_count": 1,
+                  "started_monotonic_s": 1.0, "failed_monotonic_s": 1.1,
+                  "completed_monotonic_s": None, "elapsed_s": 0.1,
+                  "error": "boom"},
+     "close": {"state": "COMPLETED", "call_count": 1,
+                "started_monotonic_s": 2.0, "completed_monotonic_s": 2.1,
+                "failed_monotonic_s": None, "elapsed_s": 0.1,
+                "error": None}},
+    {"connect": _valid_socket_report()["connect"],
+     "close": {"state": "FAILED", "call_count": 1,
+                "started_monotonic_s": 2.0, "completed_monotonic_s": None,
+                "failed_monotonic_s": 2.1, "elapsed_s": 0.1,
+                "error": "close boom"}},
+    {"connect": _valid_socket_report()["connect"],
+     "close": {"state": "COMPLETED", "call_count": 2,
+                "started_monotonic_s": 2.0, "completed_monotonic_s": 2.1,
+                "failed_monotonic_s": None, "elapsed_s": 0.1,
+                "error": None}},
+])
+def test_verdict_fails_closed_on_bad_socket_lifecycle(socket_report):
+    complete = {name: True for name in (
+        "camera.mkv", "camera_ffmpeg.log", "raw_io.json",
+        "shakedown_report.json")}
+    control = {
+        "control_verdict": "PASS",
+        "telemetry": {"frames": [{}]},
+        "raw_io": {"published": True, "write_error": None},
+        "socket": socket_report,
+    }
+    camera = {"verdict": "PASS", "clean_exit": True}
+    assert compute_shakedown_verdict(control, camera, complete) == (
+        "SHAKEDOWN_FAIL")
 
 
 def test_cli_dry_run_has_no_resource_side_effects(tmp_path, monkeypatch, capsys):
@@ -1684,6 +2319,106 @@ def test_cli_dry_run_has_no_resource_side_effects(tmp_path, monkeypatch, capsys)
     assert "--retry" not in output
     assert "--pid" not in output
     assert not root.exists()
+
+
+def test_cli_execute_passes_runtime_timestamp_to_evidence_dir(
+        tmp_path, monkeypatch):
+    captured = {}
+    evidence = tmp_path / "evidence"
+
+    def fake_make_evidence_dir(root, timestamp):
+        captured["root"] = Path(root)
+        captured["timestamp"] = timestamp
+        evidence.mkdir()
+        return evidence
+
+    def fake_orchestrate(recorder, session_runner, evidence_dir, run_kind,
+                         **kwargs):
+        captured["campaign_id"] = kwargs["campaign_id"]
+        captured["run_id"] = kwargs["run_id"]
+        captured["evidence_dir"] = evidence_dir
+        captured["run_kind"] = run_kind
+        return {"verdict": "INSUFFICIENT_EVIDENCE"}
+
+    monkeypatch.setattr(
+        ground_shakedown, "_resolve_camera_executables",
+        lambda: ("ffmpeg", "ffprobe"))
+    monkeypatch.setattr(
+        ground_shakedown, "make_evidence_dir", fake_make_evidence_dir)
+    monkeypatch.setattr(
+        ground_shakedown, "orchestrate_shakedown", fake_orchestrate)
+
+    assert ground_shakedown.main([
+        "--duration", "0.5", "--run-kind", "elevated-wheels",
+        "--out-root", str(tmp_path / "out"), "--execute",
+    ]) == 2
+
+    timestamp = captured["timestamp"]
+    assert isinstance(timestamp, str)
+    assert len(timestamp) == 15 and timestamp.isdigit()
+    assert captured["root"] == tmp_path / "out"
+    assert captured["campaign_id"] == "s" + timestamp
+    assert captured["run_id"] == "e" + timestamp
+    assert captured["evidence_dir"] == evidence
+    assert captured["run_kind"] == "elevated-wheels"
+
+
+def test_session_telemetry_preserves_current_imu_evidence_fields():
+    loop = ground_shakedown._SessionLoop.__new__(ground_shakedown._SessionLoop)
+    loop.telemetry_frames = []
+    payload = bytearray(26)
+    payload[16:20] = (9876).to_bytes(4, "little")
+    payload[20:24] = (-1234).to_bytes(4, "little", signed=True)
+    payload[24] = 0x14
+    payload[25] = 0x21
+
+    loop._on_telemetry(bytes(payload))
+
+    record = loop.telemetry_frames[0]
+    assert record["imu_yaw_deg_x100"] == -1234
+    assert record["imu_validity"] == 0x14
+    assert record["imu_validity_known"] is True
+    assert record["imu_init_status"] == 0x21
+    assert record["imu_init_status_known"] is True
+
+
+def test_imu_evidence_summary_verifies_fusion_ready_frames():
+    summary = ground_shakedown.summarize_imu_evidence({
+        "telemetry": {"frames": [{
+            "imu_validity": 0x0F,
+            "imu_validity_known": True,
+            "imu_init_status": 0x00,
+            "imu_init_status_known": True,
+        }]}
+    })
+
+    assert summary["status"] == "VERIFIED"
+    assert summary["verdict"] == "PASS"
+    assert summary["reason"] == "VALID_INITIALIZED_FUSION_INPUT"
+    assert summary["dt_clamped_frames"] == 0
+
+
+def test_imu_evidence_summary_distinguishes_known_failure_from_unknown():
+    failure = ground_shakedown.summarize_imu_evidence({
+        "telemetry": {"frames": [{
+            "imu_validity": 0x14,
+            "imu_validity_known": True,
+            "imu_init_status": 0x21,
+            "imu_init_status_known": True,
+        }]}
+    })
+    unknown = ground_shakedown.summarize_imu_evidence({
+        "telemetry": {"frames": [{"tick_ms": 1}]}
+    })
+
+    assert failure["status"] == "VERIFIED"
+    assert failure["verdict"] == "FAIL"
+    assert failure["init_status_values"] == [0x21]
+    assert failure["validity_values"] == [0x14]
+    assert failure["dt_clamped_frames"] == 1
+    assert "IMU_INIT_STATUS_NOT_OK" in failure["reason"]
+    assert unknown["status"] == "INSUFFICIENT_EVIDENCE"
+    assert unknown["verdict"] == "UNVERIFIED"
 
 
 def test_invalid_cli_duration_is_rejected_before_any_execute_factory(tmp_path,
@@ -1866,13 +2601,15 @@ def test_normal_orchestration_publishes_pass_only_with_all_evidence(tmp_path):
             "rollback_requested": True,
             "telemetry": {"frames": [{"tick_ms": 1, "yaw_rad": 4.0}]},
             "raw_io": {"published": True},
+            "socket": _valid_socket_report(),
         }
 
     report = orchestrate_shakedown(recorder, session_runner, evidence, "ground")
     assert report["verdict"] == "SHAKEDOWN_PASS"
     assert report["control"]["telemetry"]["frames"] == [
         {"tick_ms": 1, "yaw_deg": 4.0}]
-    assert report["imu_evidence_status"] == "UNVERIFIED_NO_VALIDITY_BIT"
+    assert report["imu_evidence_status"] == "INSUFFICIENT_EVIDENCE"
+    assert report["imu_evidence"]["verdict"] == "UNVERIFIED"
     assert report["rollback_requested"] is True
     assert report["stop_confirmed"] is True
     assert report["missing_artifacts"] == []

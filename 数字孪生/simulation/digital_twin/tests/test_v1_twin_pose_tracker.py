@@ -89,6 +89,58 @@ def test_track_returns_none_on_blank():
     assert tracker.track(canvas) is None
 
 
+def test_track_with_diagnostics_reports_scale_and_tag_size():
+    canvas = _place_tag(center=(260, 210))
+    tracker = PoseTracker(
+        _identity_calib(), HomographyTransform(np.eye(3)),
+        detect_scales=(1.0, 2.0, 3.0),
+    )
+
+    pose, diagnostics = tracker.track_with_diagnostics(canvas, t_pc_ns=1000)
+
+    assert pose is not None
+    assert diagnostics["attempted_scales"] == [1.0]
+    assert diagnostics["matched_scale"] == pytest.approx(1.0)
+    assert diagnostics["tag_side_px"] > 30.0
+    assert diagnostics["failure_reason"] is None
+    assert diagnostics["detect_elapsed_ns"] >= 0
+
+
+def test_track_with_diagnostics_classifies_missing_tag():
+    canvas = np.full((480, 640), 255, np.uint8)
+    tracker = PoseTracker(
+        _identity_calib(), HomographyTransform(np.eye(3)),
+        detect_scales=(1.0, 2.0, 3.0),
+    )
+
+    pose, diagnostics = tracker.track_with_diagnostics(canvas, t_pc_ns=1000)
+
+    assert pose is None
+    assert diagnostics["attempted_scales"] == [1.0, 2.0, 3.0]
+    assert diagnostics["matched_scale"] is None
+    assert diagnostics["tag_side_px"] is None
+    assert diagnostics["failure_reason"] == "no_markers"
+    assert diagnostics["rejected_candidate_count"] == 0
+    assert diagnostics["rejected_candidate_counts"] == [0, 0, 0]
+
+
+def test_track_with_diagnostics_classifies_rejected_candidates():
+    # A small blurred tag creates detector candidates but no accepted ID.
+    canvas = _place_tag(center=(260, 210), tag_px=20)
+    canvas = cv2.GaussianBlur(canvas, (0, 0), 2.0)
+    tracker = PoseTracker(
+        _identity_calib(), HomographyTransform(np.eye(3)),
+        detect_scales=(1.0, 2.0, 3.0),
+    )
+
+    pose, diagnostics = tracker.track_with_diagnostics(canvas, t_pc_ns=1000)
+
+    assert pose is None
+    assert diagnostics["failure_reason"] == "candidates_rejected"
+    assert diagnostics["rejected_candidate_count"] > 0
+    assert len(diagnostics["rejected_candidate_counts"]) == 3
+
+
 def test_yaw_upright_tag_points_up_in_image():
     # 未旋转标签：印刷正上 = 车头 = 图像"上"方向 = (0, -1) -> yaw = -pi/2
     canvas = _place_tag(center=(260, 210), angle_deg=0.0)

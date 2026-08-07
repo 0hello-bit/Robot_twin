@@ -149,6 +149,14 @@ static int test_reset_cause_from_csr(void)
     return 0;
 }
 
+/* The IMU diagnostic image must be distinguishable from the previously
+   flashed throughput-remediation image during the next hardware gate. */
+static int test_imu_diagnostic_build_id(void)
+{
+    CHECK(FW_BUILD_ID == 3U);
+    return 0;
+}
+
 static int test_encode_matches_golden(const char *hex_path)
 {
     HealthSnapshot snap;
@@ -189,5 +197,6 @@ int main(int argc, char **argv)
 {
     const char *hex_path = (argc > 1) ? argv[1] : "";
     if (test_reset_cause_from_csr()) return 1;
+    if (test_imu_diagnostic_build_id()) return 1;
     return test_encode_matches_golden(hex_path);
 }

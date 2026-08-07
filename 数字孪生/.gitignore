@@ -30,8 +30,20 @@ simulation/digital_twin/data/product/*
 simulation/digital_twin/data/product/acceptance_profiles/*
 !simulation/digital_twin/data/product/acceptance_profiles/v1b_first_campaign_v1.json
 simulation/digital_twin/logs/
+# Local hardware-run evidence is retained on disk and referenced by handoffs;
+# it is not source code or a reproducible fixture for the repository.
+logs/
 simulation/digital_twin/web_showcase/node_modules/
 simulation/digital_twin/web_showcase/dist/
+
+# Keil regenerates these outputs on every build.
+firmware/stm32_line_follower/Objects/
+firmware/stm32_line_follower/Listings/
+
+# Camera probe captures are local inspection artifacts, not calibration assets.
+tools/camera_toolchain/live_*.png
+tools/camera_toolchain/preview.png
+tools/camera_toolchain/probe_report.txt
 
 # PCB screenshots are transient inspection artifacts.
 hardware/pcb_evidence/

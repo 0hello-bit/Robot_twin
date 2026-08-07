@@ -11,9 +11,10 @@ do not create new work there, and do not treat old copies as current sources.
 ## Read First
 
 1. docs/agent-context/CURRENT_STATUS.md
-2. docs/Robot_Twin_AI_完整计划说明书_v2.7.md
-3. The handoff explicitly named by the current task
-4. Only the source files and tests required by that handoff
+2. docs/agent-context/PROJECT_MEMORY.md
+3. docs/Robot_Twin_AI_完整计划说明书_v2.7.md
+4. The handoff explicitly named by the current task
+5. Only the source files and tests required by that handoff
 
 The v2.6 plan and CURRENT_STATUS_LEGACY_20260803.md are historical records.
 They must not override the v2.7 plan or the current status file.
@@ -47,6 +48,22 @@ algorithms or design usable hardware.
 - The model may be a black box, but the experiment protocol may not be one.
 - A candidate is eligible only when it completes the scenario without line
   loss; otherwise the evaluator must not select it or report READY.
+
+## Mandatory Reuse Rule
+
+Before adding code, every agent must audit and reuse the existing project
+interfaces. Do not create a second ESP-01S TCP client, P/R/A/S protocol,
+checksum implementation, ACK registry, heartbeat sender, telemetry parser,
+wheel-speed command path, STOP/safety lifecycle, or evidence recorder. If an
+existing interface cannot express the requested evidence, report the exact
+gap first and make only the smallest tested adapter in the existing boundary.
+
+For V1-B Task B2, `tools/shakedown_toolchain/ground_shakedown.py` is the
+canonical hardware Smoke entrypoint. It already reuses the transport, protocol,
+ACK, speed-ramp, H-heartbeat, STOP, raw-I/O, and cleanup components documented
+in `docs/agent-context/PROJECT_MEMORY.md`. `capture_sync_run.py` is reserved
+for later synchronized data collection and must not be used to create a second
+B2 control chain.
 
 ## Workspace Rules
 

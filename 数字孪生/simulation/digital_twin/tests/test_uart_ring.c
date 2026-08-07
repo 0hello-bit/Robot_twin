@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cipsend_tx.h"
 #include "uart_ring.h"
 
 /* Test assertion macro — return 1 on failure. */
@@ -290,6 +291,30 @@ static int test_high_water_rx_and_tx(void)
 }
 
 /* ======================================================================
+ * Test: the TX ring can accept one complete maximum droppable telemetry
+ * payload after the CIPSEND prompt.  The producer retains the byte when
+ * the sink is temporarily back-pressured, but a full payload should not
+ * manufacture overflow evidence on every transaction.
+ * ====================================================================== */
+static int test_tx_ring_accepts_max_telemetry_payload(void)
+{
+    UartRing ring;
+    uint8_t i;
+    uint16_t pushed = 0U;
+
+    uart_ring_init(&ring);
+    for (i = 0U; i < CIPSEND_TX_MAX_DATA; i++) {
+        if (!uart_ring_push(&ring, i)) break;
+        pushed++;
+    }
+
+    CHECK(pushed == CIPSEND_TX_MAX_DATA);
+    CHECK(ring.overflow_drops == 0U);
+    CHECK(ring.high_water == CIPSEND_TX_MAX_DATA);
+    return 0;
+}
+
+/* ======================================================================
  * Main
  * ====================================================================== */
 int main(void)
@@ -313,6 +338,7 @@ int main(void)
     RUN(test_alternating_push_pop);
     RUN(test_full_cycle);
     RUN(test_high_water_rx_and_tx);
+    RUN(test_tx_ring_accepts_max_telemetry_payload);
 
     if (failures == 0U) {
         puts("PASS test_uart_ring");

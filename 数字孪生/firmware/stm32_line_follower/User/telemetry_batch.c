@@ -27,7 +27,7 @@ uint8_t telemetry_batch_append(TelemetryBatch *batch,
     }
 
     if (batch->count >= TELEMETRY_BATCH_MAX_FRAMES) {
-        /* Keep the latest three frames; the queue is intentionally droppable. */
+        /* Keep the latest eight frames; the queue is intentionally droppable. */
         memmove(batch->data,
                 batch->data + TELEMETRY_BATCH_FRAME_SIZE,
                 TELEMETRY_BATCH_MAX_BYTES - TELEMETRY_BATCH_FRAME_SIZE);

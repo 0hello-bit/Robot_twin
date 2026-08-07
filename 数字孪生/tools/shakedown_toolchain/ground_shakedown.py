@@ -44,6 +44,7 @@ import json
 import math
 import time
 import os
+import re
 import shutil
 import subprocess
 import uuid
@@ -80,6 +81,7 @@ from real_world.runtime_protocol import (  # noqa: E402
     ParameterCommand,
     RunCommand,
     frame,
+    make_runtime_identifier,
     parse_ack,
     parse_status,
     validate_parameter_update,
@@ -111,6 +113,9 @@ CAMERA_FPS = 30.0
 CAMERA_FPS_TOLERANCE = 0.5
 MAX_DEFAULT_DURATION_S = 3.0
 MAX_DURATION_S = 20.0
+IMU_VALIDITY_FUSION_REQUIRED = 0x0F
+IMU_VALIDITY_DT_CLAMPED = 0x10
+IMU_INIT_STATUS_OK = 0x00
 REQUIRED_ARTIFACTS = (
     "camera.mkv",
     "camera_ffmpeg.log",
@@ -169,6 +174,203 @@ def _failure(stage, code, detail, now):
         "detail": detail,
         "monotonic_s": round(now, 6),
     }
+
+
+def _socket_phase(state="NOT_EXECUTED", call_count=0,
+                  started_monotonic_s=None, completed_monotonic_s=None,
+                  failed_monotonic_s=None, elapsed_s=None, error=None):
+    """Structured socket lifecycle evidence for connect/close."""
+    return {
+        "state": state,
+        "call_count": call_count,
+        "started_monotonic_s": started_monotonic_s,
+        "completed_monotonic_s": completed_monotonic_s,
+        "failed_monotonic_s": failed_monotonic_s,
+        "elapsed_s": elapsed_s,
+        "error": error,
+    }
+
+
+def _socket_close_phase_from_attempt(call_count, started_monotonic_s,
+                                     completed_monotonic_s,
+                                     failed_monotonic_s, error):
+    end_time = (completed_monotonic_s if completed_monotonic_s is not None
+                else failed_monotonic_s)
+    elapsed_s = None
+    if started_monotonic_s is not None and end_time is not None:
+        elapsed_s = round(end_time - started_monotonic_s, 6)
+    return _socket_phase(
+        state=("FAILED" if error else
+               ("COMPLETED" if call_count > 0 else "NOT_EXECUTED")),
+        call_count=call_count,
+        started_monotonic_s=started_monotonic_s,
+        completed_monotonic_s=completed_monotonic_s,
+        failed_monotonic_s=failed_monotonic_s,
+        elapsed_s=elapsed_s,
+        error=error,
+    )
+
+
+def _camera_codec_tag_evidence(stream):
+    raw_tag_string = None
+    raw_tag = None
+    if isinstance(stream, dict):
+        raw_tag_string = stream.get("codec_tag_string")
+        raw_tag = stream.get("codec_tag")
+    normalized = (str(raw_tag_string).strip().upper()
+                  if raw_tag_string is not None and str(raw_tag_string).strip()
+                  else "UNKNOWN")
+    expected_tag = "0X47504A4D"
+    tag_value = None if raw_tag in (None, "") else str(raw_tag)
+    tag_upper = None if tag_value is None else tag_value.strip().upper()
+    if normalized == "UNKNOWN":
+        return {
+            "status": "INSUFFICIENT_EVIDENCE",
+            "codec_tag_string": "UNKNOWN",
+            "codec_tag": tag_value,
+            "error": "codec tag string missing",
+        }
+    if normalized == "[0][0][0][0]" and tag_upper in (
+            "0X0000", "0X00000000"):
+        return {
+            "status": "CONTAINER_UNSPECIFIED",
+            "codec_tag_string": raw_tag_string,
+            "codec_tag": tag_value,
+            "error": "container did not preserve a codec tag",
+        }
+    if normalized != "MJPG":
+        return {
+            "status": "FAIL",
+            "codec_tag_string": raw_tag_string,
+            "codec_tag": tag_value,
+            "error": "codec tag string is not MJPG",
+        }
+    if tag_upper is not None and tag_upper != expected_tag:
+        return {
+            "status": "FAIL",
+            "codec_tag_string": raw_tag_string,
+            "codec_tag": tag_value,
+            "error": "codec tag value does not match 0x47504A4D",
+        }
+    return {
+        "status": "PASS",
+        "codec_tag_string": raw_tag_string,
+        "codec_tag": tag_value,
+        "error": None,
+    }
+
+
+def _camera_input_codec_tag_evidence(log_text):
+    """Extract the source FourCC from FFmpeg's DirectShow input report."""
+    evidence = {
+        "status": "INSUFFICIENT_EVIDENCE",
+        "source": "ffmpeg_input_log",
+        "codec_name": None,
+        "codec_tag_string": None,
+        "codec_tag": None,
+        "raw_line": None,
+        "error": "DirectShow input codec evidence unavailable",
+    }
+    if not isinstance(log_text, str) or not log_text.strip():
+        return evidence
+    input_seen = False
+    for line in log_text.splitlines():
+        if re.search(r"Input\s+#0,\s*dshow\b", line, re.IGNORECASE):
+            input_seen = True
+            continue
+        if not input_seen:
+            continue
+        if re.search(r"Output\s+#0,", line, re.IGNORECASE):
+            break
+        if not re.search(r"^\s*Stream\s+#0:0:\s*Video:", line,
+                         re.IGNORECASE):
+            continue
+        match = re.search(
+            r"Video:\s*(?P<codec>[A-Za-z0-9_]+).*?"
+            r"\((?P<tag>[A-Za-z0-9]{4})\s*/\s*"
+            r"(?P<value>0x[0-9A-Fa-f]+)\)",
+            line,
+            re.IGNORECASE,
+        )
+        if match is None:
+            evidence["error"] = "DirectShow input codec tag line is malformed"
+            evidence["raw_line"] = line
+            return evidence
+        parsed = _camera_codec_tag_evidence({
+            "codec_tag_string": match.group("tag"),
+            "codec_tag": match.group("value"),
+        })
+        parsed["source"] = "ffmpeg_input_log"
+        parsed["codec_name"] = match.group("codec").lower()
+        parsed["raw_line"] = line
+        if parsed["codec_name"] != "mjpeg":
+            parsed["status"] = "FAIL"
+            parsed["error"] = "DirectShow input codec is not mjpeg"
+        return parsed
+    return evidence
+
+
+def _socket_lifecycle_failure(control_report):
+    if not isinstance(control_report, dict):
+        return False
+    socket_report = control_report.get("socket")
+    if not isinstance(socket_report, dict):
+        return False
+    connect = socket_report.get("connect")
+    close = socket_report.get("close")
+    if isinstance(connect, dict):
+        if connect.get("state") == "FAILED":
+            return True
+    if isinstance(close, dict):
+        if close.get("state") == "FAILED":
+            return True
+        if close.get("call_count") not in (None, 1):
+            return True
+        if close.get("state") not in (None, "COMPLETED"):
+            return True
+    return False
+
+
+def _socket_lifecycle_complete(control_report):
+    if not isinstance(control_report, dict):
+        return False
+    socket_report = control_report.get("socket")
+    if not isinstance(socket_report, dict):
+        return False
+    connect = socket_report.get("connect")
+    close = socket_report.get("close")
+    if not isinstance(connect, dict) or not isinstance(close, dict):
+        return False
+    if connect.get("state") != "COMPLETED":
+        return False
+    if connect.get("call_count") != 1:
+        return False
+    if connect.get("started_monotonic_s") is None:
+        return False
+    if connect.get("completed_monotonic_s") is None:
+        return False
+    if close.get("state") != "COMPLETED":
+        return False
+    if close.get("call_count") != 1:
+        return False
+    if close.get("started_monotonic_s") is None:
+        return False
+    if close.get("completed_monotonic_s") is None:
+        return False
+    return True
+
+
+def _socket_close_attempted(socket_report):
+    if not isinstance(socket_report, dict):
+        return False
+    close = socket_report.get("close")
+    if not isinstance(close, dict):
+        return False
+    try:
+        call_count = int(close.get("call_count", 0))
+    except (TypeError, ValueError):
+        return False
+    return call_count >= 1
 
 
 def validate_speed_plan(campaign_id="shake"):
@@ -285,6 +487,10 @@ def _preflight_result(detail):
                        "n_frozen_raw_events": 0},
         "raw_io": {"published": False,
                    "write_error": "NOT_ATTEMPTED_PRESESSION_VALIDATION"},
+        "socket": {
+            "connect": _socket_phase(state="NOT_EXECUTED"),
+            "close": _socket_phase(state="NOT_EXECUTED"),
+        },
     }
 
 
@@ -345,6 +551,7 @@ class _SessionLoop(object):
         self.stop_reserved = False
         self.stop_raw_log_ok = True
         self.window_start_ns = None
+        self.start_command_monotonic = None
 
         # failures and cleanup
         self.primary_failure = None
@@ -355,6 +562,9 @@ class _SessionLoop(object):
         # close / freeze / publication
         self.close_count = 0
         self.close_outcome = None
+        self.close_started_monotonic_s = None
+        self.close_completed_monotonic_s = None
+        self.close_failed_monotonic_s = None
         self._close_ok = False
         self.frozen_raw_events = None
         self.freeze_monotonic_s = None
@@ -425,6 +635,11 @@ class _SessionLoop(object):
             "error": int(decoded["error"]),
             "pid_output": int(decoded["pid_output"]),
             "yaw_rad": round(float(decoded.get("yaw", 0.0)), 6),
+            "imu_yaw_deg_x100": int(decoded["imu_yaw_deg_x100"]),
+            "imu_validity": int(decoded["imu_validity"]),
+            "imu_validity_known": bool(decoded["imu_validity_known"]),
+            "imu_init_status": int(decoded["imu_init_status"]),
+            "imu_init_status_known": bool(decoded["imu_init_status_known"]),
         })
 
     def _on_health(self, payload):
@@ -527,6 +742,7 @@ class _SessionLoop(object):
             "sent": sent, "error": error,
             "send_outcome": "COMPLETED" if sent else "AMBIGUOUS_EXCEPTION",
             "io_budget_exceeded": io_budget, "elapsed_s": elapsed,
+            "started_monotonic": start,
         }
 
     def _raw_log_send_cmd(self, data):
@@ -886,6 +1102,7 @@ class _SessionLoop(object):
                        self.overall_deadline)
         cmd = RunCommand(self.campaign_id, self.run_id, "START").encode().encode("ascii")
         result, boundary = self._send_command(cmd, deadline)
+        self.start_command_monotonic = result.get("started_monotonic")
         if not result["drain_ok"]:
             self.start_record = {
                 "cmd_sent": False, "confirmed": False, "status": None,
@@ -947,8 +1164,16 @@ class _SessionLoop(object):
         self.window_start_ns = time.monotonic_ns()
         self.hb_started = True
         self.hb_active = True
-        running_deadline = min(time.monotonic() + self.duration_s,
+        start_origin = (self.start_command_monotonic
+                        if self.start_command_monotonic is not None
+                        else time.monotonic())
+        running_budget_s = max(0.0, self.duration_s - IO_CALL_BUDGET_S)
+        running_deadline = min(start_origin + running_budget_s,
                                self.overall_deadline)
+        if (self._time_exceeded(running_deadline)
+                or self._time_exceeded(self.overall_deadline)):
+            self._hb_deactivate()
+            return
         # First heartbeat immediately on the calling thread.
         if not self._hb_send_one():
             return
@@ -994,8 +1219,19 @@ class _SessionLoop(object):
             self.hb_stopped_before_final_stop = not self.hb_active
         else:
             self.hb_active_at_terminal_stop_reservation = None
-        drain_ok = self._drain_until_bounded_timeout(deadline)
-        boundary = self.receive_seq
+        # Once RUNNING has been confirmed, the running window is a hard safety
+        # deadline. Draining until an empty recv here can keep the firmware in
+        # RUNNING while telemetry remains continuous, so establish the current
+        # receive boundary and send STOP immediately. Pre-start failures keep
+        # the bounded drain because no motor-on deadline is active yet.
+        if self.hb_started:
+            drain_ok = True
+            boundary = self.receive_seq
+            boundary_mode = "immediate_running_deadline"
+        else:
+            drain_ok = self._drain_until_bounded_timeout(deadline)
+            boundary = self.receive_seq
+            boundary_mode = "bounded_pre_command_drain"
         if not drain_ok:
             self._record_primary(
                 "stop", "DRAIN_FAILED",
@@ -1009,6 +1245,8 @@ class _SessionLoop(object):
             "failure_reason": None, "cmd_hex": None,
             "reservation_monotonic_s": round(now, 6),
             "reserved_receive_seq": boundary,
+            "boundary_mode": boundary_mode,
+            "drain_ok": drain_ok,
             "io_budget_exceeded": False,
         }
         if not drain_ok:
@@ -1059,10 +1297,12 @@ class _SessionLoop(object):
     def _close(self):
         self.close_count += 1
         start = time.monotonic()
+        self.close_started_monotonic_s = round(start, 6)
         try:
             self.transport.close()
-        except Exception as exc:  # noqa: BLE001 - structured close failure
+        except BaseException as exc:  # noqa: BLE001 - structured close failure
             elapsed = time.monotonic() - start
+            self.close_failed_monotonic_s = round(time.monotonic(), 6)
             self.close_outcome = {"completed": False, "error": repr(exc)}
             self._record_cleanup("transport_close", repr(exc))
             detail = "{0!r}".format(exc)
@@ -1075,6 +1315,7 @@ class _SessionLoop(object):
             self._close_ok = False
             return
         elapsed = time.monotonic() - start
+        self.close_completed_monotonic_s = round(time.monotonic(), 6)
         self.close_outcome = {"completed": True, "elapsed_s": elapsed}
         if elapsed > IO_CALL_BUDGET_S:
             detail = ("transport.close elapsed={0:.3f}s > budget {1:.2f}s"
@@ -1242,6 +1483,21 @@ class _SessionLoop(object):
                 "n_frozen_raw_events": len(events),
             },
             "raw_io": self.raw_io,
+            "socket": {
+                "connect": _socket_phase(state="NOT_EXECUTED"),
+                "close": _socket_phase(
+                    state=("COMPLETED" if self.close_outcome
+                           and self.close_outcome.get("completed")
+                           else ("FAILED" if self.close_count > 0
+                                 else "NOT_EXECUTED")),
+                    call_count=self.close_count,
+                    started_monotonic_s=self.close_started_monotonic_s,
+                    completed_monotonic_s=self.close_completed_monotonic_s,
+                    failed_monotonic_s=self.close_failed_monotonic_s,
+                    elapsed_s=(self.close_outcome or {}).get("elapsed_s"),
+                    error=(self.close_outcome or {}).get("error"),
+                ),
+            },
         }
         if self.window_start_ns is not None:
             result["window_start_ns"] = self.window_start_ns
@@ -1272,6 +1528,210 @@ def run_ground_session(transport, campaign_id, run_id, duration_s,
         raw_logger = soak.RawIoLogger(None)
     loop = _SessionLoop(transport, campaign_id, run_id, duration_s, raw_logger)
     return loop.run()
+
+
+def _connect_and_run_ground_session(transport, campaign_id, run_id, duration_s,
+                                    session_runner=run_ground_session,
+                                    raw_logger_factory=None):
+    """Connect through the canonical transport boundary and record evidence."""
+    raw_logger_factory = raw_logger_factory or (lambda: None)
+    connect_calls = 0
+    close_calls = 0
+    connect_started = round(time.monotonic(), 6)
+    connect_completed = None
+    connect_failed = None
+    connect_error = None
+    close_started = None
+    close_completed = None
+    close_failed = None
+    close_error = None
+    connected = False
+
+    def _build_post_connect_failure(exc):
+        detail = repr(exc)
+        return {
+            "run_mode": "run",
+            "control_verdict": "FAIL",
+            "cut_power_warning": True,
+            "aborted_before_collect": True,
+            "initial_status": None,
+            "pre_stop": {"cmd_sent": False, "confirmed": False,
+                         "status": None, "failure_reason": "POST_CONNECT_EXCEPTION",
+                         "cmd_hex": None},
+            "speed_override": {"applied_speeds": [], "validated": False,
+                               "failure_reason": "POST_CONNECT_EXCEPTION"},
+            "start": {"cmd_sent": False, "confirmed": False,
+                      "status": None, "failure_reason": "POST_CONNECT_EXCEPTION",
+                      "cmd_hex": None},
+            "stop": {"attempted": False, "rollback_requested": False,
+                     "cmd_sent": False, "send_outcome": "NOT_INVOKED",
+                     "send_error": None, "confirmed": False,
+                     "stop_confirmed": False, "status": None,
+                     "failure_reason": "POST_CONNECT_EXCEPTION", "cmd_hex": None,
+                     "reservation_monotonic_s": None, "reserved_receive_seq": 0,
+                     "io_budget_exceeded": False},
+            "parameter_acks": [],
+            "protocol_anomalies": [],
+            "statuses": [],
+            "parse_errors": [],
+            "telemetry": {"n": 0, "frames": []},
+            "health_raw": [],
+            "health": soak.compute_health_summary([]),
+            "raw": {"n_rx_events": 0, "n_tx_events": 0,
+                    "n_rx_bytes": 0, "n_tx_bytes": 0},
+            "rollback_requested": False,
+            "stop_confirmed": False,
+            "heartbeat": {"started": False, "ok": True, "n_sent": 0,
+                          "failure": None, "stopped_before_final_stop": None,
+                          "active_at_terminal_stop_reservation": None},
+            "cleanup_errors": ([] if close_error is None else [
+                "transport_close: {0}".format(close_error)]),
+            "unexpected_exception": detail,
+            "primary_failure": _failure(
+                "session_wrapper", "POST_CONNECT_EXCEPTION",
+                detail, time.monotonic()),
+            "secondary_errors": [],
+            "quiescence": {"proven": False, "freeze_monotonic_s": None,
+                           "n_frozen_raw_events": 0},
+            "raw_io": {"published": False,
+                       "write_error": "NOT_ATTEMPTED_POST_CONNECT_EXCEPTION"},
+            "socket": {
+                "connect": _socket_phase(
+                    state="COMPLETED",
+                    call_count=connect_calls,
+                    started_monotonic_s=connect_started,
+                    completed_monotonic_s=connect_completed,
+                    elapsed_s=(None if connect_completed is None else round(
+                        connect_completed - connect_started, 6)),
+                    error=None,
+                ),
+                "close": _socket_close_phase_from_attempt(
+                    close_calls, close_started, close_completed,
+                    close_failed, close_error),
+            },
+        }
+
+    def _close_once_if_needed(force=False):
+        nonlocal close_calls, close_started, close_completed
+        nonlocal close_failed, close_error
+        if not connected and not force:
+            return None
+        if close_calls > 0 and not force:
+            return None
+        close_calls += 1
+        close_started = round(time.monotonic(), 6)
+        try:
+            transport.close()
+        except BaseException as exc:  # noqa: BLE001 - cleanup evidence only
+            close_failed = round(time.monotonic(), 6)
+            close_error = repr(exc)
+            return exc
+        close_completed = round(time.monotonic(), 6)
+        return None
+
+    try:
+        connect_calls += 1
+        transport.connect()
+        connect_completed = round(time.monotonic(), 6)
+        connected = True
+    except Exception as exc:  # noqa: BLE001 - fail-closed connect evidence
+        connect_failed = round(time.monotonic(), 6)
+        connect_error = repr(exc)
+        _close_once_if_needed(force=True)
+        return {
+            "run_mode": "run",
+            "control_verdict": "FAIL",
+            "cut_power_warning": True,
+            "aborted_before_collect": True,
+            "initial_status": None,
+            "pre_stop": {"cmd_sent": False, "confirmed": False,
+                         "status": None, "failure_reason": "CONNECT_FAILED",
+                         "cmd_hex": None},
+            "speed_override": {"applied_speeds": [], "validated": False,
+                               "failure_reason": "CONNECT_FAILED"},
+            "start": {"cmd_sent": False, "confirmed": False,
+                      "status": None, "failure_reason": "CONNECT_FAILED",
+                      "cmd_hex": None},
+            "stop": {"attempted": False, "rollback_requested": False,
+                     "cmd_sent": False, "send_outcome": "NOT_INVOKED",
+                     "send_error": None, "confirmed": False,
+                     "stop_confirmed": False, "status": None,
+                     "failure_reason": "CONNECT_FAILED", "cmd_hex": None,
+                     "reservation_monotonic_s": None, "reserved_receive_seq": 0,
+                     "io_budget_exceeded": False},
+            "parameter_acks": [],
+            "protocol_anomalies": [],
+            "statuses": [],
+            "parse_errors": [],
+            "telemetry": {"n": 0, "frames": []},
+            "health_raw": [],
+            "health": soak.compute_health_summary([]),
+            "raw": {"n_rx_events": 0, "n_tx_events": 0,
+                    "n_rx_bytes": 0, "n_tx_bytes": 0},
+            "rollback_requested": False,
+            "stop_confirmed": False,
+            "heartbeat": {"started": False, "ok": True, "n_sent": 0,
+                          "failure": None, "stopped_before_final_stop": None,
+                          "active_at_terminal_stop_reservation": None},
+            "cleanup_errors": ([] if close_error is None else [
+                "transport_close: {0}".format(close_error)]),
+            "unexpected_exception": connect_error,
+            "primary_failure": _failure(
+                "connect", "TRANSPORT_CONNECT_EXCEPTION",
+                connect_error, time.monotonic()),
+            "secondary_errors": [],
+            "quiescence": {"proven": False, "freeze_monotonic_s": None,
+                           "n_frozen_raw_events": 0},
+            "raw_io": {"published": False,
+                       "write_error": "NOT_ATTEMPTED_CONNECT_FAILED"},
+            "socket": {
+                "connect": _socket_phase(
+                    state="FAILED",
+                    call_count=connect_calls,
+                    started_monotonic_s=connect_started,
+                    failed_monotonic_s=connect_failed,
+                    elapsed_s=(None if connect_failed is None else round(
+                        connect_failed - connect_started, 6)),
+                    error=connect_error,
+                ),
+                "close": _socket_phase(
+                    **_socket_close_phase_from_attempt(
+                        close_calls, close_started, close_completed,
+                        close_failed, close_error)),
+            },
+        }
+    try:
+        raw_logger = raw_logger_factory()
+        result = session_runner(transport, campaign_id, run_id, duration_s, raw_logger)
+    except BaseException as exc:
+        _close_once_if_needed()
+        _attach_failure_report(exc, {"control": _build_post_connect_failure(exc)})
+        raise
+    if not isinstance(result, dict):
+        exc = TypeError("session_runner must return dict, got {0}".format(
+            type(result).__name__))
+        _close_once_if_needed()
+        _attach_failure_report(exc, {"control": _build_post_connect_failure(exc)})
+        raise exc
+    socket_report = result.get("socket")
+    if not isinstance(socket_report, dict):
+        socket_report = {}
+        result["socket"] = socket_report
+    socket_report["connect"] = _socket_phase(
+        state="COMPLETED",
+        call_count=connect_calls,
+        started_monotonic_s=connect_started,
+        completed_monotonic_s=connect_completed,
+        elapsed_s=(None if connect_completed is None else round(
+            connect_completed - connect_started, 6)),
+        error=None,
+    )
+    close_report = socket_report.get("close")
+    if not _socket_close_attempted(socket_report):
+        _close_once_if_needed()
+        socket_report["close"] = _socket_close_phase_from_attempt(
+            close_calls, close_started, close_completed, close_failed, close_error)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1332,6 +1792,67 @@ def normalize_telemetry_units(report):
     if isinstance(report, dict):
         report["telemetry_yaw_unit"] = "degree"
     return report
+
+
+def summarize_imu_evidence(report):
+    """Classify the IMU fields without promoting unknown data to a pass."""
+    telemetry = report.get("telemetry") if isinstance(report, dict) else None
+    frames = telemetry.get("frames", []) if isinstance(telemetry, dict) else []
+    if not isinstance(frames, list):
+        frames = []
+    records = []
+    unknown_count = 0
+    for frame_record in frames:
+        if not isinstance(frame_record, dict):
+            unknown_count += 1
+            continue
+        if (frame_record.get("imu_validity_known") is not True or
+                frame_record.get("imu_init_status_known") is not True):
+            unknown_count += 1
+            continue
+        try:
+            validity = int(frame_record["imu_validity"])
+            init_status = int(frame_record["imu_init_status"])
+        except (KeyError, TypeError, ValueError):
+            unknown_count += 1
+            continue
+        records.append((validity, init_status))
+
+    validity_values = sorted({validity for validity, _ in records})
+    init_status_values = sorted({init_status for _, init_status in records})
+    dt_clamped_frames = sum(
+        1 for validity, _ in records
+        if validity & IMU_VALIDITY_DT_CLAMPED)
+    summary = {
+        "status": "INSUFFICIENT_EVIDENCE",
+        "verdict": "UNVERIFIED",
+        "reason": "IMU_VALIDITY_OR_INIT_STATUS_UNKNOWN",
+        "n_frames": len(frames),
+        "n_known_frames": len(records),
+        "validity_values": validity_values,
+        "init_status_values": init_status_values,
+        "dt_clamped_frames": dt_clamped_frames,
+    }
+    if not frames:
+        summary["reason"] = "NO_TELEMETRY_FRAMES"
+        return summary
+    if unknown_count:
+        return summary
+
+    failures = []
+    if any(init_status != IMU_INIT_STATUS_OK
+           for _, init_status in records):
+        failures.append("IMU_INIT_STATUS_NOT_OK")
+    if any((validity & IMU_VALIDITY_FUSION_REQUIRED) !=
+           IMU_VALIDITY_FUSION_REQUIRED for validity, _ in records):
+        failures.append("IMU_VALIDITY_MASK_INCOMPLETE")
+    if dt_clamped_frames:
+        failures.append("DT_CLAMPED")
+    summary["status"] = "VERIFIED"
+    summary["verdict"] = "FAIL" if failures else "PASS"
+    summary["reason"] = ("|".join(failures)
+                          if failures else "VALID_INITIALIZED_FUSION_INPUT")
+    return summary
 
 
 def publish_report_atomic(evidence_dir, report):
@@ -1412,6 +1933,8 @@ def _known_control_failure(control_report):
             return True
     if control_report.get("stop_confirmed") is False:
         return True
+    if _socket_lifecycle_failure(control_report):
+        return True
     return False
 
 
@@ -1441,6 +1964,8 @@ def compute_shakedown_verdict(control_report, camera_report, artifacts):
     """Apply deterministic failure, evidence, then PASS precedence."""
     if _known_control_failure(control_report) or _known_camera_failure(camera_report):
         return "SHAKEDOWN_FAIL"
+    if not _socket_lifecycle_complete(control_report):
+        return "INSUFFICIENT_EVIDENCE"
     if not (isinstance(camera_report, dict)
             and (camera_report.get("verdict") == "PASS"
                  or camera_report.get("camera_verdict") == "PASS")):
@@ -1692,6 +2217,13 @@ class FfmpegCameraRecorder(object):
             self.stop()
         errors = []
         stop_report = self._stop_report or {}
+        try:
+            ffmpeg_log_text = self.log_path.read_text(encoding="utf-8",
+                                                      errors="replace")
+        except OSError:
+            ffmpeg_log_text = None
+        input_codec_tag_evidence = _camera_input_codec_tag_evidence(
+            ffmpeg_log_text)
         if not stop_report.get("clean_exit"):
             errors.append("ffmpeg did not exit cleanly")
         if not self.video_path.is_file():
@@ -1701,7 +2233,8 @@ class FfmpegCameraRecorder(object):
         self.ffprobe_command = [
             self.ffprobe_path or "ffprobe",
             "-v", "error", "-select_streams", "v:0",
-            "-show_entries", "stream=codec_name,width,height,avg_frame_rate",
+            "-show_entries",
+            "stream=codec_name,codec_tag_string,codec_tag,width,height,avg_frame_rate",
             "-of", "json", str(self.video_path),
         ]
         probe_data = None
@@ -1724,6 +2257,12 @@ class FfmpegCameraRecorder(object):
             errors.append("ffprobe failed: {0}".format(repr(exc)))
 
         video = {}
+        codec_tag_evidence = {
+            "status": "INSUFFICIENT_EVIDENCE",
+            "codec_tag_string": "UNKNOWN",
+            "codec_tag": None,
+            "error": "codec tag evidence unavailable",
+        }
         if probe_data is not None:
             streams = probe_data.get("streams") if isinstance(probe_data, dict) else None
             if not isinstance(streams, list) or not streams:
@@ -1742,8 +2281,22 @@ class FfmpegCameraRecorder(object):
                 fps = _parse_frame_rate(stream.get("avg_frame_rate"))
                 if fps is None or abs(fps - CAMERA_FPS) > CAMERA_FPS_TOLERANCE:
                     errors.append("video average frame rate is not 30 +/- 0.5 fps")
+                codec_tag_evidence = _camera_codec_tag_evidence(stream)
+                output_tag_status = codec_tag_evidence.get("status")
+                if output_tag_status == "CONTAINER_UNSPECIFIED":
+                    if input_codec_tag_evidence.get("status") != "PASS":
+                        errors.append(
+                            "DirectShow input codec tag validation failed: {0}"
+                            .format(input_codec_tag_evidence.get("error")))
+                elif output_tag_status != "PASS":
+                    errors.append("video codec tag validation failed: {0}".format(
+                        codec_tag_evidence.get("error")))
+                codec_tag_string = stream.get("codec_tag_string")
                 video = {
                     "codec_name": stream.get("codec_name"),
+                    "codec_tag_string": (codec_tag_string
+                                          if codec_tag_string else "UNKNOWN"),
+                    "codec_tag": stream.get("codec_tag"),
                     "width": stream.get("width"),
                     "height": stream.get("height"),
                     "avg_frame_rate": stream.get("avg_frame_rate"),
@@ -1764,6 +2317,8 @@ class FfmpegCameraRecorder(object):
             "ffprobe": probe_data,
             "ffprobe_returncode": getattr(probe_result, "returncode", None),
             "video": video,
+            "codec_tag_evidence": codec_tag_evidence,
+            "input_codec_tag_evidence": input_codec_tag_evidence,
             "errors": errors,
         }
         return self._validation_report
@@ -1833,6 +2388,7 @@ def _minimal_failure_report(evidence_dir, run_kind, reason, control=None,
                             requested_duration_s=None):
     artifact_map = _relative_artifact_map(evidence_dir, control, include_report=False)
     control_data = control if isinstance(control, dict) else {}
+    imu_evidence = summarize_imu_evidence(control_data)
     report_campaign_id = (campaign_id if campaign_id is not None
                           else control_data.get("campaign_id", ""))
     report_run_id = (run_id if run_id is not None
@@ -1848,7 +2404,8 @@ def _minimal_failure_report(evidence_dir, run_kind, reason, control=None,
         "campaign_id": report_campaign_id,
         "run_id": report_run_id,
         "requested_duration_s": report_duration,
-        "imu_evidence_status": "UNVERIFIED_NO_VALIDITY_BIT",
+        "imu_evidence_status": imu_evidence["status"],
+        "imu_evidence": imu_evidence,
         "control": control,
         "camera": camera,
         "artifact_paths": _artifact_paths(evidence_dir, artifact_map),
@@ -1933,6 +2490,11 @@ def orchestrate_shakedown(recorder, session_runner, evidence_dir, run_kind,
             control_report = session_runner()
         except BaseException as exc:  # noqa: BLE001 - publish before re-raise
             session_exception = exc
+            attached_report = getattr(exc, "failure_report", None)
+            if control_report is None and isinstance(attached_report, dict):
+                attached_control = attached_report.get("control")
+                if isinstance(attached_control, dict):
+                    control_report = attached_control
     finally:
         if started:
             try:
@@ -1986,6 +2548,7 @@ def orchestrate_shakedown(recorder, session_runner, evidence_dir, run_kind,
     report_duration = (requested_duration_s
                        if requested_duration_s is not None
                        else control_copy.get("requested_duration_s"))
+    imu_evidence = summarize_imu_evidence(control_copy)
     report = {
         "schema_version": 1,
         "run_kind": run_kind,
@@ -1994,7 +2557,8 @@ def orchestrate_shakedown(recorder, session_runner, evidence_dir, run_kind,
         "campaign_id": report_campaign_id,
         "run_id": report_run_id,
         "requested_duration_s": report_duration,
-        "imu_evidence_status": "UNVERIFIED_NO_VALIDITY_BIT",
+        "imu_evidence_status": imu_evidence["status"],
+        "imu_evidence": imu_evidence,
         "control": control_copy,
         "camera": camera_report,
         "speed_plan": list(SPEED_STEPS),
@@ -2013,18 +2577,6 @@ def orchestrate_shakedown(recorder, session_runner, evidence_dir, run_kind,
     published_report, _ = _publish_report_best_effort(
         evidence_path, report, fallback=publication_fallback)
     return published_report
-
-
-def _make_timestamp():
-    now = _datetime.datetime.now()
-    return now.strftime("%y%m%d%H%M%S%f")[:15]
-
-
-def _make_identity(prefix, timestamp):
-    identity = "{0}{1}".format(prefix, timestamp)
-    if len(identity) != 16 or not identity.isascii():
-        raise ValueError("production identity must be exactly 16 ASCII characters")
-    return identity
 
 
 def _resolve_camera_executables(resolver=None):
@@ -2066,10 +2618,11 @@ def main(argv=None):
     except ValueError as exc:
         print("ERROR: {0}".format(exc))
         return 2
-    timestamp = _make_timestamp()
-    campaign_id = _make_identity("s", timestamp)
+    now = _datetime.datetime.now()
+    campaign_id = make_runtime_identifier("s", now=now)
+    timestamp = campaign_id[1:]
     run_prefix = "e" if args.run_kind == "elevated-wheels" else "g"
-    run_id = _make_identity(run_prefix, timestamp)
+    run_id = make_runtime_identifier(run_prefix, now=now)
     if not args.execute:
         print("DRY RUN: no camera, TCP socket, process, or evidence directory opened")
         print("campaign_id: {0}".format(campaign_id))
@@ -2092,21 +2645,13 @@ def main(argv=None):
 
     def session_runner():
         transport = soak.SocketTransport(args.host, args.port)
-        try:
-            transport.connect()
-            raw_logger = soak.RawIoLogger(str(evidence_path))
-            result = run_ground_session(
-                transport, campaign_id, run_id, duration, raw_logger=raw_logger)
-            result["campaign_id"] = campaign_id
-            result["run_id"] = run_id
-            result["requested_duration_s"] = duration
-            return result
-        except BaseException:
-            try:
-                transport.close()
-            except Exception:
-                pass
-            raise
+        result = _connect_and_run_ground_session(
+            transport, campaign_id, run_id, duration,
+            raw_logger_factory=lambda: soak.RawIoLogger(str(evidence_path)))
+        result["campaign_id"] = campaign_id
+        result["run_id"] = run_id
+        result["requested_duration_s"] = duration
+        return result
 
     try:
         report = orchestrate_shakedown(

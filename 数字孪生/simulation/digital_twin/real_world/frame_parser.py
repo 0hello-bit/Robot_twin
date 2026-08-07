@@ -35,6 +35,7 @@ FRAME_TYPE_TELEMETRY = 0x01
 FRAME_TYPE_STATUS    = 0x02
 FRAME_TYPE_ACK       = 0x03
 FRAME_TYPE_MOTOR_REG_DIAG = 0x7E
+FRAME_TYPE_IMU_DIAGNOSTIC = 0x7D
 # Health baseline (Round 2 item 1): 0x02 语义复用。旧 STATUS 是孑遗定义
 # （len=7，从未被固件发射）；0x02(len=106) 是新增健康诊断帧。
 FRAME_TYPE_HEALTH    = 0x02
@@ -45,11 +46,26 @@ HEADER_2 = 0x55
 
 # ── 载荷长度 ──
 PAYLOAD_LEN_TELEMETRY = 24
+PAYLOAD_LEN_TELEMETRY_CURRENT = 26
 PAYLOAD_LEN_STATUS     = 7
 PAYLOAD_LEN_MOTOR_REG_DIAG = 24
+PAYLOAD_LEN_IMU_DIAGNOSTIC = 4
 PAYLOAD_LEN_HEALTH     = 106
 # 载荷长度上限：原 len>64 拒绝 → 改为 len>106 拒绝（容纳 0x02，设计 §8.2）。
 PAYLOAD_LEN_MAX        = 106
+
+# MPU6050 boot status values carried in current telemetry payload byte 25.
+MPU6050_INIT_STATUS_OK = 0x00
+MPU6050_INIT_STATUS_NOT_ATTEMPTED = 0x01
+MPU6050_INIT_STATUS_RESET_WRITE = 0x10
+MPU6050_INIT_STATUS_WAKE_WRITE = 0x11
+MPU6050_INIT_STATUS_SAMPLE_RATE_WRITE = 0x12
+MPU6050_INIT_STATUS_CONFIG_WRITE = 0x13
+MPU6050_INIT_STATUS_GYRO_CONFIG_WRITE = 0x14
+MPU6050_INIT_STATUS_ACCEL_CONFIG_WRITE = 0x15
+MPU6050_INIT_STATUS_WHO_AM_I_READ = 0x20
+MPU6050_INIT_STATUS_WHO_AM_I_MISMATCH = 0x21
+MPU6050_INIT_STATUS_BIAS_READ = 0x30
 
 
 class FrameParser:
@@ -222,7 +238,8 @@ def decode_telemetry(payload):
     返回:
         dict: {s0, s1, s2, s3, m1, m2, m3, m4, error, pid_output, tick_ms, yaw}
     """
-    if len(payload) < PAYLOAD_LEN_TELEMETRY:
+    if len(payload) not in (PAYLOAD_LEN_TELEMETRY,
+                            PAYLOAD_LEN_TELEMETRY_CURRENT):
         return None
 
     d = {
@@ -239,11 +256,14 @@ def decode_telemetry(payload):
         'tick_ms': _bytes_to_uint32(payload[16], payload[17],
                                      payload[18], payload[19]),
     }
-    if len(payload) >= 24:
-        d['yaw'] = _bytes_to_int32(payload[20], payload[21],
-                                    payload[22], payload[23]) / 100.0
-    else:
-        d['yaw'] = 0.0
+    yaw_deg_x100 = _bytes_to_int32(payload[20], payload[21],
+                                   payload[22], payload[23])
+    d['yaw'] = yaw_deg_x100 / 100.0
+    d['imu_yaw_deg_x100'] = yaw_deg_x100
+    d['imu_validity'] = payload[24] if len(payload) == 26 else 0
+    d['imu_validity_known'] = len(payload) == 26
+    d['imu_init_status'] = payload[25] if len(payload) == 26 else 0
+    d['imu_init_status_known'] = len(payload) == 26
     return d
 
 
@@ -368,6 +388,19 @@ def decode_motor_register_diag(payload):
         'tim4_ccr2': regs[9],
         'tim4_ccr3': regs[10],
         'tim4_ccr4': regs[11],
+    }
+
+
+def decode_imu_diagnostic(payload):
+    """Decode IMU identity/status plus the hardware-I2C2 identity cross-check."""
+    if len(payload) != PAYLOAD_LEN_IMU_DIAGNOSTIC:
+        return None
+
+    return {
+        'observed_id': payload[0],
+        'init_status': payload[1],
+        'validity_flags': payload[2],
+        'hardware_observed_id': payload[3],
     }
 
 

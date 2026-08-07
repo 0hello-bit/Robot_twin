@@ -177,6 +177,11 @@ class V1TelemetryFrame:
     pc_recv_ns: int
     yaw_rad: Optional[float] = None
     schema_version: str = SCHEMA_VERSION
+    imu_yaw_deg_x100: Optional[int] = None
+    imu_validity: int = 0
+    imu_validity_known: bool = False
+    imu_init_status: int = 0
+    imu_init_status_known: bool = False
 
     def __post_init__(self) -> None:
         _require(len(self.sensors) == SENSOR_COUNT,
@@ -195,7 +200,26 @@ class V1TelemetryFrame:
         _require(self.pc_recv_ns >= 0, "pc_recv_ns must be >= 0")
         if self.yaw_rad is not None:
             _require_finite(self.yaw_rad, "yaw_rad")
+        if self.imu_yaw_deg_x100 is not None:
+            _require_int(self.imu_yaw_deg_x100, "imu_yaw_deg_x100")
+            _require(-2147483648 <= self.imu_yaw_deg_x100 <= 2147483647,
+                     "imu_yaw_deg_x100 must fit int32")
+        _require_int(self.imu_validity, "imu_validity")
+        _require(0 <= self.imu_validity <= 0xFF,
+                 "imu_validity must fit uint8")
+        _require(isinstance(self.imu_validity_known, bool),
+                 "imu_validity_known must be bool")
+        _require_int(self.imu_init_status, "imu_init_status")
+        _require(0 <= self.imu_init_status <= 0xFF,
+                 "imu_init_status must fit uint8")
+        _require(isinstance(self.imu_init_status_known, bool),
+                 "imu_init_status_known must be bool")
         _require_schema_version(self.schema_version)
+
+    @property
+    def imu_yaw_rad(self) -> Optional[float]:
+        """Normalized IMU yaw in radians; eligibility is controlled by flags."""
+        return self.yaw_rad
 
     @property
     def yaw_known(self) -> bool:
@@ -212,6 +236,12 @@ class V1TelemetryFrame:
             "tick_ms": self.tick_ms,
             "pc_recv_ns": self.pc_recv_ns,
             "yaw_rad": self.yaw_rad,
+            "imu_yaw_rad": self.imu_yaw_rad,
+            "imu_yaw_deg_x100": self.imu_yaw_deg_x100,
+            "imu_validity": self.imu_validity,
+            "imu_validity_known": self.imu_validity_known,
+            "imu_init_status": self.imu_init_status,
+            "imu_init_status_known": self.imu_init_status_known,
             "schema_version": self.schema_version,
         }
 
@@ -224,8 +254,13 @@ class V1TelemetryFrame:
             pwm=tuple(data["pwm"]),
             tick_ms=data["tick_ms"],
             pc_recv_ns=data["pc_recv_ns"],
-            yaw_rad=data.get("yaw_rad"),
+            yaw_rad=data.get("yaw_rad", data.get("imu_yaw_rad")),
             schema_version=data.get("schema_version", SCHEMA_VERSION),
+            imu_yaw_deg_x100=data.get("imu_yaw_deg_x100"),
+            imu_validity=data.get("imu_validity", 0),
+            imu_validity_known=data.get("imu_validity_known", False),
+            imu_init_status=data.get("imu_init_status", 0),
+            imu_init_status_known=data.get("imu_init_status_known", False),
         )
 
 

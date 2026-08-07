@@ -10,6 +10,7 @@
 #include "esp_runtime_transport.h"
 #include "uart_ring.h"
 #include "motor_register_diag.h"
+#include "imu_diagnostic.h"
 #include "diag_one_shot.h"
 #include "send_response_parser.h"
 #include "cipsend_transaction.h"
@@ -22,6 +23,7 @@
 #include "health_frame.h"
 #include "health_watchdog.h"
 #include "telemetry_batch.h"
+#include "telemetry_rate.h"
 
 /******************************************************************************
  * ESP01S WiFi (TCP Server)
@@ -154,11 +156,14 @@ static uint16_t discard_tx_ring_cb(void *ctx)
     return discarded;
 }
 
-/* 遥测批量槽：最多保留最新 3 帧，ESP 忙时只丢可丢的最旧遥测。 */
+/* 遥测批量槽：最多保留最新 8 帧，ESP 忙时只丢可丢的最旧遥测。 */
 static uint8_t s_tele_frame[TELEMETRY_BATCH_FRAME_SIZE];
 static TelemetryBatch s_tele_batch;
 /* Droppable TX is released only after the current sensor/control phase. */
 static uint8_t s_control_cycle_ready;
+/* Keep the boot-time IMU identity observable until an existing client accepts
+   one diagnostic frame. */
+static uint8_t s_imu_diag_pending = 1U;
 
 /* 真实单调时间（mono_time.h / mono_time_core.h）。 */
 static uint32_t s_last_telemetry_ms = 0U;
@@ -200,10 +205,23 @@ static void ESP_MarkDisconnected(void)
    下一连接）。等下一个 CONNECT 到来时 coordinator 会再做完整边界清理。 */
 static void ESP_TX_HandleTerminal(void)
 {
+    uint8_t terminal_tag = CIPSEND_TX_TAG_NONE;
+    uint8_t terminal_result = CTS_RESULT_NONE;
+
+    /* Starting CIPSEND is not delivery evidence; wait for SEND OK. */
+    if (cipsend_tx_is_terminal(&g_cipsend_tx)) {
+        terminal_tag = cipsend_tx_tag(&g_cipsend_tx);
+        terminal_result = cipsend_tx_result(&g_cipsend_tx);
+    }
+
     /* Delegates to the extracted pure-logic function in esp_tx_coordinator,
        which is Host-testable via the same production code path.  See
        tx_boundary_design_decision.md §4 and §9. */
     etc_handle_terminal(&g_coordinator, mono_now_ms());
+
+    if (imu_diagnostic_delivery_confirmed(terminal_tag, terminal_result)) {
+        s_imu_diag_pending = 0U;
+    }
 }
 
 /* Phase 1: drain RX ring, route every byte to both the transport
@@ -240,14 +258,15 @@ static void ESP_ServiceTX(void)
     ESP_TX_HandleTerminal();
 }
 
-/* 构建 29 字节遥测帧到 s_tele_frame（与旧 Telemetry_Send 布局一致）。 */
+/* 构建 31 字节遥测帧到 s_tele_frame（兼容旧 payload 布局）。 */
 static void build_telemetry_frame(int16_t s0, int16_t s1, int16_t s2, int16_t s3,
-                                  int16_t m1, int16_t m2, int16_t m3, int16_t m4,
-                                  int16_t error, int16_t pid_output,
-                                  uint32_t tick, int32_t yaw)
+                                   int16_t m1, int16_t m2, int16_t m3, int16_t m4,
+                                   int16_t error, int16_t pid_output,
+                                   uint32_t tick, int32_t yaw,
+                                   uint8_t imu_validity)
 {
     uint8_t type = 0x01;
-    uint8_t len  = 24;
+    uint8_t len  = 26;
     uint8_t cs   = type ^ len;
     uint8_t i;
     int32_t yaw_int = yaw;
@@ -270,14 +289,16 @@ static void build_telemetry_frame(int16_t s0, int16_t s1, int16_t s2, int16_t s3
     s_tele_frame[25] = (uint8_t)((yaw_int >> 8) & 0xFF);
     s_tele_frame[26] = (uint8_t)((yaw_int >> 16) & 0xFF);
     s_tele_frame[27] = (uint8_t)((yaw_int >> 24) & 0xFF);
+    s_tele_frame[28] = imu_validity;
+    s_tele_frame[29] = MPU6050_GetInitStatus();
 
-    for (i = 4; i < 28; i++) cs ^= s_tele_frame[i];
+    for (i = 4; i < 30; i++) cs ^= s_tele_frame[i];
 
     s_tele_frame[0] = 0xAA;
     s_tele_frame[1] = 0x55;
     s_tele_frame[2] = type;
     s_tele_frame[3] = len;
-    s_tele_frame[28] = cs;
+    s_tele_frame[30] = cs;
 }
 
 /* 尝试把待发遥测交给 TX 状态机（仅当空闲且无 critical 待发）。 */
@@ -309,12 +330,13 @@ static void ESP_TrySendTelemetry(void)
     }
 }
 
-/* 遥测入队（latest-three）：由 ESP_TrySendTelemetry 择机批量发送。
+/* 遥测入队（latest-eight）：由 ESP_TrySendTelemetry 择机批量发送。
    tick 为采样时的真实单调毫秒（mono_now_ms），不再是 g_loop_count*5。 */
 static void Telemetry_Queue(int16_t s0, int16_t s1, int16_t s2, int16_t s3,
                             int16_t m1, int16_t m2, int16_t m3, int16_t m4,
                             int16_t error, int16_t pid_output,
-                            uint32_t tick, int32_t yaw)
+                            uint32_t tick, int32_t yaw,
+                            uint8_t imu_validity)
 {
     uint8_t overwrote;
     if (!g_tcp_client_connected || g_tcp_client_id > 4) {
@@ -322,7 +344,7 @@ static void Telemetry_Queue(int16_t s0, int16_t s1, int16_t s2, int16_t s3,
         return;
     }
     build_telemetry_frame(s0, s1, s2, s3, m1, m2, m3, m4,
-                          error, pid_output, tick, yaw);
+                          error, pid_output, tick, yaw, imu_validity);
     if (telemetry_batch_append(&s_tele_batch, s_tele_frame,
                                TELEMETRY_BATCH_FRAME_SIZE, &overwrote)) {
         hstats_telemetry_generated(&g_health_stats);
@@ -331,10 +353,11 @@ static void Telemetry_Queue(int16_t s0, int16_t s1, int16_t s2, int16_t s3,
     }
 }
 
-/* 发送二进制诊断帧（可丢，不重试）。若 TX 忙则本次放弃。
+/* 发送二进制诊断帧。0x7E 旧诊断帧可丢弃；0x7D IMU 身份诊断帧
+   保留到 SEND OK。若 TX 忙则本次放弃。
    Health baseline: 0x02 健康帧走 CIPSEND_TX_TAG_DIAG_HEALTH（专属归属）；
-   0x7E 旧诊断帧仍走 CIPSEND_TX_TAG_DIAG。返回是否成功开启事务（start 成功
-   处触发 hstats_tx_started；失败由调用方记 health_dropped）。 */
+   0x7E 旧诊断帧仍走 CIPSEND_TX_TAG_DIAG。返回是否成功开启事务（start
+   成功处触发 hstats_tx_started；失败由调用方记 health_dropped）。 */
 static uint8_t ESP_SendDiagFrame(const uint8_t *frame, uint16_t frame_len)
 {
     uint8_t tag;
@@ -346,8 +369,13 @@ static uint8_t ESP_SendDiagFrame(const uint8_t *frame, uint16_t frame_len)
     if (txfq_has_retry(&g_tx_queue)) return 0U;
     if (esp_transport_has_pending_ack()
         || esp_transport_has_pending_status()) return 0U;
-    tag = (frame_len >= 4U && frame[2] == HEALTH_FRAME_TYPE)
-          ? CIPSEND_TX_TAG_DIAG_HEALTH : CIPSEND_TX_TAG_DIAG;
+    if (frame_len >= 4U && frame[2] == HEALTH_FRAME_TYPE) {
+        tag = CIPSEND_TX_TAG_DIAG_HEALTH;
+    } else if (frame_len >= 4U && frame[2] == IMU_DIAGNOSTIC_TYPE) {
+        tag = CIPSEND_TX_TAG_IMU_DIAGNOSTIC;
+    } else {
+        tag = CIPSEND_TX_TAG_DIAG;
+    }
     build_cipsend_cmd(cmd, frame_len);
     started = cipsend_tx_start(&g_cipsend_tx, cmd, (uint16_t)strlen(cmd),
                                frame, frame_len,
@@ -357,6 +385,24 @@ static uint8_t ESP_SendDiagFrame(const uint8_t *frame, uint16_t frame_len)
         hstats_tx_started(&g_health_stats, tag, mono_now_ms());
     }
     return started;
+}
+
+static void ESP_TrySendImuDiagnostic(void)
+{
+    ImuDiagnosticSnapshot snapshot;
+    uint8_t frame[IMU_DIAGNOSTIC_FRAME_SIZE];
+
+    if (!s_imu_diag_pending) return;
+
+    snapshot.observed_id = MPU6050_GetObservedID();
+    snapshot.init_status = MPU6050_GetInitStatus();
+    snapshot.validity_flags = MPU6050_GetValidityFlags();
+    snapshot.hardware_observed_id = MPU6050_GetHardwareObservedID();
+    imu_diagnostic_encode(frame, &snapshot);
+
+    /* Keep the pending flag on a busy/disconnected/blocked transport so the
+       identity is still sent when the existing client path becomes idle. */
+    (void)ESP_SendDiagFrame(frame, IMU_DIAGNOSTIC_FRAME_SIZE);
 }
 
 /* 发送队列（非阻塞）：ACK → STATUS → telemetry，严格串行。
@@ -468,7 +514,6 @@ static void ESP_SendQueuedFrames(uint8_t allow_telemetry)
 #define LOOP_DELAY_MS           5
 
 #define USART1_BAUDRATE         38400
-#define TELEMETRY_INTERVAL_MS   20
 
 static int clamp(int v, int min, int max)
 {
@@ -676,6 +721,7 @@ static void ESP_FlushAfterControl(void)
     ESP_DrainPendingStatus();
     ESP_SendQueuedFrames(1U);
     health_flush_pending();
+    ESP_TrySendImuDiagnostic();
 }
 
 int main(void)
@@ -715,6 +761,9 @@ int main(void)
     txfq_init(&g_tx_queue);
     telemetry_batch_init(&s_tele_batch);
 
+    /* Read identity once through hardware I2C2 before the normal software-I2C
+       initialization.  This is read-only and motion-inhibited. */
+    (void)MPU6050_ReadHardwareID();
     /* MPU6050 IMU */
     MPU6050_Init();
     /* yaw dt 基准：初始化为当前单调毫秒，首次 dt 由 clamp 保护。 */
@@ -831,9 +880,13 @@ int main(void)
            并做边界保护（零 dt → 1ms；异常大间隔 → 100ms）。 */
         {
             uint32_t now_ms = mono_now_ms();
-            uint32_t dt_ms = mono_elapsed_ms(s_last_yaw_ms, now_ms);
+            uint32_t raw_dt_ms = mono_elapsed_ms(s_last_yaw_ms, now_ms);
+            uint32_t dt_ms = raw_dt_ms;
+            uint8_t dt_clamped = (raw_dt_ms < YAW_DT_MIN_MS ||
+                                  raw_dt_ms > YAW_DT_MAX_MS) ? 1U : 0U;
             dt_ms = mono_clamp_dt_ms(dt_ms, YAW_DT_MIN_MS, YAW_DT_MAX_MS);
             s_last_yaw_ms = now_ms;
+            MPU6050_SetDtClamped(dt_clamped);
             MPU6050_ReadAll();
             MPU6050_UpdateYaw((float)dt_ms / 1000.0f);
         }
@@ -885,11 +938,12 @@ int main(void)
                in this same iteration (no one-loop delay). */
             if (twin_control_report_line_lost(mono_now_ms())) {
                 MotorTargetsZero();
-                if (mono_now_ms() - s_last_telemetry_ms >= TELEMETRY_INTERVAL_MS) {
+                if (telemetry_rate_due(mono_now_ms(), s_last_telemetry_ms)) {
                     s_last_telemetry_ms = mono_now_ms();
                     Telemetry_Queue(0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                                     s_last_telemetry_ms,
-                                    (int32_t)(mpu_data.yaw * 100));
+                                    (int32_t)(mpu_data.yaw * 100),
+                                    MPU6050_GetValidityFlags());
                 }
                 ESP_FlushAfterControl();
                 Delay_ms(LOOP_DELAY_MS);
@@ -912,13 +966,14 @@ int main(void)
                 Diag_CaptureAndSendOnce();
             }
 
-            if (mono_now_ms() - s_last_telemetry_ms >= TELEMETRY_INTERVAL_MS) {
+            if (telemetry_rate_due(mono_now_ms(), s_last_telemetry_ms)) {
                 s_last_telemetry_ms = mono_now_ms();
                 Telemetry_Queue(0, 0, 0, 0,
                                 (int16_t)sm_l, (int16_t)sm_r,
                                 (int16_t)sm_r, (int16_t)sm_l,
                                 0, 0, s_last_telemetry_ms,
-                                (int32_t)(mpu_data.yaw * 100));
+                                (int32_t)(mpu_data.yaw * 100),
+                                MPU6050_GetValidityFlags());
             }
 
             ESP_FlushAfterControl();
@@ -1044,14 +1099,15 @@ int main(void)
             MotorOut(left, right);
             Diag_CaptureAndSendOnce();
 
-            if (mono_now_ms() - s_last_telemetry_ms >= TELEMETRY_INTERVAL_MS) {
+            if (telemetry_rate_due(mono_now_ms(), s_last_telemetry_ms)) {
                 s_last_telemetry_ms = mono_now_ms();
                 Telemetry_Queue(b0, b1, b2, b3,
                                 (int16_t)sm_l, (int16_t)sm_r,
                                 (int16_t)sm_r, (int16_t)sm_l,
-                                (int16_t)(error * 100), (int16_t)pid,
+                                 (int16_t)(error * 100), (int16_t)pid,
                                  s_last_telemetry_ms,
-                                 (int32_t)(mpu_data.yaw * 100));
+                                 (int32_t)(mpu_data.yaw * 100),
+                                 MPU6050_GetValidityFlags());
             }
         }
 

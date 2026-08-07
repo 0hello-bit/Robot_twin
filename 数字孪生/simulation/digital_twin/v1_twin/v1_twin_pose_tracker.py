@@ -83,19 +83,33 @@ class PoseTracker:
         依次尝试各放大倍率，第一个解码成功即返回。
         返回 dict: corners(去畸变后 (4,2)), center_px, forward_px, side_px。
         """
+        detection, _ = self._detect_with_diagnostics(frame)
+        return detection
+
+    def _detect_with_diagnostics(
+        self, frame: Any
+    ) -> tuple[Optional[Dict[str, Any]], dict]:
+        started_ns = time.perf_counter_ns()
+        attempted_scales = []
+        rejected_candidate_counts = []
+        saw_markers = False
         if frame.ndim == 3:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         else:
             gray = frame
         for scale in self._scales:
+            attempted_scales.append(float(scale))
             if scale == 1.0:
                 g = gray
             else:
                 g = cv2.resize(gray, None, fx=scale, fy=scale,
                                interpolation=cv2.INTER_CUBIC)
-            corners_l, ids, _ = self._detector.detectMarkers(g)
+            corners_l, ids, rejected = self._detector.detectMarkers(g)
+            rejected_count = len(rejected) if rejected is not None else 0
+            rejected_candidate_counts.append(rejected_count)
             if ids is None:
                 continue
+            saw_markers = True
             for c, i in zip(corners_l, ids.ravel()):
                 if int(i) != self._tag_id:
                     continue
@@ -105,13 +119,42 @@ class PoseTracker:
                 # 印刷正上 = TL - BL = corner0 - corner3
                 fwd = pts_u[0] - pts_u[3]
                 side = float(np.linalg.norm(pts_u[0] - pts_u[1]))
-                return {
+                detection = {
                     "corners": pts_u,
                     "center_px": center,
                     "forward_px": fwd,
                     "side_px": side,
                 }
-        return None
+                return detection, {
+                    "attempted_scales": attempted_scales,
+                    "matched_scale": float(scale),
+                    "tag_side_px": float(side),
+                    "failure_reason": None,
+                    "rejected_candidate_count": int(
+                        sum(rejected_candidate_counts)
+                    ),
+                    "rejected_candidate_counts": list(
+                        rejected_candidate_counts
+                    ),
+                    "detect_elapsed_ns": time.perf_counter_ns() - started_ns,
+                }
+        return None, {
+            "attempted_scales": attempted_scales,
+            "matched_scale": None,
+            "tag_side_px": None,
+            "failure_reason": (
+                "target_tag_not_found"
+                if saw_markers
+                else (
+                    "candidates_rejected"
+                    if sum(rejected_candidate_counts) > 0
+                    else "no_markers"
+                )
+            ),
+            "rejected_candidate_count": int(sum(rejected_candidate_counts)),
+            "rejected_candidate_counts": list(rejected_candidate_counts),
+            "detect_elapsed_ns": time.perf_counter_ns() - started_ns,
+        }
 
     def track(
         self, frame: Any, t_pc_ns: Optional[int] = None
@@ -126,6 +169,20 @@ class PoseTracker:
         det = self.detect(frame)
         if det is None:
             return None
+        return self._pose_from_detection(det, t_pc_ns)
+
+    def track_with_diagnostics(
+        self, frame: Any, t_pc_ns: Optional[int] = None
+    ) -> tuple[Optional[V1Pose], dict]:
+        """Track one frame and return bounded detector diagnostics."""
+        det, diagnostics = self._detect_with_diagnostics(frame)
+        if det is None:
+            return None, diagnostics
+        return self._pose_from_detection(det, t_pc_ns), diagnostics
+
+    def _pose_from_detection(
+        self, det: Dict[str, Any], t_pc_ns: Optional[int]
+    ) -> V1Pose:
         cx, cy = det["center_px"]
         x_mm, y_mm = self._hom.pixel_to_mm(cx, cy)
         fx, fy = det["forward_px"]

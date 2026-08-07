@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import socket
 import sys
@@ -66,7 +67,7 @@ from real_world.runtime_protocol import (  # noqa: E402
 from v1_twin.v1_twin_capture import resolve_run_output_dir  # noqa: E402
 from v1_twin.v1_twin_sync import ClockSync  # noqa: E402
 
-TELEMETRY_PERIOD_MS = 20          # 固件 TELEMETRY_INTERVAL_MS（设计值）
+TELEMETRY_PERIOD_MS = 30          # 固件 TELEMETRY_INTERVAL_MS（设计值）
 TICK_MODULUS = 1 << 32            # uint32
 WRAP_GAP_MAX_MS = 60_000
 BATCH_THRESHOLD_NS = 10_000_000
@@ -370,6 +371,7 @@ class _SessionCtx(object):
         if not d:
             return
         pc_ns = time.monotonic_ns()
+        yaw_deg = round(float(d.get("yaw", 0.0)), 6)
         frame = {
             "tick_ms": int(d["tick_ms"]),
             "pc_recv_ns": pc_ns,
@@ -379,7 +381,13 @@ class _SessionCtx(object):
             "m3": int(d["m3"]), "m4": int(d["m4"]),
             "error": int(d["error"]),
             "pid_output": int(d["pid_output"]),
-            "yaw_rad": round(float(d.get("yaw", 0.0)), 6),
+            "yaw_deg": yaw_deg,
+            "yaw_rad": round(math.radians(yaw_deg), 9),
+            "imu_yaw_deg_x100": int(d["imu_yaw_deg_x100"]),
+            "imu_validity": int(d["imu_validity"]),
+            "imu_validity_known": bool(d["imu_validity_known"]),
+            "imu_init_status": int(d["imu_init_status"]),
+            "imu_init_status_known": bool(d["imu_init_status_known"]),
         }
         with self.frames_lock:
             self.frames.append(frame)

@@ -71,8 +71,19 @@ def test_capture_run_id_factory_is_not_second_granularity():
     second = capture_sync_run.make_run_id()
 
     assert first != second
-    assert first.startswith("sync-")
-    assert second.startswith("sync-")
+    assert len(first) == len(second) == 16
+    assert first.startswith("c")
+    assert second.startswith("c")
+
+
+def test_capture_run_id_is_compatible_with_runtime_wire_protocol():
+    import capture_sync_run
+    from real_world.runtime_protocol import MAX_IDENTIFIER_LENGTH, RunCommand
+
+    run_id = capture_sync_run.make_run_id()
+
+    assert len(run_id) <= MAX_IDENTIFIER_LENGTH
+    assert RunCommand("sync", run_id, "START").encode().startswith("R,sync,")
 
 
 def test_resolve_run_output_dir_rejects_unsafe_run_id(tmp_path):

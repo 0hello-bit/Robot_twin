@@ -709,6 +709,11 @@
               <FileType>1</FileType>
               <FilePath>.\Hardware\mpu6050.c</FilePath>
             </File>
+            <File>
+              <FileName>mpu6050_hardware_i2c_diag.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\mpu6050_hardware_i2c_diag.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -728,6 +733,11 @@
               <FileName>telemetry_batch.h</FileName>
               <FileType>5</FileType>
               <FilePath>.\User\telemetry_batch.h</FilePath>
+            </File>
+            <File>
+              <FileName>telemetry_rate.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\User\telemetry_rate.h</FilePath>
             </File>
             <File>
               <FileName>twin_control_protocol.c</FileName>
@@ -793,6 +803,11 @@
               <FileName>motor_register_diag.h</FileName>
               <FileType>5</FileType>
               <FilePath>.\User\motor_register_diag.h</FilePath>
+            </File>
+            <File>
+              <FileName>imu_diagnostic.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\User\imu_diagnostic.h</FilePath>
             </File>
             <File>
               <FileName>send_response_parser.c</FileName>

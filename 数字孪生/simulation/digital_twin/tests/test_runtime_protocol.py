@@ -5,6 +5,7 @@ are hand-derived so the tests do not reuse the implementation under test.
 """
 
 import pytest
+from datetime import datetime, timezone
 
 from real_world.runtime_protocol import (
     KD_MAX,
@@ -22,11 +23,23 @@ from real_world.runtime_protocol import (
     RunCommand,
     RuntimeParameterBoundary,
     frame,
+    make_runtime_identifier,
     parse_ack,
     parse_command,
     parse_status,
     validate_parameter_update,
 )
+
+
+def test_runtime_identifier_avoids_collisions_within_one_output_millisecond():
+    """Catches IDs that truncate distinct same-ms timestamps to one value."""
+    first_time = datetime(2026, 8, 6, 10, 0, 0, 123100, tzinfo=timezone.utc)
+    second_time = datetime(2026, 8, 6, 10, 0, 0, 123900, tzinfo=timezone.utc)
+
+    first = make_runtime_identifier("q", now=first_time)
+    second = make_runtime_identifier("q", now=second_time)
+
+    assert first != second
 
 
 def test_parameter_packet_round_trip_and_checksum():

@@ -3,8 +3,9 @@
 
 #include <stdint.h>
 
-/* Fixed capacity — must be power of 2 */
-#define UART_RING_SIZE 128U
+/* Fixed capacity - must be power of 2.  The TX instance must hold one
+   complete 248-byte droppable telemetry batch after the CIPSEND prompt. */
+#define UART_RING_SIZE 256U
 #define UART_RING_MASK (UART_RING_SIZE - 1U)
 
 /* Single-producer single-consumer lock-free ring buffer.

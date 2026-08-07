@@ -257,7 +257,40 @@ def test_telemetry_yaw_round_trip():
     tel = make_telemetry(yaw_rad=0.25)
     restored = from_json(to_json(tel), V1TelemetryFrame)
     assert restored.yaw_rad == pytest.approx(0.25)
+    assert restored.imu_yaw_rad == pytest.approx(0.25)
     assert restored == tel
+
+
+def test_telemetry_imu_evidence_round_trip():
+    tel = make_telemetry(
+        yaw_rad=-0.75,
+        imu_yaw_deg_x100=-4297,
+        imu_validity=0x0F,
+        imu_validity_known=True,
+    )
+    encoded = json.loads(to_json(tel))
+    assert encoded["imu_yaw_rad"] == pytest.approx(-0.75)
+    assert encoded["imu_yaw_deg_x100"] == -4297
+    assert encoded["imu_validity"] == 0x0F
+    assert encoded["imu_validity_known"] is True
+    restored = from_json(to_json(tel), V1TelemetryFrame)
+    assert restored.imu_yaw_rad == pytest.approx(-0.75)
+    assert restored.imu_yaw_deg_x100 == -4297
+    assert restored.imu_validity == 0x0F
+    assert restored.imu_validity_known is True
+
+
+def test_telemetry_init_status_round_trip():
+    tel = make_telemetry(
+        imu_init_status=0x21,
+        imu_init_status_known=True,
+    )
+    encoded = json.loads(to_json(tel))
+    assert encoded["imu_init_status"] == 0x21
+    assert encoded["imu_init_status_known"] is True
+    restored = from_json(to_json(tel), V1TelemetryFrame)
+    assert restored.imu_init_status == 0x21
+    assert restored.imu_init_status_known is True
 
 
 def test_telemetry_yaw_defaults_unknown_for_legacy():

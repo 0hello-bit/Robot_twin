@@ -4,7 +4,7 @@
 
 **Goal:** 在不修改小车核心算法和硬件的前提下，用真实小车的同步观测数据校准当前数字孪生，并用完全隔离的 holdout 数据验证它是否足以支持下一阶段的候选筛选。
 
-**Architecture:** 当前小车、相机和现有遥测组成真实观测端；`capture_sync_run.py` 生成带 run ID 的不可覆盖原始数据；`V1Identification` 只使用 calibration 数据拟合；`V1ModelRegistry` 冻结带版本和哈希的模型；holdout 由独立验证器重新加载模型并生成预测报告。V1-B 不生成 AI 候选，不修改固件源码，不设计 PCB。
+**Architecture:** 当前小车、相机和现有遥测组成真实观测端；B2 使用已经验收的 `ground_shakedown.py` 安全 Smoke 入口形成可追溯的硬件控制证据；后续 B3 再用 `capture_sync_run.py` 生成带 run ID 的不可覆盖同步原始数据；`V1Identification` 只使用 calibration 数据拟合；`V1ModelRegistry` 冻结带版本和哈希的模型；holdout 由独立验证器重新加载模型并生成预测报告。V1-B 不生成 AI 候选，不修改固件源码，不设计 PCB。
 
 **Tech Stack:** Python 3.11、现有 `simulation/digital_twin/v1_twin` 接口、`tools/camera_toolchain` 采集工具、pytest、当前 STM32 固件运行时参数协议；真实采集仅在用户当次明确授权后进行。
 
@@ -71,7 +71,10 @@ agent 必须先复用现有接口，不得重新造一套平行数字孪生：
 - `simulation/digital_twin/v1_twin/v1_twin_identification.py`：真实数据拟合入口；
 - `simulation/digital_twin/v1_twin/v1_twin_model_registry.py`：模型版本和证据注册；
 - `simulation/digital_twin/v1_twin/v1_twin_validator.py`：候选和证据门禁；
-- `tools/camera_toolchain/capture_sync_run.py`：同步采集入口；
+- `tools/shakedown_toolchain/transport_soak.py`：已有 ESP TCP transport、混合流、原始 I/O、健康摘要和 H 心跳实现；
+- `tools/shakedown_toolchain/ground_shakedown.py`：V1-B B2 唯一 canonical 硬件 Smoke 入口；
+- `tools/camera_toolchain/capture_sync_run.py`：B3 同步采集入口，不是 B2 控制入口；
+- `firmware/stm32_line_follower/User/esp_runtime_transport.c/.h`、`esp_tx_coordinator.c/.h` 和 `twin_control_protocol.c/.h`：当前固件通信与安全边界来源；
 - `simulation/digital_twin/tests/`：现有离线回归测试。
 
 新增文件只有在现有接口不能表达 V1-B 约束时才允许添加，并且必须保持 `v1_twin_*` 命名、可独立测试和可追溯。不能为了计划书而预先创建 UI、MCP、第二台机器人或 PCB 工具链。
@@ -217,15 +220,15 @@ py -3.11 -m compileall -q simulation\digital_twin tools
 
 **B2 实现复用边界（硬约束）：**
 
-B2 不得重新实现 ESP-01S TCP、P/R/A/S 帧、校验和、ACK 关联、二进制遥测解析或采集资源生命周期。按以下顺序复用现有模块：
+B2 不得重新实现 ESP-01S TCP、P/R/A/S 帧、校验和、ACK 关联、H 心跳、二进制遥测解析或采集资源生命周期。审计后的唯一 canonical 硬件入口是 `tools/shakedown_toolchain/ground_shakedown.py`；agent 应直接调用它的 CLI 或 `run_ground_session()`，不得另写一条 B2 控制链。
 
-1. `simulation/digital_twin/real_world/runtime_protocol.py`：复用 `ParameterCommand`、`RunCommand`、`parse_ack`、`parse_status` 和现有 checksum/frame 逻辑；不得在新脚本中拼接第二套协议字符串。若 B2 需要发送固件已实现的 `H,campaign,run_id,checksum` 心跳，必须先在这个共享协议模块中补最小的可测试接口，再由现有客户端调用。
-2. `simulation/digital_twin/real_world/frame_parser.py`、`stream_demuxer.py` 和 `tools/shakedown_toolchain/transport_soak.py::MixedStreamParser`：复用现有二进制/ASCII 混合流解析，不得新增重复 parser。
-3. `tools/camera_toolchain/capture_sync_run.py`：复用实际相机模式检查、`run_sync_capture_session`、START/STOP 清理、停止确认和 run 输出目录规则；不得复制其 socket、reader thread 或 cleanup 实现。B2 若只需要 Smoke 证据，应通过最小参数/薄适配调用这些函数，而不是创建第二个采集器。
-4. `simulation/digital_twin/web_showcase/live_wifi_bridge.py` 的 `send_runtime_command`、`wait_for_ack` 和 `runtime_command_client.AckRegistry`：在需要 P 命令 ACK 时优先复用；不得创建第二个 ACK registry 或绕过 campaign/version 关联。`LiveWifiBridge` 是现有桥接层，B2 不得为了本次 Smoke 启动 UI 或重写桥接层。
-5. `firmware/stm32_line_follower/User/twin_control_protocol.c/.h`：只作为当前协议和安全状态机的来源进行核对；B2 不得修改固件、烧录、复位或改变安全边界。
+1. `ground_shakedown.py` 已经复用 `transport_soak.py` 的 `SocketTransport`、`RawIoLogger`、混合流/健康处理和 `HeartbeatCommand`，并复用 `runtime_protocol.py` 的 `ParameterCommand`、`RunCommand`、ACK/STATUS 解析和校验逻辑。B2 不得复制这些实现，也不得在新脚本中手写第二套协议字符串。
+2. `ground_shakedown.py` 已经包含五级 `speed_max` 远程轮速参数 ramp、逐版本 `APPLIED/APPLIED` ACK 门禁、START/RUNNING 确认、200 ms H 心跳、一次性终止 STOP/STOPPED 确认、原始 I/O、超时/失败关闭和证据发布。H 心跳不需要在 `runtime_protocol.py` 里重新发明；B2 只需核对并记录该既有路径的原始 TX 证据。
+3. `simulation/digital_twin/real_world/frame_parser.py`、`stream_demuxer.py` 和 `transport_soak.py::MixedStreamParser` 是既有解析边界；不得新增遥测、健康帧或 ASCII/二进制混合流解析器。
+4. `firmware/stm32_line_follower/User/esp_runtime_transport.c/.h`、`esp_tx_coordinator.c/.h` 和 `twin_control_protocol.c/.h` 只作为当前固件协议、心跳租约、轮速参数、安全停机和状态输出的来源进行核对；B2 不得修改固件、烧录、复位或改变安全边界。
+5. `capture_sync_run.py` 是后续 B3 同步采集入口，不是 B2 控制入口；`LiveWifiBridge`/`AckRegistry` 是已有 UI 桥接资产，本次 B2 不得启动 UI、复制其 TCP 客户端或创建第二个 ACK registry。需要 B2 证据时优先使用 `ground_shakedown.py` 已有的 raw evidence。
 
-当前固件源码声明了 1 秒运行时心跳租约，而现有 Python 采集入口是否实际发送 H 心跳必须在 B2 前核对。若确认本次真机固件启用了该租约，agent 必须在同一现有协议/客户端链路中补齐可测试的心跳发送，或将 Smoke 严格限制在 STOP 早于租约超时的短时范围内；不得在没有心跳证据时把长时间运行报告为安全通过。
+只有当现有 `ground_shakedown.py` 无法表达某一条明确的真实证据时，才允许在现有模块边界内做最小适配；先写失败测试，再实现适配。若缺口涉及当前固件身份、ESP 地址、相机实际模式或安全确认，优先报告 `INSUFFICIENT EVIDENCE`，不得用新模块掩盖缺口。
 
 **AGENT STOP:** B2 结束后必须等待 Codex 对原始证据的独立验收和用户对下一次地面采集的全新授权。
 
@@ -304,11 +307,13 @@ V1-B 通过后，V1-C 才能开始设计真实 A/B/C 候选循环：每轮至少
 
 ---
 
-## 6. 给另一个 agent 的第一阶段目标提示词
+## 6. B1 历史提示词（已完成，禁止复制）
 
-下面的提示词用于启动 V1-B，当前只执行 B1 离线准备，不执行任何硬件动作：
+> **历史记录，不是当前任务入口。** B1 已完成并由 Codex 验收为 `ACCEPTED_OFFLINE_ONLY`。下面的代码块只用于保留当时的执行记录，禁止复制、发送或再次执行。当前唯一可执行入口是 [V1-B B2 agent prompt](../prompts/2026-08-05-v1-b2-active-agent-prompt.md)。
 
 ```text
+ARCHIVED TASK - DO NOT EXECUTE. B1 IS ALREADY COMPLETE.
+
 你现在执行 Robot Twin AI 项目的 V1-B Task B1：真实校准与 holdout 的离线准备。
 
 正式工作区固定为：
@@ -347,67 +352,13 @@ py -3.11 -m compileall -q simulation\digital_twin tools
 
 ---
 
-## 6.1 给另一个 agent 的 B2 目标提示词
+## 6. 当前唯一可执行入口：B2 目标提示词
 
-下面的提示词用于启动 V1-B Task B2。它复用本计划和已有 Task 1-3/4B 产物，只执行一次受控的硬件安全 Smoke；完成后必须停止，不能自行进入 B3。
+不要从本计划书复制 B1 代码块。发送给新 agent 的完整提示词唯一存放在：
 
-```text
-你现在执行 Robot Twin AI 项目的 V1-B Task B2：安全硬件 Smoke。
+`docs/superpowers/prompts/2026-08-05-v1-b2-active-agent-prompt.md`
 
-正式工作区固定为：
-C:\Users\24668\Desktop\stm32小车\数字孪生
-
-本次 B2 已得到用户当次授权，允许在受控条件下连接 C960、连接 ESP-01S TCP，并进行一次抬轮短时 START/STOP。授权不包括烧录、复位、修改 STM32 固件、修改控制算法、地面运行、连续实验、B3 同步采集、B4 数据冻结或 B5 模型拟合。你只能完成 B2，handoff 后立即停止。
-
-你的唯一目标：证明已有 ESP-01S/STM32 通信、运行时参数 ACK、相机实际模式、短时启动与最终 STOP、以及资源清理能够形成可追溯的真实硬件证据。B2 不是性能测试，不证明高速，不证明数字孪生已校准，也不产生可用于模型拟合的 calibration/holdout 数据。
-
-开始前必须阅读：
-1. docs\Robot_Twin_AI_完整计划说明书_v2.7.md
-2. docs\agent-context\CURRENT_STATUS.md
-3. docs\agent-context\handoffs\2026-08-05-v1-b-offline-preflight.md
-4. docs\superpowers\plans\2026-08-05-v1-b-real-calibration-holdout.md
-5. simulation\digital_twin\real_world\runtime_protocol.py
-6. simulation\digital_twin\real_world\frame_parser.py
-7. simulation\digital_twin\web_showcase\live_wifi_bridge.py
-8. tools\camera_toolchain\capture_sync_run.py
-9. firmware\stm32_line_follower\User\twin_control_protocol.c/.h
-
-必须复用，禁止重复造轮子：
-- 用 real_world.runtime_protocol 的 ParameterCommand/RunCommand/parse_ack/parse_status 和 checksum/frame；禁止手写第二套 P/R/A/S 或 checksum。
-- 用现有 frame_parser、stream_demuxer、MixedStreamParser；禁止新增遥测/ASCII 混合流解析器。
-- 用 capture_sync_run.py 已有的相机实际模式检查、run_id 输出目录、run_sync_capture_session、STOP 等待和幂等清理；禁止复制其 socket、reader thread 或 cleanup。
-- 需要 P 命令 ACK 时复用 LiveWifiBridge.send_runtime_command/wait_for_ack 和 AckRegistry，或在现有 capture 链路上做最小适配；不得新建第二个 ACK registry、第二个 TCP 客户端或第二个采集生命周期。
-- 不把 v1_b_preflight.py 改成硬件脚本；它仍必须保持离线。
-
-执行顺序：
-1. 先检查 git status，确认没有覆盖用户未提交修改；运行相关离线测试和 compileall。若路径、依赖或协议版本无法确认，停止并报告 INSUFFICIENT EVIDENCE。
-2. 核对当前 canonical firmware 源码/构建身份和 SHA-256。不得把历史 handoff 的哈希自动当成当前真机固件哈希；无法证明真机正在运行该固件时，保留为 INSUFFICIENT EVIDENCE，不得烧录补救。
-3. 人工准备：C960 固定并确认实际画面；小车四个驱动轮抬起、不得接触地面；用户站在电源/实体急停旁；除本次短时 Smoke 外不允许车辆地面运动。
-4. 只连接 C960，读取并记录实际 FourCC、分辨率和 FPS，必须是 MJPG / 1280x720 / 30 fps；不能把 cap.set 请求值当成实际证据。
-5. 通过现有 ESP-01S TCP 路径连接当前确认的 host/port。不得猜测 IP；若当前地址或端口无法从配置/用户确认，停止并报告 INSUFFICIENT EVIDENCE。
-6. 用现有 ParameterCommand 发送已审核的速度安全 ramp：speed_max 680 -> 580 -> 480 -> 380 -> 280 -> 260；每步只发送一次，每个版本必须收到同 campaign_id/version 的 APPLIED/APPLIED ACK。Kp/Ki/Kd 使用当前固件已核对的 baseline，不得自行发明新参数。任一步 ACK 超时、关联不匹配或 REJECTED，立即停止，不重试掩盖问题。
-7. 确认固件的 H 心跳租约要求。如果当前真机固件启用 1 秒租约，必须使用同一现有协议/客户端链路按要求发送并记录 H；如果 B2 只做短时 Smoke，则 START 后必须在租约超时前主动 STOP，不能依赖 TIMEOUT 停车。
-8. 只发送一次 R START，抬轮运行不超过 0.5 秒，然后发送 R STOP；不得自动重试 START。必须从原始接收流中解析并记录与本 run_id/campaign_id 匹配的 STOPPED/STOP。STOP 未确认、资源未各清理一次或发生异常时，立即停止并将 B2 标为 INSUFFICIENT EVIDENCE。
-9. 保存真实证据：run_id、实际相机模式、firmware identity/hash、P 命令和 ACK、R START/STOP、S STOPPED/STOP、连接/断开时间、socket/camera cleanup 状态和失败原因。SMOKE 数据不得加入 calibration 或 holdout。
-10. 运行离线回归测试，检查本次新增/修改范围。若现有模块已经能够完成 B2，不要为了“整理”而重构或复制代码；没有必要的代码修改时可以只提交证据 handoff。
-
-允许的最小代码变更：仅当现有接口无法表达 B2 的明确证据或 H 心跳时，才在现有模块中做最小增量，并为增量先写失败测试再实现。禁止修改 STM32 固件、控制算法、PCB、UI、MCP、第二台机器人或开启 Keil/烧录流程。
-
-handoff 必须包含：
-- Task/Gate 和 PASS/FAIL/INSUFFICIENT_EVIDENCE；
-- 实际 changed files；
-- 每条命令、退出码和关键输出；
-- VERIFIED / INFERENCE / INSUFFICIENT EVIDENCE；
-- Hardware actions 的精确记录：connected / flashed / reset / START / STOP / motion；
-- 真实 run_id、原始证据路径和 SHA-256；
-- 未完成项和原因；
-- 明确写出 B2 不等于 B3 同步 Gate、不等于高速性能提升；
-- 下一接口为 B3，且必须等待 Codex 独立验收和用户对地面采集的新授权。
-
-到达 handoff 后立即停止，不得运行 B3/B4/B5，不得自动进入下一阶段。
-```
-
-这个提示词中的“复用边界”优先级高于 agent 自己的重构偏好；如果现有实现无法完成某一步，先报告具体缺口，不要另起一套并行模块。
+该文件开头必须保留 `ACTIVE TASK: V1-B B2` 和 `DO NOT EXECUTE B1` 标记。它明确要求复用已有 `ground_shakedown.py`，并明确“提示词本身不构成硬件授权”；只有用户在同一轮消息中明确设备、动作和时长后，agent 才能执行硬件动作。B2 完成后必须停止，等待 Codex 独立验收。
 
 ---
 

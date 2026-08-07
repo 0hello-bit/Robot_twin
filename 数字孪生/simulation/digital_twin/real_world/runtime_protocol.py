@@ -5,8 +5,10 @@ frames that a later bridge task may send to the STM32 safety boundary.
 """
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 import math
 import re
+import threading
 
 
 MIN_SPEED_MAX = 260
@@ -27,10 +29,42 @@ MAX_COMMAND_BODY_BYTES = 96
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9-]+$")
 _RUN_ACTIONS = frozenset(("START", "STOP", "RESTORE_BASELINE"))
 _ACK_OUTCOMES = frozenset(("APPLIED", "REJECTED"))
+_RUNTIME_IDENTIFIER_LOCK = threading.Lock()
+_RUNTIME_IDENTIFIER_LAST = {}
 
 
 class ProtocolError(ValueError):
     """Raised when a runtime-control frame is not safe or well-formed."""
+
+
+def make_runtime_identifier(prefix, now=None):
+    """Create the 16-character identifier accepted by the STM32 protocol.
+
+    The first character identifies the run family; the remaining characters
+    are the existing millisecond timestamp format used by the shakedown tool.
+    A supplied naive datetime is kept as-is for compatibility with that tool.
+    """
+    if not isinstance(prefix, str) or len(prefix) != 1:
+        raise ProtocolError("runtime identifier prefix must be one character")
+    current = now if now is not None else datetime.now(timezone.utc)
+    if not isinstance(current, datetime):
+        raise ProtocolError("runtime identifier time must be a datetime")
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    else:
+        current = current.astimezone(timezone.utc)
+    with _RUNTIME_IDENTIFIER_LOCK:
+        previous = _RUNTIME_IDENTIFIER_LAST.get(prefix)
+        timestamp = current.strftime("%y%m%d%H%M%S%f")[:15]
+        if previous is not None:
+            previous_timestamp = previous.strftime("%y%m%d%H%M%S%f")[:15]
+            if timestamp <= previous_timestamp:
+                current = previous + timedelta(milliseconds=1)
+                timestamp = current.strftime("%y%m%d%H%M%S%f")[:15]
+        _RUNTIME_IDENTIFIER_LAST[prefix] = current
+    identifier = "{0}{1}".format(prefix, timestamp)
+    _validate_identifier(identifier, "run_id")
+    return identifier
 
 
 def xor_checksum(body):

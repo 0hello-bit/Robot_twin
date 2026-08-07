@@ -452,6 +452,47 @@ static int test_start_stall_timeout(void)
 }
 
 /* ===================================================================
+ * TELEMETRY BATCH CAPACITY
+ * =================================================================== */
+
+static int test_accepts_eight_telemetry_frames(void)
+{
+    CipsendTx tx;
+    const char cmd[] = "AT+CIPSEND=0,248\r\n";
+    uint8_t data[248];
+    uint16_t i;
+
+    for (i = 0U; i < (uint16_t)sizeof(data); i++) {
+        data[i] = (uint8_t)(i ^ 0x5AU);
+    }
+
+    cipsend_tx_init(&tx);
+    CHECK(cipsend_tx_start(&tx, cmd, (uint16_t)strlen(cmd), data,
+                           (uint16_t)sizeof(data),
+                           CIPSEND_TX_PRIORITY_DROPPABLE,
+                           CIPSEND_TX_TAG_TELEMETRY, 0U));
+    CHECK(tx.data_len == (uint16_t)sizeof(data));
+    CHECK(tx.data[0] == data[0]);
+    CHECK(tx.data[247] == data[247]);
+    return 0;
+}
+
+static int test_rejects_payload_above_new_bound(void)
+{
+    CipsendTx tx;
+    const char cmd[] = "AT+CIPSEND=0,249\r\n";
+    uint8_t data[249];
+
+    memset(data, 0xA5, sizeof(data));
+    cipsend_tx_init(&tx);
+    CHECK(cipsend_tx_start(&tx, cmd, (uint16_t)strlen(cmd), data,
+                           (uint16_t)sizeof(data),
+                           CIPSEND_TX_PRIORITY_DROPPABLE,
+                           CIPSEND_TX_TAG_TELEMETRY, 0U) == 0U);
+    return 0;
+}
+
+/* ===================================================================
  * INIT / RESET
  * =================================================================== */
 
@@ -486,6 +527,8 @@ static int run_all_tests(void)
     if (test_sink_rejection_defers_send()) return 1;
     if (test_start_sets_initial_deadline()) return 1;
     if (test_start_stall_timeout()) return 1;
+    if (test_accepts_eight_telemetry_frames()) return 1;
+    if (test_rejects_payload_above_new_bound()) return 1;
     if (test_init_resets()) return 1;
 
     puts("PASS test_cipsend_tx");

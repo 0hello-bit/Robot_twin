@@ -22,7 +22,7 @@
 
 /* ── 缓冲区尺寸 ─────────────────────────────────────────────────────── */
 #define CIPSEND_TX_MAX_CMD   24U          /* "AT+CIPSEND=<id>,<len>\r\n"     */
-#define CIPSEND_TX_MAX_DATA  112U         /* 最大载荷（S 状态帧 ≤ 96+5）      */
+#define CIPSEND_TX_MAX_DATA  248U         /* 8 telemetry frames (8 * 31)     */
 
 /* ── 优先级 / 标签 ───────────────────────────────────────────────────── */
 #define CIPSEND_TX_PRIORITY_DROPPABLE  0U  /* telemetry / diag               */
@@ -33,6 +33,7 @@
 #define CIPSEND_TX_TAG_STATUS     2U
 #define CIPSEND_TX_TAG_TELEMETRY  3U
 #define CIPSEND_TX_TAG_DIAG       4U
+#define CIPSEND_TX_TAG_IMU_DIAGNOSTIC 6U
 
 /* ── 状态 ────────────────────────────────────────────────────────────── */
 #define CIPSEND_TX_STATE_IDLE          0U  /* 无事务                          */

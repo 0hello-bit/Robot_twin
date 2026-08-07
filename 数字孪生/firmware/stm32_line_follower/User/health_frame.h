@@ -6,7 +6,7 @@
 /* ── 0x02 健康诊断帧（firmware health baseline）─────────────────────────
  *
  * 帧骨架：AA 55 type(0x02) len(0x6A=106) [payload 106B] XOR checksum
- * 总长 111B ≤ CIPSEND_TX_MAX_DATA(112)。字节布局见设计 §5.2，全部 LE。
+ * 总长 111B ≤ CIPSEND_TX_MAX_DATA(145)。字节布局见设计 §5.2，全部 LE。
  * 本模块为纯编码器（无硬件依赖），黄金向量由 Host C 与 Python 双侧断言。
  */
 
@@ -16,8 +16,11 @@
 
 /* fw_schema_version：0x02 布局的语义版本，布局变化必升。 */
 #define HEALTH_FRAME_FW_SCHEMA_VERSION 1U
-/* fw_build_id：编译期手动设定，非日期；单一来源。 */
-#define FW_BUILD_ID 1U
+/* fw_build_id：编译期手动设定，非日期；单一来源。
+   Build 2 is the offline telemetry-throughput remediation image and must be
+   distinguishable from the previously flashed Build 1 image. */
+/* Build 3: IMU identity-diagnostic image. */
+#define FW_BUILD_ID 3U
 
 /* motion_state 枚举（设计 §5.5）。 */
 #define HEALTH_MOTION_STATE_INIT      0U
