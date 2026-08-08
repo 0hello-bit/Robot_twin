@@ -28,7 +28,7 @@ def test_saved_camera_index_is_c960_index_1():
     assert config["index"] == 1
 
 
-def test_open_camera_requests_c960_720p30_mjpg_dshow(monkeypatch):
+def test_open_camera_requests_c960_1080p30_mjpg_dshow(monkeypatch):
     camera_common = _load_camera_common()
     opened = []
 
@@ -46,9 +46,9 @@ def test_open_camera_requests_c960_720p30_mjpg_dshow(monkeypatch):
 
         def get(self, prop):
             if prop == camera_common.cv2.CAP_PROP_FRAME_WIDTH:
-                return 1280
+                return 1920
             if prop == camera_common.cv2.CAP_PROP_FRAME_HEIGHT:
-                return 720
+                return 1080
             if prop == camera_common.cv2.CAP_PROP_FPS:
                 return 30.0
             if prop == camera_common.cv2.CAP_PROP_FOURCC:
@@ -67,15 +67,15 @@ def test_open_camera_requests_c960_720p30_mjpg_dshow(monkeypatch):
     _, width, height = camera_common.open_camera(1)
 
     assert opened == [(1, camera_common.cv2.CAP_DSHOW)]
-    assert (width, height) == (1280, 720)
+    assert (width, height) == (1920, 1080)
     assert fake_capture is not None
     assert fake_capture.set_calls == [
         (
             camera_common.cv2.CAP_PROP_FOURCC,
             camera_common.cv2.VideoWriter_fourcc(*"MJPG"),
         ),
-        (camera_common.cv2.CAP_PROP_FRAME_WIDTH, 1280),
-        (camera_common.cv2.CAP_PROP_FRAME_HEIGHT, 720),
+        (camera_common.cv2.CAP_PROP_FRAME_WIDTH, 1920),
+        (camera_common.cv2.CAP_PROP_FRAME_HEIGHT, 1080),
         (camera_common.cv2.CAP_PROP_FPS, 30.0),
     ]
 

@@ -47,7 +47,7 @@ def _local_scale_ratio(M, px, py):
     return float(sv[0] / sv[1])
 
 
-def analyze(corners, frame_size=(1280, 720)):
+def analyze(corners, frame_size=(cc.DEFAULT_WIDTH, cc.DEFAULT_HEIGHT)):
     """返回 (中心ratio, 角部最大偏差, 方向提示)。
 
     权威判据 = homography 局部 Jacobian 奇异值比（旋转无关）：
@@ -84,7 +84,9 @@ def analyze(corners, frame_size=(1280, 720)):
 
 def main():
     try:
-        cap, _aw, _ah = cc.open_camera(SOURCE, 1280, 720)
+        cap, _aw, _ah = cc.open_camera(
+            SOURCE, cc.DEFAULT_WIDTH, cc.DEFAULT_HEIGHT
+        )
     except SystemExit as e:
         print(f"FAIL: {e}")
         return 1
@@ -100,7 +102,9 @@ def main():
         if ret:
             corners2 = cv2.cornerSubPix(gray, corners, (5, 5), (-1, -1), CRITERIA)
             cv2.drawChessboardCorners(frame, PATTERN, corners2, ret)
-            center_ratio, max_dev, pitch, roll = analyze(corners2, (1280, 720))
+            center_ratio, max_dev, pitch, roll = analyze(
+                corners2, (cc.DEFAULT_WIDTH, cc.DEFAULT_HEIGHT)
+            )
             ok_flag = abs(center_ratio - 1.0) < 0.03 and max_dev < 0.06
             color = (0, 255, 0) if ok_flag else (0, 165, 255)
             status = "垂直 OK ✓ (全图均匀)" if ok_flag else "微调摄像头趋近 1.0"

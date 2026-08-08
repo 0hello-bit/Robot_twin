@@ -21,8 +21,8 @@ SOURCE = cc.get_camera_index(int(sys.argv[1]) if len(sys.argv) > 1 else None)
 OUT = sys.argv[2] if len(sys.argv) > 2 else os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "chessboard_calibration.mp4")
 SECONDS = float(sys.argv[3]) if len(sys.argv) > 3 else 90.0
-WIDTH, HEIGHT = 1280, 720
-FPS = 30.0
+WIDTH, HEIGHT = cc.DEFAULT_WIDTH, cc.DEFAULT_HEIGHT
+FPS = cc.DEFAULT_FPS
 
 
 def main():

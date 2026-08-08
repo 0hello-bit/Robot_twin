@@ -321,7 +321,7 @@ def test_capture_saves_bounded_failure_thumbnail_and_relative_path(tmp_path):
     class ImageCamera(FakeCamera):
         def read(self):
             self.read_calls += 1
-            return True, np.full((720, 1280, 3), 127, dtype=np.uint8)
+            return True, np.full((1080, 1920, 3), 127, dtype=np.uint8)
 
     sock = FakeSocket(recv_data=_encode_telemetry_frame(tick_ms=100))
     frame_index = []
@@ -350,13 +350,47 @@ def test_capture_saves_bounded_failure_thumbnail_and_relative_path(tmp_path):
     saved_image = cv2.imdecode(
         np.fromfile(str(saved[0]), dtype=np.uint8), cv2.IMREAD_COLOR
     )
-    assert saved_image.shape[:2] == (720, 1280)
+    assert saved_image.shape[:2] == (1080, 1920)
     summary = diagnostics["failure_frame_summary"]
-    assert summary["max_width"] == 1280
+    assert summary["max_width"] == 1920
     assert summary["jpeg_quality"] == 95
     assert summary["saved"] == len(saved)
     assert summary["by_reason"]["candidates_rejected"] > 0
     assert summary["saved_by_reason"]["candidates_rejected"] == len(saved)
+
+
+def test_capture_fails_closed_when_read_frame_shape_is_not_1080p(tracker):
+    class MismatchedImageCamera(FakeCamera):
+        def read(self):
+            self.read_calls += 1
+            return True, np.full((360, 640, 3), 127, dtype=np.uint8)
+
+    sock = FakeSocket(recv_data=_encode_telemetry_frame(tick_ms=100))
+    frame_index = []
+    diagnostics = {}
+    cap = MismatchedImageCamera()
+
+    _telemetry, _poses, actions, outcome = (
+        capture_sync_run.run_sync_capture_session(
+            sock,
+            cap,
+            tracker,
+            "run-shape",
+            0.01,
+            0.5,
+            frame_index=frame_index,
+            diagnostics=diagnostics,
+            expected_frame_size=(1920, 1080),
+        )
+    )
+
+    assert outcome == "camera_frame_dimensions_mismatch"
+    assert actions["stop_attempted"] is True
+    assert actions["socket_closed"] is True
+    assert actions["camera_released"] is True
+    assert frame_index[0]["frame_width"] == 640
+    assert frame_index[0]["frame_height"] == 360
+    assert diagnostics["frame_shape_counts"] == {"640x360": 1}
 
 
 def test_capture_preserves_current_imu_telemetry_fields(tracker):
@@ -453,22 +487,22 @@ def test_cleanup_base_exception_does_not_skip_socket_or_camera_release(tracker):
     assert actions["camera_released"] is True
 
 
-def test_capture_camera_entrypoint_locks_index1_720p30_mjpg(monkeypatch):
+def test_capture_camera_entrypoint_locks_index1_1080p30_mjpg(monkeypatch):
     calls = []
 
     def fake_open_camera(index, **kwargs):
         calls.append((index, kwargs))
-        return object(), 1280, 720
+        return object(), 1920, 1080
 
     monkeypatch.setattr(capture_sync_run.camera_common,
                         "open_camera", fake_open_camera)
     cap, width, height = capture_sync_run.open_capture_camera(1)
 
     assert cap is not None
-    assert (width, height) == (1280, 720)
+    assert (width, height) == (1920, 1080)
     assert calls == [(1, {
-        "width": 1280,
-        "height": 720,
+        "width": 1920,
+        "height": 1080,
         "fps": 30.0,
         "fourcc": "MJPG",
         "backend": capture_sync_run.cv2.CAP_DSHOW,

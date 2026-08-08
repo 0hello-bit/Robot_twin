@@ -77,7 +77,10 @@ from transport_soak import (
     compute_health_summary,
 )
 
-CAMERA_PERIOD_NS = 33_300_000   # 30fps
+CAMERA_WIDTH = camera_common.DEFAULT_WIDTH
+CAMERA_HEIGHT = camera_common.DEFAULT_HEIGHT
+CAMERA_FPS = camera_common.DEFAULT_FPS
+CAMERA_PERIOD_NS = int(round(1_000_000_000 / CAMERA_FPS))
 TELEMETRY_PERIOD_NS = 30_000_000  # firmware generation interval
 TOLERANCE_NS = max(CAMERA_PERIOD_NS, TELEMETRY_PERIOD_NS)
 STOP_CONFIRM_TIMEOUT_S = 1.0
@@ -122,7 +125,7 @@ B3_DIAGNOSTIC_FILENAMES = ("raw_health.json", "raw_io.json")
 FAILURE_FRAME_DIRNAME = "failed_frames"
 MAX_FAILURE_FRAME_THUMBNAILS = 12
 FAILURE_FRAME_SAMPLE_STRIDE = 30
-FAILURE_FRAME_MAX_WIDTH = 1280
+FAILURE_FRAME_MAX_WIDTH = CAMERA_WIDTH
 FAILURE_FRAME_JPEG_QUALITY = 95
 
 
@@ -130,16 +133,18 @@ def open_capture_camera(index: int):
     """Open the C960 in the mode accepted by the 4B-4 capture gate."""
     cap, actual_w, actual_h = camera_common.open_camera(
         int(index),
-        width=1280,
-        height=720,
-        fps=30.0,
+        width=CAMERA_WIDTH,
+        height=CAMERA_HEIGHT,
+        fps=CAMERA_FPS,
         fourcc="MJPG",
         backend=cv2.CAP_DSHOW,
     )
-    if (actual_w, actual_h) != (1280, 720):
+    if (actual_w, actual_h) != (CAMERA_WIDTH, CAMERA_HEIGHT):
         cap.release()
         raise SystemExit(
-            "capture requires 1280x720, got {}x{}".format(actual_w, actual_h)
+            "capture requires {}x{}, got {}x{}".format(
+                CAMERA_WIDTH, CAMERA_HEIGHT, actual_w, actual_h
+            )
         )
     return cap, actual_w, actual_h
 
@@ -508,7 +513,8 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                              stop_confirm_timeout_s=STOP_CONFIRM_TIMEOUT_S,
                              frame_index=None, diagnostics=None,
                              failure_frame_dir=None,
-                             max_failure_frame_thumbnails=MAX_FAILURE_FRAME_THUMBNAILS):
+                             max_failure_frame_thumbnails=MAX_FAILURE_FRAME_THUMBNAILS,
+                             expected_frame_size=None):
     """START → 等待首帧遥测 → 采集 的生命周期，附带统一幂等清理。
 
     *sock* / *cap* / *tracker* 由调用方注入（真硬件或离线 fake）。
@@ -529,6 +535,7 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
         failure_frame_dir, max_failure_frame_thumbnails
     )
     diagnostics["failure_frame_summary"] = failure_frame_summary
+    diagnostics["frame_shape_counts"] = {}
     raw_io = RawIoLogger(None)
     health_frames = []
     diagnostics["health_frames"] = health_frames
@@ -690,6 +697,61 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                 camera_frame_number += 1
                 try:
                     if ok:
+                        shape = getattr(frame, "shape", ())
+                        if len(shape) < 2:
+                            if expected_frame_size is None:
+                                shape = (0, 0)
+                            else:
+                                frame_record["failure_reason"] = (
+                                    "camera_frame_shape_unavailable"
+                                )
+                                actions["collect_error"] = (
+                                    "camera frame has no readable shape"
+                                )
+                                outcome = "camera_frame_dimensions_mismatch"
+                                _maybe_save_failure_frame(
+                                    frame,
+                                    frame_record["frame_index"],
+                                    frame_record,
+                                    failure_frame_dir,
+                                    failure_frame_summary,
+                                )
+                                return telemetry, poses, actions, outcome
+                        frame_height = int(shape[0])
+                        frame_width = int(shape[1])
+                        frame_record["frame_width"] = frame_width
+                        frame_record["frame_height"] = frame_height
+                        shape_key = "{}x{}".format(frame_width, frame_height)
+                        diagnostics["frame_shape_counts"][shape_key] = (
+                            diagnostics["frame_shape_counts"].get(shape_key, 0)
+                            + 1
+                        )
+                        if expected_frame_size is not None:
+                            try:
+                                validate_frame_dimensions(
+                                    (frame_width, frame_height),
+                                    expected_frame_size,
+                                )
+                            except BaseException as exc:
+                                frame_record["failure_reason"] = (
+                                    "camera_frame_shape_mismatch"
+                                )
+                                frame_record["expected_frame_width"] = int(
+                                    expected_frame_size[0]
+                                )
+                                frame_record["expected_frame_height"] = int(
+                                    expected_frame_size[1]
+                                )
+                                actions["collect_error"] = repr(exc)
+                                outcome = "camera_frame_dimensions_mismatch"
+                                _maybe_save_failure_frame(
+                                    frame,
+                                    frame_record["frame_index"],
+                                    frame_record,
+                                    failure_frame_dir,
+                                    failure_frame_summary,
+                                )
+                                return telemetry, poses, actions, outcome
                         # Task 4B-4 fix: 帧读取成功立即打时间戳，显式传入 track()，
                         # 不在检测结束后才打采集时间（PoseTracker 默认时间戳在
                         # 检测结束生成）。
@@ -777,9 +839,9 @@ def build_sync_report(*, host, duration_s, run_id, camera_mode, actions,
         "run_id": run_id,
         "camera": {
             "requested": {
-                "width": 1280,
-                "height": 720,
-                "fps": 30.0,
+                "width": CAMERA_WIDTH,
+                "height": CAMERA_HEIGHT,
+                "fps": CAMERA_FPS,
                 "fourcc": "MJPG",
             },
             "actual": actual_camera,
@@ -834,9 +896,9 @@ def build_session_failure_report(*, host, duration_s, run_id, camera_mode,
         "run_id": run_id,
         "camera": {
             "requested": {
-                "width": 1280,
-                "height": 720,
-                "fps": 30.0,
+                "width": CAMERA_WIDTH,
+                "height": CAMERA_HEIGHT,
+                "fps": CAMERA_FPS,
                 "fourcc": "MJPG",
             },
             "actual": (dict(camera_mode) if camera_mode is not None else None),
@@ -1078,7 +1140,7 @@ def main():
     if (
         camera_mode["fourcc"] != "MJPG"
         or not math.isfinite(camera_mode["fps"])
-        or abs(camera_mode["fps"] - 30.0) > 0.5
+        or abs(camera_mode["fps"] - CAMERA_FPS) > 0.5
     ):
         actions = _new_action_state()
         try:
@@ -1094,7 +1156,7 @@ def main():
             camera_mode=camera_mode,
             actions=actions,
             outcome="camera_mode_mismatch",
-            reason="actual camera mode does not match MJPG/30fps",
+            reason="actual camera mode does not match 1920x1080 MJPG/30fps",
             n_poses=0,
             n_telemetry=0,
         )
@@ -1132,14 +1194,15 @@ def main():
     telemetry, poses, actions, outcome = run_sync_capture_session(
         sock, cap, tracker, run_id, args.duration, args.wait_timeout,
         frame_index=frame_index, diagnostics=diagnostics,
-        failure_frame_dir=Path(out_dir) / FAILURE_FRAME_DIRNAME)
+        failure_frame_dir=Path(out_dir) / FAILURE_FRAME_DIRNAME,
+        expected_frame_size=(CAMERA_WIDTH, CAMERA_HEIGHT))
 
     # 动作状态报告：START 失败时不假称已 STOP。
     print("cleanup actions:", {k: v for k, v in actions.items()})
 
     if outcome in (
         "start_failed", "heartbeat_failed", "no_telemetry_timeout",
-        "collect_error",
+        "collect_error", "camera_frame_dimensions_mismatch",
     ):
         write_capture_artifacts(out_dir, poses, telemetry, frame_index,
                                 diagnostics)

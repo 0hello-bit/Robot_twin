@@ -25,7 +25,7 @@ MAX_VIEWS = 15
 MIN_DIST = 50.0        # 角点质心至少移动 50px 才算新位姿
 MIN_GAP_S = 1.5        # 相邻视图至少间隔 1.5s，强制换位姿
 TOTAL_S = 150.0        # 总时长放宽到 150s
-WIDTH, HEIGHT = 1280, 720
+WIDTH, HEIGHT = cc.DEFAULT_WIDTH, cc.DEFAULT_HEIGHT
 
 CRITERIA = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-6)
 

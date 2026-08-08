@@ -21,7 +21,7 @@ _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
 import camera_common as cc
 
 SOURCE = cc.get_camera_index(int(_sys.argv[1]) if len(_sys.argv) > 1 else None)
-WIDTH, HEIGHT = 1280, 720
+WIDTH, HEIGHT = cc.DEFAULT_WIDTH, cc.DEFAULT_HEIGHT
 THRESH = 80      # 灰度 < 80 视为暗
 EDGE = 2         # 距边缘 <=2px 视为贴边
 OUT_DIR = os.path.dirname(os.path.abspath(__file__))

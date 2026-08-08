@@ -26,7 +26,7 @@ OUT = sys.argv[2] if len(sys.argv) > 2 else os.path.join(
 PATTERN = (9, 6)
 GRID = 3  # 3x3
 MIN_DIST = 40.0
-WIDTH, HEIGHT = 1280, 720
+WIDTH, HEIGHT = cc.DEFAULT_WIDTH, cc.DEFAULT_HEIGHT
 CRITERIA = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-6)
 
 

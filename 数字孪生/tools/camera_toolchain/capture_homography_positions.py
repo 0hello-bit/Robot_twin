@@ -21,7 +21,7 @@ SOURCE = cc.get_camera_index(int(_sys.argv[1]) if len(_sys.argv) > 1 else None)
 OUT = sys.argv[2] if len(sys.argv) > 2 else os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "homography_positions")
 PATTERN = (9, 6)
-WIDTH, HEIGHT = 1280, 720
+WIDTH, HEIGHT = cc.DEFAULT_WIDTH, cc.DEFAULT_HEIGHT
 
 
 def main():

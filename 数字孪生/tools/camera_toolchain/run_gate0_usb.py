@@ -30,9 +30,9 @@ _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
 import camera_common as cc
 
 DURATION = 600.0    # 10 minutes
-WIDTH = 1280
-HEIGHT = 720
-FPS = 30.0
+WIDTH = cc.DEFAULT_WIDTH
+HEIGHT = cc.DEFAULT_HEIGHT
+FPS = cc.DEFAULT_FPS
 FOURCC = "MJPG"
 BACKEND = cv2.CAP_DSHOW
 WARMUP = True

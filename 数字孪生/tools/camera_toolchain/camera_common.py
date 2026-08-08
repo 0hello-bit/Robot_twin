@@ -16,6 +16,8 @@ import numpy as np
 
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "camera_config.json")
 DEFAULT_BACKEND = cv2.CAP_DSHOW
+DEFAULT_WIDTH = 1920
+DEFAULT_HEIGHT = 1080
 DEFAULT_FPS = 30.0
 DEFAULT_FOURCC = "MJPG"
 
@@ -100,8 +102,8 @@ def imwrite_unicode(path: str, img: np.ndarray) -> bool:
 
 def open_camera(
     index: int,
-    width: int = 1280,
-    height: int = 720,
+    width: int = DEFAULT_WIDTH,
+    height: int = DEFAULT_HEIGHT,
     fps: float = DEFAULT_FPS,
     fourcc: str = DEFAULT_FOURCC,
     backend: int = DEFAULT_BACKEND,
