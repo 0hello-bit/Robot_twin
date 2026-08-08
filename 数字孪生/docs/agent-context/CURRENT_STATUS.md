@@ -1144,3 +1144,47 @@ Status: `OFFLINE_CANDIDATE_ONLY`
 
 The detailed evidence and the single-variable follow-up are recorded in
 `docs/agent-context/handoffs/2026-08-07-b3-offline-snapshot-preprocess-probe.md`.
+
+### B3 OFFLINE OBSERVATION GATE (2026-08-08)
+
+Status: `OFFLINE_VERIFIED_B3_OBSERVATION_GATE_FAILED`
+
+- A read-only analyzer now replays the existing `frame_index.jsonl` and
+  `sync_report.json` through a separate B3 observation gate. It reuses the
+  existing capture artifacts and does not create a detector, TCP client,
+  parser, or session lifecycle.
+- The declared screening profile is 30 fps, detected-pose ratio `>=0.95`,
+  maximum detected-pose gap `<=2` frame periods, and detector p95 processing
+  time `<=1` frame period. These are engineering screening thresholds, not
+  physical accuracy claims.
+- Replay of real run `c260807144501519` is independently verified as 193
+  readable camera frames, 21 detected poses, `10.8808%` detection ratio,
+  `2.75 s` maximum pose gap, and `70.36154 ms` detector p95. The existing sync
+  sub-gate and overall capture verdict are both `PASS`; the observation gate
+  is `FAIL` with evidence status `VERIFIED`.
+- The derived report is tracked at
+  `docs/evidence/v1_b3_observation_gate_20260808/report.json`. The raw run is
+  unchanged and remains the authoritative source.
+- Focused offline verification is `19 passed`. Full Python regression is
+  `727 passed, 5 skipped`; compileall exits `0`.
+- The CLI accepts `REAL_SYNC` only below the canonical capture roots
+  `simulation/digital_twin/logs/` and
+  `simulation/digital_twin/data/product/sessions/v1_b/`. This prevents an
+  arbitrary temporary directory from being labeled as a real run, but file
+  artifacts alone still cannot independently prove physical origin.
+
+#### EVIDENCE BOUNDARY
+
+- `VERIFIED`: the retained real run has sparse AprilTag observations and fails
+  the declared observation gate.
+- `INFERENCE`: detector processing time and candidate rejection may contribute
+  to the sparse stream.
+- `INSUFFICIENT EVIDENCE`: the exact cause is not isolated because this run
+  predates failed-frame thumbnail retention; no detector or calibration change
+  is promoted.
+
+#### NEXT INTERFACE
+
+- Keep B3 blocked. After explicit authorization, run one bounded capture using
+  the existing failure-frame retention path, inspect the thumbnails and
+  metadata, then select exactly one constrained observation experiment.
