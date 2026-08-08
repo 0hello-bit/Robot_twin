@@ -83,6 +83,12 @@ TOLERANCE_NS = max(CAMERA_PERIOD_NS, TELEMETRY_PERIOD_NS)
 STOP_CONFIRM_TIMEOUT_S = 1.0
 READER_JOIN_TIMEOUT_S = 1.0
 
+
+# Windows monotonic_ns may be backed by a coarse GetTickCount64 clock.
+def capture_pc_clock_ns():
+    """Return the shared high-resolution monotonic clock for evidence times."""
+    return time.perf_counter_ns()
+
 OUTPUT_FILENAMES = (
     "pose.jsonl",
     "telemetry.jsonl",
@@ -538,7 +544,7 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
         d = decode_telemetry(payload)
         if not d:
             return
-        pc_ns = time.monotonic_ns()
+        pc_ns = capture_pc_clock_ns()
         pwm = tuple(int(d[k]) for k in ("m1", "m2", "m3", "m4"))
         frame = V1TelemetryFrame(
             sensors=(binarize_sensor(d["s0"]), binarize_sensor(d["s1"]),
@@ -564,7 +570,7 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
             return
         record = {
             "frame_ts_s": round(time.time(), 6),
-            "pc_recv_ns": time.monotonic_ns(),
+            "pc_recv_ns": capture_pc_clock_ns(),
         }
         record.update({key: int(value) for key, value in d.items()})
         with tele_lock:
@@ -670,7 +676,7 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                         # Task 4B-4 fix: 帧读取成功立即打时间戳，显式传入 track()，
                         # 不在检测结束后才打采集时间（PoseTracker 默认时间戳在
                         # 检测结束生成）。
-                        t_pc_ns = time.monotonic_ns()
+                        t_pc_ns = capture_pc_clock_ns()
                         frame_record["t_pc_ns"] = t_pc_ns
                         track_with_diagnostics = getattr(
                             tracker, "track_with_diagnostics", None

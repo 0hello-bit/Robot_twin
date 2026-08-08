@@ -199,6 +199,56 @@ class DummyTracker:
         return None
 
 
+def test_capture_pc_clock_uses_high_resolution_perf_counter(monkeypatch):
+    sentinel = 1_691_234_567_890_123
+    monkeypatch.setattr(
+        capture_sync_run.time,
+        "perf_counter_ns",
+        lambda: sentinel,
+    )
+
+    assert capture_sync_run.capture_pc_clock_ns() == sentinel
+
+
+def test_capture_uses_shared_pc_clock_for_camera_and_telemetry_timestamps(
+        monkeypatch):
+    sentinel = 1_691_234_567_890_123
+    monkeypatch.setattr(
+        capture_sync_run,
+        "capture_pc_clock_ns",
+        lambda: sentinel,
+    )
+
+    class DiagnosticTracker:
+        def track_with_diagnostics(self, frame, t_pc_ns=None):
+            return None, {
+                "failure_reason": "no_markers",
+                "detect_elapsed_ns": 42,
+            }
+
+    class OneFrameCamera(FakeCamera):
+        def read(self):
+            self.read_calls += 1
+            return True, object()
+
+    frame_index = []
+    telemetry, _poses, _actions, outcome = (
+        capture_sync_run.run_sync_capture_session(
+            FakeSocket(recv_data=_encode_telemetry_frame(tick_ms=100)),
+            OneFrameCamera(),
+            DiagnosticTracker(),
+            "run-clock-domain",
+            0.01,
+            0.5,
+            frame_index=frame_index,
+        )
+    )
+
+    assert outcome == "ok"
+    assert telemetry[0].pc_recv_ns == sentinel
+    assert frame_index[0]["t_pc_ns"] == sentinel
+
+
 def test_capture_persists_pose_tracker_diagnostics_per_frame():
     class DiagnosticTracker:
         def track_with_diagnostics(self, frame, t_pc_ns=None):

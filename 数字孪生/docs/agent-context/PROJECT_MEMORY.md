@@ -261,3 +261,19 @@ evidence.
 - The next agent must audit the timestamp contract offline before selecting one
   constrained detector/camera/calibration experiment. Do not bundle changes or
   claim continuous AprilTag tracking from this run.
+
+## B3 timestamp clock repair (2026-08-08)
+
+- The equal camera timestamp in `c260808033248336` was traced to Windows
+  Python `time.monotonic_ns()` using `GetTickCount64()` at approximately
+  `15.625 ms` resolution. It was not evidence of a frame-order reversal.
+- The canonical capture path now uses shared `capture_pc_clock_ns()` backed by
+  high-resolution `perf_counter_ns()` for camera timestamps, telemetry
+  `pc_recv_ns`, and health `pc_recv_ns`. Timeout and heartbeat scheduling stay
+  on their existing clocks.
+- TDD RED/GREEN was verified. Capture tests are `33 passed`; the full Python
+  regression is `729 passed, 5 skipped`; compileall is clean. The old raw run
+  remains unchanged and cannot be retroactively promoted.
+- The next action requires explicit hardware authorization for a fresh run;
+  verify timestamp ordering first, then replay the observation gate. Do not
+  claim that the detector or B3 readiness is fixed from this offline change.

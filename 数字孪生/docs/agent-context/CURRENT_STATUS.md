@@ -1229,3 +1229,34 @@ Status: `REAL_CAPTURE_COMPLETED_OBSERVATION_STILL_BLOCKED`
 - Keep B3 blocked. Audit the equal timestamp as an offline evidence-integrity
   issue, then run one constrained observation experiment selected from the
   retained thumbnails. Do not bundle detector, camera, and calibration changes.
+
+### B3 TIMESTAMP CLOCK REPAIR (2026-08-08)
+
+Status: `OFFLINE_VERIFIED_HARDWARE_RERUN_REQUIRED`
+
+- Root cause of the equal timestamp in `c260808033248336` was identified:
+  Windows Python `time.monotonic_ns()` uses `GetTickCount64()` at about
+  `15.625 ms` resolution, so adjacent frame reads can share a timestamp.
+- `tools/camera_toolchain/capture_sync_run.py` now uses one shared
+  `capture_pc_clock_ns()` based on high-resolution `perf_counter_ns()` for
+  camera frame timestamps, telemetry `pc_recv_ns`, and health `pc_recv_ns`.
+  START/STOP timeout and heartbeat scheduling clocks were not changed.
+- TDD RED was observed for the missing clock API, then focused clock tests
+  passed `2/2`. Capture tests are `33 passed`; full Python regression is
+  `729 passed, 5 skipped`; compileall exits `0`.
+- The old raw run was not rewritten. The next fresh authorized capture must
+  verify the new timestamp artifact and replay through the observation gate.
+
+#### EVIDENCE BOUNDARY
+
+- `VERIFIED`: host-clock root cause, unified high-resolution timestamp source,
+  and offline regression.
+- `INFERENCE`: the new source should remove the observed 15.625 ms collision
+  for the real detector workload.
+- `INSUFFICIENT EVIDENCE`: no post-fix real timestamp artifact, continuous
+  AprilTag observation, or detector improvement.
+
+#### NEXT INTERFACE
+
+- Keep hardware idle until explicit authorization. Run one fresh synchronized
+  capture, check non-increasing timestamps, then run the observation analyzer.
