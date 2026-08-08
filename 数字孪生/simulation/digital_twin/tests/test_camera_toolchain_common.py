@@ -80,6 +80,14 @@ def test_open_camera_requests_c960_1080p30_mjpg_dshow(monkeypatch):
     ]
 
 
+def test_1080p_calibration_target_geometry_is_explicit():
+    camera_common = _load_camera_common()
+    assert camera_common.CHECKERBOARD_PATTERN == (9, 6)
+    assert camera_common.CHECKERBOARD_SQUARE_MM == pytest.approx(25.0)
+    assert camera_common.CHECKERBOARD_GRID_SQUARES == (10, 7)
+    assert camera_common.CHECKERBOARD_ACTIVE_SIZE_MM == (250.0, 175.0)
+
+
 def test_gate0_runner_imports_without_external_pythonpath():
     runner = TOOLCHAIN_DIR / "run_gate0_usb.py"
     command = (

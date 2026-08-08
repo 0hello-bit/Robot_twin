@@ -21,6 +21,12 @@ DEFAULT_HEIGHT = 1080
 DEFAULT_FPS = 30.0
 DEFAULT_FOURCC = "MJPG"
 
+# Canonical target for the current 1080p calibration campaign.
+CHECKERBOARD_PATTERN = (9, 6)  # inner corners (columns, rows)
+CHECKERBOARD_SQUARE_MM = 25.0
+CHECKERBOARD_GRID_SQUARES = (10, 7)
+CHECKERBOARD_ACTIVE_SIZE_MM = (250.0, 175.0)
+
 
 def detect_camera_indices(max_index: int = 6, min_ok: int = 3) -> list:
     """扫描能实际取到有效帧的摄像头索引。
