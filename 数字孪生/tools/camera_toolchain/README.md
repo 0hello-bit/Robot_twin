@@ -48,6 +48,30 @@ imread_unicode / imwrite_unicode / open_camera`。
 
 ---
 
+## 标准 A4 棋盘格目标（当前标定基准）
+
+生成器：`generate_a4_checkerboard.py`
+
+```powershell
+py generate_a4_checkerboard.py
+```
+
+默认输出到 `calibration_targets/`：
+
+- `a4_checkerboard_9x6_25mm.pdf`：打印用 PDF；
+- `a4_checkerboard_9x6_25mm.png`：300 DPI 预览图；
+- `a4_checkerboard_9x6_25mm.json`：几何尺寸和打印比例元数据。
+
+当前唯一的标准目标为：A4 横向、9×6 个内角点、10×7 个方格、每格
+25 mm，连续棋盘区域为 250×175 mm，四周白边 10 mm。PDF 和 PNG 必须按
+`100% / 实际大小` 打印，禁止“适应页面”“缩放到可打印区域”或拼接多张纸。
+打印后应使用尺子核对棋盘格边长，再进行 1080p 相机采集。
+
+旧的 15 mm 标定数据只能在工具参数中显式指定 `--square-size-mm 15` 时回放；
+新采集默认使用 25 mm，不能把两种物理目标混写进同一个标定数据集。
+
+---
+
 ## 标定工作流（4B-2/4B-3 顺序）
 
 1. **架好摄像头**：垂直正俯拍赛道（`perpendicularity_preview.py` 调至
