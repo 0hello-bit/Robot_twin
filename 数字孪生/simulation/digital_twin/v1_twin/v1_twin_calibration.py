@@ -213,7 +213,7 @@ def pattern_object_points(
 def detect_checkerboard(
     frame: Any,
     pattern_size: Tuple[int, int] = (9, 6),
-    square_size_mm: float = 15.0,
+    square_size_mm: float = 25.0,
 ) -> Optional[Tuple[np.ndarray, np.ndarray]]:
     """检测棋盘格内角点。
 

@@ -209,6 +209,15 @@ def test_detect_checkerboard_returns_none_for_blank():
     assert detect_checkerboard(img, pattern_size=(9, 6)) is None
 
 
+def test_detect_checkerboard_default_uses_current_25mm_target():
+    pattern = (9, 6)
+    img = _draw_checkerboard(pattern, square_px=20)
+    result = detect_checkerboard(img, pattern_size=pattern)
+    assert result is not None
+    _, object_mm = result
+    assert np.linalg.norm(object_mm[0] - object_mm[1]) == pytest.approx(25.0)
+
+
 def test_pattern_object_points_shape_and_spacing():
     obj = pattern_object_points((9, 6), square_size_mm=15.0)
     assert obj.shape == (54, 3)

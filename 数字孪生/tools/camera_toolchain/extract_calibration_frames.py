@@ -19,7 +19,7 @@ import numpy as np
 
 import camera_common as cc
 
-PATTERN = (9, 6)
+PATTERN = cc.CHECKERBOARD_PATTERN
 GRID = 4          # 4x4 空间网格
 PER_CELL = 2      # 每格最多取 2 帧
 CRITERIA = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-6)

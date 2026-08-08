@@ -30,16 +30,16 @@ import camera_common as cc
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(_HERE, "..", "..", "simulation", "digital_twin")))
 
-PATTERN = (9, 6)
-SQUARE_MM = 15.0
+PATTERN = cc.CHECKERBOARD_PATTERN
+SQUARE_MM = cc.CHECKERBOARD_SQUARE_MM
 CRITERIA = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-6)
 
 
-def _board_local_grid():
+def _board_local_grid(square_mm=SQUARE_MM):
     cols, rows = PATTERN
     L = np.zeros((cols * rows, 2), dtype=np.float64)
-    L[:, 0] = (np.arange(cols * rows) % cols) * SQUARE_MM
-    L[:, 1] = (np.arange(cols * rows) // cols) * SQUARE_MM
+    L[:, 0] = (np.arange(cols * rows) % cols) * square_mm
+    L[:, 1] = (np.arange(cols * rows) // cols) * square_mm
     return L
 
 
@@ -67,6 +67,7 @@ def main():
     ap.add_argument("out", help="out.json")
     ap.add_argument("--mm-gate", type=float, default=2.0)
     ap.add_argument("--intrinsics", default=None)
+    ap.add_argument("--square-size-mm", type=float, default=SQUARE_MM)
     args = ap.parse_args()
 
     if args.intrinsics:
@@ -82,7 +83,7 @@ def main():
         print(f"too few control points ({len(controls)}), need >=6")
         return 1
 
-    L = _board_local_grid()
+    L = _board_local_grid(args.square_size_mm)
     all_px = []
     all_mm = []
     meta = []
@@ -96,7 +97,7 @@ def main():
         res = None
         try:
             from v1_twin.v1_twin_calibration import detect_checkerboard
-            res = detect_checkerboard(img, PATTERN, SQUARE_MM)
+            res = detect_checkerboard(img, PATTERN, args.square_size_mm)
         except Exception:
             res = None
         if res is None:

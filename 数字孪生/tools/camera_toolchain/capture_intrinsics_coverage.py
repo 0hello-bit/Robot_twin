@@ -23,7 +23,7 @@ import camera_common as cc
 SOURCE = cc.get_camera_index(int(_sys.argv[1]) if len(_sys.argv) > 1 else None)
 OUT = sys.argv[2] if len(sys.argv) > 2 else os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "calibration_views_coverage")
-PATTERN = (9, 6)
+PATTERN = cc.CHECKERBOARD_PATTERN
 GRID = 3  # 3x3
 MIN_DIST = 40.0
 WIDTH, HEIGHT = cc.DEFAULT_WIDTH, cc.DEFAULT_HEIGHT

@@ -23,26 +23,27 @@ import camera_common as cc
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(_HERE, "..", "..", "simulation", "digital_twin")))
 
-PATTERN = (9, 6)
-SQUARE_MM = 15.0
+PATTERN = cc.CHECKERBOARD_PATTERN
+SQUARE_MM = cc.CHECKERBOARD_SQUARE_MM
 GRID = 4
 CRITERIA = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-6)
 
 
-def _local_grid():
+def _local_grid(square_mm=SQUARE_MM):
     cols, rows = PATTERN
     L = np.zeros((cols * rows, 2), dtype=np.float64)
-    L[:, 0] = (np.arange(cols * rows) % cols) * SQUARE_MM
-    L[:, 1] = (np.arange(cols * rows) // cols) * SQUARE_MM
+    L[:, 0] = (np.arange(cols * rows) % cols) * square_mm
+    L[:, 1] = (np.arange(cols * rows) // cols) * square_mm
     return L
 
 
-def extract_detections(video_path, mtx, dist, max_frames=40, grid=GRID):
+def extract_detections(video_path, mtx, dist, max_frames=40, grid=GRID,
+                       square_mm=SQUARE_MM):
     """扫描视频，按空间网格 + 清晰度选多样检测。返回 (undist_corners, local_mm)。"""
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise SystemExit(f"cannot open video {video_path}")
-    L = _local_grid()
+    L = _local_grid(square_mm)
     best = {}   # (r,c) -> (sharpness, undist_corners)
     idx = 0
     while True:
@@ -119,6 +120,7 @@ def main():
     ap.add_argument("--max-frames", type=int, default=40)
     ap.add_argument("--grid", type=int, default=GRID)
     ap.add_argument("--intrinsics", default=None)
+    ap.add_argument("--square-size-mm", type=float, default=SQUARE_MM)
     args = ap.parse_args()
 
     # intrinsics: default to the authoritative full-cov file
@@ -132,21 +134,26 @@ def main():
         intr = json.load(f)
     mtx = np.array(intr["camera_matrix"]); dist = np.array(intr["dist_coeffs"])
 
-    dets, L = extract_detections(args.video, mtx, dist, args.max_frames, args.grid)
+    dets, L = extract_detections(
+        args.video, mtx, dist, args.max_frames, args.grid, args.square_size_mm
+    )
     if len(dets) < 4:
         raise SystemExit("too few detections")
     H, res = fit_global_homography(dets, L)
     print(f"optimization: cost={res.cost:.3f}, success={res.success}, nfev={res.nfev}")
 
     # verification: board size at each detection
+    board_w = (PATTERN[0] - 1) * args.square_size_mm
+    board_h = (PATTERN[1] - 1) * args.square_size_mm
     sizes = []
     for P in dets:
         m = _apply_h(H, P)
         w = np.hypot(m[0][0] - m[8][0], m[0][1] - m[8][1])
         h = np.hypot(m[0][0] - m[45][0], m[0][1] - m[45][1])
-        sizes.append((w, h, max(abs(w - 120) / 120, abs(h - 75) / 75) * 100))
+        sizes.append((w, h, max(abs(w - board_w) / board_w,
+                                 abs(h - board_h) / board_h) * 100))
     sizes = np.array(sizes)
-    print("board-size check (应 120x75, 误差%):")
+    print(f"board-size check (expected {board_w:.1f}x{board_h:.1f} mm, error%):")
     print(f"  宽 mean={sizes[:,0].mean():.1f} 高 mean={sizes[:,1].mean():.1f} "
           f"误差 mean={sizes[:,2].mean():.1f}% max={sizes[:,2].max():.1f}%")
 

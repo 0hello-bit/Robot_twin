@@ -23,10 +23,10 @@ _sys.path.insert(0, _os.path.abspath(_os.path.join(_HERE, "..", "..", "simulatio
 import camera_common as cc
 
 SOURCE = cc.get_camera_index(int(_sys.argv[1]) if len(_sys.argv) > 1 else None)
-PATTERN = (9, 6)
-SQUARE_MM = 15.0
-MM_W = 8 * SQUARE_MM          # 120mm
-MM_H = 5 * SQUARE_MM          # 75mm
+PATTERN = cc.CHECKERBOARD_PATTERN
+SQUARE_MM = cc.CHECKERBOARD_SQUARE_MM
+MM_W = 8 * SQUARE_MM          # 200mm
+MM_H = 5 * SQUARE_MM          # 125mm
 TARGET_ASPECT = MM_W / MM_H   # 1.60
 
 CRITERIA = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-6)

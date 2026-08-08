@@ -21,7 +21,7 @@ import numpy as np
 
 import camera_common as cc
 
-PATTERN = (9, 6)
+PATTERN = cc.CHECKERBOARD_PATTERN
 GRID = 4
 CRITERIA = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-6)
 
