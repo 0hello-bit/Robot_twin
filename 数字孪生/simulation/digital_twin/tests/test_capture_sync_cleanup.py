@@ -32,6 +32,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..",
 
 import pytest
 import numpy as np
+import cv2
 
 import capture_sync_run
 from real_world.runtime_protocol import frame as protocol_frame
@@ -202,12 +203,31 @@ class DummyTracker:
 def test_capture_pc_clock_uses_high_resolution_perf_counter(monkeypatch):
     sentinel = 1_691_234_567_890_123
     monkeypatch.setattr(
+        capture_sync_run,
+        "_last_capture_pc_clock_ns",
+        None,
+    )
+    monkeypatch.setattr(
         capture_sync_run.time,
         "perf_counter_ns",
         lambda: sentinel,
     )
 
     assert capture_sync_run.capture_pc_clock_ns() == sentinel
+
+
+def test_capture_pc_clock_makes_repeated_reads_strictly_increasing(monkeypatch):
+    readings = iter((100, 100, 99, 101))
+    monkeypatch.setattr(capture_sync_run, "_last_capture_pc_clock_ns", None)
+    monkeypatch.setattr(
+        capture_sync_run.time,
+        "perf_counter_ns",
+        lambda: next(readings),
+    )
+
+    assert [capture_sync_run.capture_pc_clock_ns() for _ in range(4)] == [
+        100, 101, 102, 103,
+    ]
 
 
 def test_capture_uses_shared_pc_clock_for_camera_and_telemetry_timestamps(
@@ -301,7 +321,7 @@ def test_capture_saves_bounded_failure_thumbnail_and_relative_path(tmp_path):
     class ImageCamera(FakeCamera):
         def read(self):
             self.read_calls += 1
-            return True, np.full((32, 64, 3), 127, dtype=np.uint8)
+            return True, np.full((720, 1280, 3), 127, dtype=np.uint8)
 
     sock = FakeSocket(recv_data=_encode_telemetry_frame(tick_ms=100))
     frame_index = []
@@ -327,7 +347,13 @@ def test_capture_saves_bounded_failure_thumbnail_and_relative_path(tmp_path):
     assert 1 <= len(saved) <= 2
     assert frame_index[0]["failure_frame_path"].startswith("failed_frames/")
     assert frame_index[0]["failure_frame_path"].endswith(".jpg")
+    saved_image = cv2.imdecode(
+        np.fromfile(str(saved[0]), dtype=np.uint8), cv2.IMREAD_COLOR
+    )
+    assert saved_image.shape[:2] == (720, 1280)
     summary = diagnostics["failure_frame_summary"]
+    assert summary["max_width"] == 1280
+    assert summary["jpeg_quality"] == 95
     assert summary["saved"] == len(saved)
     assert summary["by_reason"]["candidates_rejected"] > 0
     assert summary["saved_by_reason"]["candidates_rejected"] == len(saved)

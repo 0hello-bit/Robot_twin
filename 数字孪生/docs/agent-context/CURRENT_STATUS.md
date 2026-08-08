@@ -1260,3 +1260,135 @@ Status: `OFFLINE_VERIFIED_HARDWARE_RERUN_REQUIRED`
 
 - Keep hardware idle until explicit authorization. Run one fresh synchronized
   capture, check non-increasing timestamps, then run the observation analyzer.
+
+### B3 OFFLINE OBSERVATION REPAIR (2026-08-08)
+
+Status: `OFFLINE_VERIFIED_HARDWARE_RERUN_REQUIRED`
+
+- The capture path now uses the shared high-resolution
+  `capture_pc_clock_ns()` for camera, telemetry, and health evidence times.
+  It guards against equal or decreasing emitted timestamps without changing
+  START/STOP timeout or heartbeat scheduling.
+- The production `PoseTracker` now searches a bounded ROI around the last
+  valid ID=0 marker and falls back to the existing full-frame multi-scale
+  search when the ROI misses. Unknown IDs are still rejected.
+- Diagnostics record search mode, ROI bounds, fallback use, and detector
+  timing. The changes do not alter AprilTag thresholds, calibration, firmware,
+  motor control, or sync-gate thresholds.
+- Eight retained failure thumbnails were replayed offline. The car and marker
+  are visible in all eight; the current default detector decoded ID=0 in 1/8,
+  while the other 7/8 stayed `candidates_rejected` across five replays.
+  Equalization reached only 2/8, so no preprocessing candidate was promoted.
+- Synthetic moving-tag checks preserved 40/40 and 15/15 detection in full and
+  ROI branches; the closer 1280x720 benchmark used the ROI fast path on 14/15
+  frames and reduced local p95 detector time from about 3.96 ms to 2.17 ms.
+- Fresh verification: focused capture/pose tests `47 passed`, observation-gate
+  tests `19 passed`, full Python regression `732 passed, 5 skipped`,
+  compileall exit 0, and `git diff --check` has no whitespace errors.
+
+#### EVIDENCE BOUNDARY
+
+- `VERIFIED`: the offline timestamp repair, bounded ROI plus full-frame
+  fallback, strict ID validation, and regression tests.
+- `INFERENCE`: ROI may reduce real capture backlog and improve continuity by
+  lowering detector work after a valid observation.
+- `INSUFFICIENT EVIDENCE`: post-fix real timestamp monotonicity, continuous
+  AprilTag detection, real observation-gate status, and synchronization or
+  vehicle improvement.
+
+#### NEXT INTERFACE
+
+- Keep hardware idle until explicit authorization. Then run one bounded
+  synchronized capture with the full marker visible from the first frame.
+  Inspect timestamp monotonicity, `failure_frame_summary.json`,
+  `frame_index.jsonl`, and the observation analyzer before selecting any
+  additional detector, camera, or calibration change.
+
+### B3 REAL RERUN AND OFFLINE FALLBACK BUDGET (2026-08-08)
+
+Status: `OFFLINE_VERIFIED_HARDWARE_RERUN_REQUIRED`
+
+- Authorized real run `c260808052942717` used the unchanged firmware and the
+  canonical 20-second capture path. START/RUNNING, STOP/STOPPED, cleanup, and
+  the existing synchronization gate passed. No firmware was flashed.
+- The run produced 370 readable camera frames, 154 poses, and 629 telemetry
+  frames. The new capture clock produced zero non-increasing frame timestamp
+  pairs. Synchronization coverage was 100% and p95 time difference was
+  15.4 ms.
+- The separate B3 observation gate failed with detection ratio `41.62%`,
+  maximum pose gap `58.74531` frame periods, and detector p95 `77.447895 ms`.
+  There were 216 `candidates_rejected` failures.
+- ROI diagnostics recorded 148 ROI-only frames, 221 ROI-then-full-frame
+  frames, and one initial full-frame frame. Only five fallback frames
+  recovered a pose, and all five recovered at full-frame `2x`.
+- The derived report is tracked at
+  `docs/evidence/v1_b3_observation_gate_20260808_rerun_c260808052942717/report.json`.
+
+#### VERIFIED OFFLINE REMEDIATION
+
+- The production tracker still uses `1x/2x/3x` for initial full-frame
+  acquisition and for ROI search. After an ROI miss, the full-frame
+  reacquisition budget is now only `2x`, based on the five observed real
+  recoveries. ID=0 validation, calibration, sync thresholds, and firmware are
+  unchanged.
+- The fallback scale contract has a regression test. Full Python regression is
+  `732 passed, 5 skipped`; compileall exits 0; `git diff --check` has no
+  whitespace errors.
+
+#### EVIDENCE BOUNDARY
+
+- `VERIFIED`: the timestamp collision is absent in the new real artifact; the
+  sync gate passes; the high-cost fallback path and its observed successful
+  scale are measured; the offline budget change is tested.
+- `INFERENCE`: the smaller fallback budget should reduce detector work after
+  ROI misses.
+- `INSUFFICIENT EVIDENCE`: the new fallback budget's real detection ratio and
+  observation-gate result, continuous AprilTag tracking, and any robot or
+  digital-twin improvement.
+
+#### NEXT INTERFACE
+
+- Keep hardware idle until explicit authorization. The next real run should
+  use the current source with the marker visible from the first frame, then
+  compare timestamp monotonicity, detection ratio, longest pose gap, detector
+  p95, and sync gate against `c260808052942717`. Do not bundle equalization,
+  threshold, resolution, or calibration changes into that run.
+
+### B3 LOCAL PREPROCESS CANDIDATE (2026-08-08)
+
+Status: `OFFLINE_CANDIDATE_HARDWARE_RERUN_REQUIRED`
+
+- After a raw grayscale ROI miss, `PoseTracker` now tries bounded local
+  blue-channel CLAHE, blue-channel unsharp, and grayscale CLAHE inputs at one
+  `2x` scale, with a 32 px white border. The existing full-frame `2x`
+  reacquisition remains the final fallback, and strict ID=0 validation is
+  unchanged.
+- On the eight retained failure images from `c260808052942717`, replay with
+  an independently seeded approximate ROI recovered ID=0 in `7/8` images.
+  These are downsampled diagnostic images, so this is not a new real detection
+  ratio and does not alter the immutable `41.62%` report.
+- Four retained successful recordings remained `91/91`, `90/91`, `76/76`, and
+  `76/76` under the current tracker. The offline branch did not regress that
+  holdout set.
+- New failure-frame artifacts retain source width up to `1280` with JPEG
+  quality `95`; the old run's `640x360`, quality-70 images are unchanged.
+- Focused pose tests pass `15`; the full digital-twin regression passes
+  `734`, with `5` skips; compileall and `git diff --check` pass.
+
+#### EVIDENCE BOUNDARY
+
+- `VERIFIED`: the candidate implementation, strict-ID behavior, existing
+  replay holdout, and source-resolution evidence policy are offline verified.
+- `INFERENCE`: local color/contrast processing may recover some moving-run
+  failures while avoiding full-frame work when the tag stays near the last
+  ROI.
+- `INSUFFICIENT EVIDENCE`: post-change real detection ratio, pose continuity,
+  detector p95, B3 observation-gate status, and any robot improvement.
+
+#### NEXT INTERFACE
+
+- Keep hardware idle until explicit authorization. Run one bounded capture
+  with the current source and inspect the new source-resolution failure frames,
+  timestamp monotonicity, detection ratio, maximum pose gap, detector p95, and
+  sync gate. Do not combine this rerun with camera resolution, calibration,
+  threshold, or firmware changes.

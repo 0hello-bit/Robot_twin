@@ -1,0 +1,48 @@
+{
+  "camera_frame_count": 370,
+  "capture_verdict": "PASS",
+  "config": {
+    "expected_fps": 30.0,
+    "frame_period_ns": 33333333.333333332,
+    "max_pose_gap_frames": 2.0,
+    "min_detection_ratio": 0.95
+  },
+  "detection_ratio": 0.41621621621621624,
+  "evidence_status": "VERIFIED",
+  "failure_counts": {
+    "candidates_rejected": 216
+  },
+  "frame_record_count": 370,
+  "input_artifacts": {
+    "frame_index_path": "frame_index.jsonl",
+    "frame_index_sha256": "ced8e5e81f27c969f9c673fced02323752199668257441489d208b8066696eb0",
+    "sync_report_path": "sync_report.json",
+    "sync_report_sha256": "97565a1ded5f392ac90d845f1a7ad3c012d8f5f081b3d1b5c7a3928564d88547"
+  },
+  "max_pose_gap_frames": 58.74531,
+  "max_pose_gap_ns": 1958177000,
+  "pose_frame_count": 154,
+  "processing_budget_ns": 33333333,
+  "processing_p95_ns": 77447895,
+  "processing_p95_over_budget": true,
+  "processing_timing_missing_count": 0,
+  "read_failure_count": 0,
+  "reasons": [
+    "detection_ratio_below_threshold",
+    "max_pose_gap_exceeded",
+    "detector_processing_over_budget"
+  ],
+  "run_id": "c260808052942717",
+  "schema_version": 1,
+  "source": "REAL_SYNC",
+  "sync_gate_verdict": "PASS",
+  "type": "B3ObservationGateReport",
+  "units": {
+    "detection_ratio": "ratio",
+    "frame_gap": "frames",
+    "pose_gap": "ns",
+    "processing_time": "ns",
+    "timestamp": "ns"
+  },
+  "verdict": "FAIL"
+}

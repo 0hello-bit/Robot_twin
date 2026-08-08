@@ -141,6 +141,124 @@ def test_track_with_diagnostics_classifies_rejected_candidates():
     assert len(diagnostics["rejected_candidate_counts"]) == 3
 
 
+def test_tracker_reuses_last_tag_region_before_full_frame_fallback():
+    tracker = PoseTracker(
+        _identity_calib(), HomographyTransform(np.eye(3)),
+        detect_scales=(1.0, 2.0, 3.0),
+        roi_padding_px=32.0,
+    )
+
+    first_pose, first_diagnostics = tracker.track_with_diagnostics(
+        _place_tag(center=(260, 210)), t_pc_ns=1000,
+    )
+    second_pose, second_diagnostics = tracker.track_with_diagnostics(
+        _place_tag(center=(275, 215)), t_pc_ns=2000,
+    )
+
+    assert first_pose is not None
+    assert first_diagnostics["search_mode"] == "full_frame"
+    assert second_pose is not None
+    assert second_diagnostics["search_mode"] == "roi"
+    assert second_diagnostics["roi_bounds"] is not None
+    assert second_diagnostics["full_frame_fallback"] is False
+
+
+def test_tracker_falls_back_to_full_frame_when_tag_leaves_roi():
+    tracker = PoseTracker(
+        _identity_calib(), HomographyTransform(np.eye(3)),
+        detect_scales=(1.0, 2.0, 3.0),
+        roi_padding_px=32.0,
+    )
+
+    first_pose, _ = tracker.track_with_diagnostics(
+        _place_tag(center=(180, 150)), t_pc_ns=1000,
+    )
+    moved_pose, diagnostics = tracker.track_with_diagnostics(
+        _place_tag(center=(500, 350)), t_pc_ns=2000,
+    )
+
+    assert first_pose is not None
+    assert moved_pose is not None
+    assert diagnostics["search_mode"] == "roi_then_full"
+    assert diagnostics["full_frame_fallback"] is True
+    assert diagnostics["attempted_scales"] == [1.0, 2.0, 3.0, 2.0]
+
+
+def test_color_preprocess_miss_keeps_full_frame_reacquisition():
+    tracker = PoseTracker(
+        _identity_calib(), HomographyTransform(np.eye(3)),
+        detect_scales=(1.0, 2.0, 3.0),
+        roi_padding_px=32.0,
+    )
+
+    first_frame = cv2.cvtColor(
+        _place_tag(center=(180, 150)), cv2.COLOR_GRAY2BGR
+    )
+    moved_frame = cv2.cvtColor(
+        _place_tag(center=(500, 350)), cv2.COLOR_GRAY2BGR
+    )
+    first_pose, _ = tracker.track_with_diagnostics(first_frame, t_pc_ns=1000)
+    moved_pose, diagnostics = tracker.track_with_diagnostics(
+        moved_frame, t_pc_ns=2000
+    )
+
+    assert first_pose is not None
+    assert moved_pose is not None
+    assert diagnostics["search_mode"] == "roi_then_full"
+    assert diagnostics["full_frame_fallback"] is True
+    assert diagnostics["preprocess_modes_attempted"] == [
+        "blue_clahe", "blue_unsharp", "gray_clahe",
+    ]
+    assert diagnostics["attempted_scales"] == [
+        1.0, 2.0, 3.0, 2.0, 2.0, 2.0, 2.0,
+    ]
+
+
+def _place_low_luminance_color_tag(center=(260, 210), tag_px=30):
+    """Build a color tag whose blue channel has more usable contrast."""
+    tag = cv2.aruco.generateImageMarker(
+        cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11),
+        0,
+        tag_px,
+    )
+    big = np.full((tag_px * 3, tag_px * 3), 255, np.uint8)
+    big[tag_px:2 * tag_px, tag_px:2 * tag_px] = tag
+    half = int(tag_px * 0.95)
+    cy, cx = big.shape[0] / 2, big.shape[1] / 2
+    crop = big[int(cy - half):int(cy + half), int(cx - half):int(cx + half)]
+    canvas = np.full((480, 640, 3), 255, np.uint8)
+    x0 = int(round(center[0] - crop.shape[1] / 2))
+    y0 = int(round(center[1] - crop.shape[0] / 2))
+    canvas[y0:y0 + crop.shape[0], x0:x0 + crop.shape[1]] = [80, 80, 80]
+    canvas[y0:y0 + crop.shape[0], x0:x0 + crop.shape[1]][crop > 127] = [
+        255, 50, 0,
+    ]
+    return canvas
+
+
+def test_tracker_uses_local_color_fallback_after_raw_roi_miss():
+    tracker = PoseTracker(
+        _identity_calib(), HomographyTransform(np.eye(3)),
+        detect_scales=(1.0, 2.0, 3.0),
+        roi_padding_px=32.0,
+    )
+
+    first_pose, _ = tracker.track_with_diagnostics(
+        _place_tag(center=(260, 210)), t_pc_ns=1000,
+    )
+    second_pose, diagnostics = tracker.track_with_diagnostics(
+        _place_low_luminance_color_tag(center=(275, 215)), t_pc_ns=2000,
+    )
+
+    assert first_pose is not None
+    assert second_pose is not None
+    assert diagnostics["search_mode"] == "roi_preprocessed"
+    assert diagnostics["preprocess_mode"] in {
+        "gray_clahe", "blue_clahe", "blue_unsharp",
+    }
+    assert diagnostics["full_frame_fallback"] is False
+
+
 def test_yaw_upright_tag_points_up_in_image():
     # 未旋转标签：印刷正上 = 车头 = 图像"上"方向 = (0, -1) -> yaw = -pi/2
     canvas = _place_tag(center=(260, 210), angle_deg=0.0)

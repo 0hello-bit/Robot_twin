@@ -47,6 +47,9 @@ class PoseTracker:
         tag_size_mm: float = 35.0,
         car_forward_offset_rad: float = 0.0,
         detect_scales: Sequence[float] = (1.0, 2.0, 3.0),
+        roi_padding_px: float = 32.0,
+        full_frame_fallback_scales: Sequence[float] = (2.0,),
+        roi_preprocess_scales: Sequence[float] = (2.0,),
     ) -> None:
         """初始化。
 
@@ -67,6 +70,19 @@ class PoseTracker:
         self._tag_size_mm = float(tag_size_mm)
         self._offset = float(car_forward_offset_rad)
         self._scales = tuple(float(s) for s in detect_scales)
+        self._fallback_scales = tuple(
+            float(s) for s in full_frame_fallback_scales
+        )
+        self._roi_preprocess_scales = tuple(
+            float(s) for s in roi_preprocess_scales
+        )
+        if not self._fallback_scales:
+            raise PoseTrackerError("full-frame fallback scales must not be empty")
+        if not self._roi_preprocess_scales:
+            raise PoseTrackerError("ROI preprocess scales must not be empty")
+        self._roi_padding_px = max(0.0, float(roi_padding_px))
+        self._last_raw_center: Optional[np.ndarray] = None
+        self._last_raw_side_px: Optional[float] = None
         self._dictionary = cv2.aruco.getPredefinedDictionary(
             cv2.aruco.DICT_APRILTAG_36h11
         )
@@ -97,7 +113,99 @@ class PoseTracker:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         else:
             gray = frame
-        for scale in self._scales:
+        roi_bounds = self._roi_bounds(gray)
+        attempted_regions = []
+        preprocess_modes_attempted = []
+        if roi_bounds is not None:
+            attempted_regions.append("roi")
+            x0, y0, x1, y1 = roi_bounds
+            roi_detection, roi_scale, roi_saw_markers = self._detect_region(
+                gray[y0:y1, x0:x1],
+                x0,
+                y0,
+                attempted_scales,
+                rejected_candidate_counts,
+            )
+            saw_markers = saw_markers or roi_saw_markers
+            if roi_detection is not None:
+                return roi_detection, {
+                    "attempted_scales": attempted_scales,
+                    "matched_scale": roi_scale,
+                    "tag_side_px": float(roi_detection["side_px"]),
+                    "failure_reason": None,
+                    "rejected_candidate_count": int(
+                        sum(rejected_candidate_counts)
+                    ),
+                    "rejected_candidate_counts": list(
+                        rejected_candidate_counts
+                    ),
+                    "detect_elapsed_ns": time.perf_counter_ns() - started_ns,
+                    "search_mode": "roi",
+                    "search_regions": ["roi"],
+                    "roi_bounds": list(roi_bounds),
+                    "full_frame_fallback": False,
+                    "preprocess_mode": None,
+                    "preprocess_modes_attempted": [],
+                    "preprocess_border_px": None,
+                }
+            if frame.ndim == 3:
+                for (
+                    preprocess_mode,
+                    prepared_roi,
+                    prepared_offset_x,
+                    prepared_offset_y,
+                ) in (
+                    self._roi_preprocessed_inputs(frame, roi_bounds)
+                ):
+                    attempted_regions.append("roi_" + preprocess_mode)
+                    preprocess_modes_attempted.append(preprocess_mode)
+                    preprocessed_detection, preprocessed_scale, preprocessed_saw_markers = (
+                        self._detect_region(
+                            prepared_roi,
+                            prepared_offset_x,
+                            prepared_offset_y,
+                            attempted_scales,
+                            rejected_candidate_counts,
+                            scales=self._roi_preprocess_scales,
+                        )
+                    )
+                    saw_markers = saw_markers or preprocessed_saw_markers
+                    if preprocessed_detection is not None:
+                        return preprocessed_detection, {
+                            "attempted_scales": attempted_scales,
+                            "matched_scale": preprocessed_scale,
+                            "tag_side_px": float(
+                                preprocessed_detection["side_px"]
+                            ),
+                            "failure_reason": None,
+                            "rejected_candidate_count": int(
+                                sum(rejected_candidate_counts)
+                            ),
+                            "rejected_candidate_counts": list(
+                                rejected_candidate_counts
+                            ),
+                            "detect_elapsed_ns": (
+                                time.perf_counter_ns() - started_ns
+                            ),
+                            "search_mode": "roi_preprocessed",
+                            "search_regions": list(attempted_regions),
+                            "roi_bounds": list(roi_bounds),
+                            "full_frame_fallback": False,
+                            "preprocess_mode": preprocess_mode,
+                            "preprocess_modes_attempted": list(
+                                preprocess_modes_attempted
+                            ),
+                            "preprocess_border_px": int(
+                                max(16, round(self._roi_padding_px))
+                            ),
+                        }
+        attempted_regions.append("full_frame")
+        # The first frame keeps the full multi-scale probe; ROI misses use the
+        # evidence-backed 2x reacquisition budget to avoid duplicate 1x/3x work.
+        full_frame_scales = (
+            self._scales if roi_bounds is None else self._fallback_scales
+        )
+        for scale in full_frame_scales:
             attempted_scales.append(float(scale))
             if scale == 1.0:
                 g = gray
@@ -114,6 +222,10 @@ class PoseTracker:
                 if int(i) != self._tag_id:
                     continue
                 pts = np.asarray(c[0], dtype=float) / scale  # 原始尺度
+                self._last_raw_center = pts.mean(axis=0)
+                self._last_raw_side_px = float(
+                    np.linalg.norm(pts[0] - pts[1])
+                )
                 pts_u = self._undistort(pts)
                 center = pts_u.mean(axis=0)
                 # 印刷正上 = TL - BL = corner0 - corner3
@@ -137,6 +249,21 @@ class PoseTracker:
                         rejected_candidate_counts
                     ),
                     "detect_elapsed_ns": time.perf_counter_ns() - started_ns,
+                    "search_mode": (
+                        "roi_then_full"
+                        if roi_bounds is not None
+                        else "full_frame"
+                    ),
+                    "search_regions": list(attempted_regions),
+                    "roi_bounds": (
+                        list(roi_bounds) if roi_bounds is not None else None
+                    ),
+                    "full_frame_fallback": roi_bounds is not None,
+                    "preprocess_mode": None,
+                    "preprocess_modes_attempted": list(
+                        preprocess_modes_attempted
+                    ),
+                    "preprocess_border_px": None,
                 }
         return None, {
             "attempted_scales": attempted_scales,
@@ -154,7 +281,126 @@ class PoseTracker:
             "rejected_candidate_count": int(sum(rejected_candidate_counts)),
             "rejected_candidate_counts": list(rejected_candidate_counts),
             "detect_elapsed_ns": time.perf_counter_ns() - started_ns,
+            "search_mode": (
+                "roi_then_full" if roi_bounds is not None else "full_frame"
+            ),
+            "search_regions": list(attempted_regions),
+            "roi_bounds": (
+                list(roi_bounds) if roi_bounds is not None else None
+            ),
+            "full_frame_fallback": roi_bounds is not None,
+            "preprocess_mode": None,
+            "preprocess_modes_attempted": list(preprocess_modes_attempted),
+            "preprocess_border_px": None,
         }
+
+    def _roi_bounds(self, gray: np.ndarray) -> Optional[tuple[int, int, int, int]]:
+        """Return a bounded region around the last valid tag."""
+        if self._last_raw_center is None or self._last_raw_side_px is None:
+            return None
+        height, width = gray.shape[:2]
+        half_size = max(
+            96.0,
+            1.5 * max(self._last_raw_side_px, MIN_DETECT_SIDE_PX)
+            + self._roi_padding_px,
+        )
+        center_x, center_y = self._last_raw_center
+        x0 = max(0, int(math.floor(center_x - half_size)))
+        y0 = max(0, int(math.floor(center_y - half_size)))
+        x1 = min(width, int(math.ceil(center_x + half_size)))
+        y1 = min(height, int(math.ceil(center_y + half_size)))
+        if x1 <= x0 or y1 <= y0:
+            return None
+        return x0, y0, x1, y1
+
+    def _roi_preprocessed_inputs(
+        self,
+        frame: np.ndarray,
+        roi_bounds: tuple[int, int, int, int],
+    ) -> tuple[tuple[str, np.ndarray, int, int], ...]:
+        """Return bounded local contrast inputs after the raw ROI misses."""
+        x0, y0, x1, y1 = roi_bounds
+        roi = frame[y0:y1, x0:x1]
+        if roi.ndim != 3 or roi.shape[2] < 3:
+            return ()
+        border = max(16, int(round(self._roi_padding_px)))
+        roi = cv2.copyMakeBorder(
+            roi,
+            border,
+            border,
+            border,
+            border,
+            cv2.BORDER_CONSTANT,
+            value=(255, 255, 255),
+        )
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        blue = roi[:, :, 0]
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4))
+        blue_blur = cv2.GaussianBlur(blue, (0, 0), 1.0)
+        offset_x = x0 - border
+        offset_y = y0 - border
+        return (
+            ("blue_clahe", clahe.apply(blue), offset_x, offset_y),
+            (
+                "blue_unsharp",
+                cv2.addWeighted(blue, 2.0, blue_blur, -1.0, 0),
+                offset_x,
+                offset_y,
+            ),
+            ("gray_clahe", clahe.apply(gray), offset_x, offset_y),
+        )
+
+    def _detect_region(
+        self,
+        gray: np.ndarray,
+        offset_x: int,
+        offset_y: int,
+        attempted_scales: list[float],
+        rejected_candidate_counts: list[int],
+        scales: Optional[Sequence[float]] = None,
+    ) -> tuple[Optional[Dict[str, Any]], Optional[float], bool]:
+        """Detect the configured target ID in one image region."""
+        saw_markers = False
+        active_scales = self._scales if scales is None else tuple(scales)
+        for scale in active_scales:
+            attempted_scales.append(float(scale))
+            if scale == 1.0:
+                g = gray
+            else:
+                g = cv2.resize(
+                    gray,
+                    None,
+                    fx=scale,
+                    fy=scale,
+                    interpolation=cv2.INTER_CUBIC,
+                )
+            corners_l, ids, rejected = self._detector.detectMarkers(g)
+            rejected_count = len(rejected) if rejected is not None else 0
+            rejected_candidate_counts.append(rejected_count)
+            if ids is None:
+                continue
+            saw_markers = True
+            for c, i in zip(corners_l, ids.ravel()):
+                if int(i) != self._tag_id:
+                    continue
+                pts = np.asarray(c[0], dtype=float) / scale
+                pts[:, 0] += float(offset_x)
+                pts[:, 1] += float(offset_y)
+                self._last_raw_center = pts.mean(axis=0)
+                self._last_raw_side_px = float(
+                    np.linalg.norm(pts[0] - pts[1])
+                )
+                pts_u = self._undistort(pts)
+                center = pts_u.mean(axis=0)
+                fwd = pts_u[0] - pts_u[3]
+                side = float(np.linalg.norm(pts_u[0] - pts_u[1]))
+                return {
+                    "corners": pts_u,
+                    "center_px": center,
+                    "forward_px": fwd,
+                    "side_px": side,
+                }, float(scale), saw_markers
+        return None, None, saw_markers
 
     def track(
         self, frame: Any, t_pc_ns: Optional[int] = None

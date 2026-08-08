@@ -85,9 +85,22 @@ READER_JOIN_TIMEOUT_S = 1.0
 
 
 # Windows monotonic_ns may be backed by a coarse GetTickCount64 clock.
+_capture_pc_clock_lock = threading.Lock()
+_last_capture_pc_clock_ns = None
+
+
 def capture_pc_clock_ns():
-    """Return the shared high-resolution monotonic clock for evidence times."""
-    return time.perf_counter_ns()
+    """Return a shared high-resolution clock that is strictly increasing."""
+    global _last_capture_pc_clock_ns
+    with _capture_pc_clock_lock:
+        now_ns = time.perf_counter_ns()
+        if (
+            _last_capture_pc_clock_ns is not None
+            and now_ns <= _last_capture_pc_clock_ns
+        ):
+            now_ns = _last_capture_pc_clock_ns + 1
+        _last_capture_pc_clock_ns = now_ns
+        return now_ns
 
 OUTPUT_FILENAMES = (
     "pose.jsonl",
@@ -109,8 +122,8 @@ B3_DIAGNOSTIC_FILENAMES = ("raw_health.json", "raw_io.json")
 FAILURE_FRAME_DIRNAME = "failed_frames"
 MAX_FAILURE_FRAME_THUMBNAILS = 12
 FAILURE_FRAME_SAMPLE_STRIDE = 30
-FAILURE_FRAME_MAX_WIDTH = 640
-FAILURE_FRAME_JPEG_QUALITY = 70
+FAILURE_FRAME_MAX_WIDTH = 1280
+FAILURE_FRAME_JPEG_QUALITY = 95
 
 
 def open_capture_camera(index: int):
@@ -198,6 +211,8 @@ def _new_failure_frame_summary(failure_frame_dir, max_saved):
         ),
         "max_saved": max(0, int(max_saved)),
         "sample_stride": FAILURE_FRAME_SAMPLE_STRIDE,
+        "max_width": FAILURE_FRAME_MAX_WIDTH,
+        "jpeg_quality": FAILURE_FRAME_JPEG_QUALITY,
         "saved": 0,
         "observed": 0,
         "by_reason": {},
@@ -374,6 +389,8 @@ def write_capture_artifacts(out_dir, poses, telemetry, frame_index=None,
             "directory": None,
             "max_saved": 0,
             "sample_stride": FAILURE_FRAME_SAMPLE_STRIDE,
+            "max_width": FAILURE_FRAME_MAX_WIDTH,
+            "jpeg_quality": FAILURE_FRAME_JPEG_QUALITY,
             "saved": 0,
             "observed": 0,
             "by_reason": {},
