@@ -1,0 +1,38 @@
+{
+  "active_grid_mm": [
+    250.0,
+    175.0
+  ],
+  "grid_squares": [
+    10,
+    7
+  ],
+  "orientation": "landscape",
+  "origin_mm": [
+    13.5,
+    7.5
+  ],
+  "page_mm": [
+    297.0,
+    210.0
+  ],
+  "pattern_inner_corners": [
+    9,
+    6
+  ],
+  "png_dpi": 300,
+  "png_size_px": [
+    3508,
+    2480
+  ],
+  "print_scale": 1.0,
+  "scale_reference_mm": 25.0,
+  "schema_version": 1,
+  "square_size_mm": 25.0,
+  "target_footprint_mm": [
+    270.0,
+    195.0
+  ],
+  "target_id": "a4_checkerboard_9x6_25mm",
+  "white_border_mm": 10.0
+}
