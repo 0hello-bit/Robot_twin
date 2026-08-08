@@ -33,7 +33,7 @@ DirectShow 索引**热插拔会漂移**（2026-08-03 实测：EMEET C960 曾为 
 | `perpendicularity_preview.py` | 实时垂直度检查（棋盘格纵横比/各向异性） | `py perpendicularity_preview.py [index]` |
 | `capture_intrinsics_views.py` | 多角度采集（内参标定，15 张） | `py capture_intrinsics_views.py [index] [outdir]` |
 | `capture_intrinsics_coverage.py` | **多角度全覆盖采集**（3×3 网格强制覆盖 4 角+4 边+中央；畸变标定必须用这个） | `py capture_intrinsics_coverage.py [index] [outdir]` |
-| `record_chessboard_video.py` | **录棋盘格视频**（1280×720，检测到棋盘格后自动开录；内参标定用） | `py record_chessboard_video.py [index] [out.mp4] [sec]` |
+| `record_chessboard_video.py` | **录棋盘格视频**（1920×1080@30，检测到棋盘格后自动开录；内参标定用） | `py record_chessboard_video.py [index] [out.mp4] [sec]` |
 | `extract_calibration_frames.py` | **从视频解析标定视图**（逐帧检测 + 清晰度过滤 + 4×4 空间覆盖 + 角度去重） | `py extract_calibration_frames.py video.mp4 outdir [--grid 4] [--min-sharpness 100]` |
 | `guided_capture.py` | **实时引导采集**：4×4 覆盖地图 + 清晰度/平贴度实时反馈 + 下一步提示，质量达标自动存（免返工） | `py guided_capture.py [index] [outdir]` |
 | `mosaic_homography.py` | **视频拼接 homography**（平面镶嵌 bundle adjustment，需共面滑动数据） | `py mosaic_homography.py video.mp4 out.json` |
@@ -53,7 +53,7 @@ imread_unicode / imwrite_unicode / open_camera`。
 1. **架好摄像头**：垂直正俯拍赛道（`perpendicularity_preview.py` 调至
    纵横比≈1.60、各向异性≈1.00）。注意：均值法会漏掉轻微梯形倾角，
    最终以 homography 局部 Jacobian ratio≈1.0 为准。
-2. **多角度全覆盖内参采集**：**推荐录视频法**——`record_chessboard_video.py` 录 60-90s
+2. **多角度全覆盖内参采集**：**推荐录视频法**——`record_chessboard_video.py` 以 1920×1080@30 录 60-90s
    （手持棋盘格慢速扫过 4 角+4 边+中央、变换角度）→ `extract_calibration_frames.py`
    解析出 ~20-30 张覆盖全画面的视图。备选：`capture_intrinsics_coverage.py` 实时 3×3 覆盖。
    然后标定畸变（p95 ≤ 2px；覆盖不足时边缘畸变未约束 → homography 全局失真）。
