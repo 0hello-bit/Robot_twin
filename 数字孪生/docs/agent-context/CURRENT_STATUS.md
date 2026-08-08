@@ -1188,3 +1188,44 @@ Status: `OFFLINE_VERIFIED_B3_OBSERVATION_GATE_FAILED`
 - Keep B3 blocked. After explicit authorization, run one bounded capture using
   the existing failure-frame retention path, inspect the thumbnails and
   metadata, then select exactly one constrained observation experiment.
+
+### B3 CAMERA-HEIGHT RERUN (2026-08-08)
+
+Status: `REAL_CAPTURE_COMPLETED_OBSERVATION_STILL_BLOCKED`
+
+- After the operator raised the camera, the existing canonical capture path
+  ran `c260808033248336` for 20 seconds. No firmware was flashed and no
+  detector or calibration code changed.
+- The camera was verified at `1280x720`, `MJPG`, and `30.00003 fps`. The
+  lifecycle completed `START/RUNNING -> capture -> STOP/STOPPED` with normal
+  heartbeat, socket, camera, and reader cleanup. The stop reason was the
+  commanded `STOP`, not `LINE_LOST`.
+- The raw session contains 389 readable camera frames, 154 poses, and 631
+  telemetry frames. All 235 failed detections were `candidates_rejected`;
+  eight representative thumbnails were retained under the run directory.
+- The fixed synchronization gate passed with 100% coverage and p95 time
+  difference `15.36 ms`.
+- Compared with `c260808033006893` (28/206 poses, 13.59%), this run produced
+  154/389 poses, 39.59%. This is a verified run comparison and an inference
+  that the higher camera position improved observation availability, not an
+  isolated causal proof.
+- The strict observation analyzer refused the new `frame_index.jsonl` because
+  frames 380 and 381 have the same `t_pc_ns=1690493078000000`. The raw run is
+  preserved; no timestamp was repaired in place. Direct diagnostic counts also
+  remain below the observation profile: detection p95 `64.75 ms`, maximum pose
+  gap 28 frame records, and detection ratio `39.59%`.
+
+#### EVIDENCE BOUNDARY
+
+- `VERIFIED`: real synchronized lifecycle, sync gate, increased pose count,
+  retained failure images, and uniform `candidates_rejected` failures.
+- `INFERENCE`: camera height/field of view likely contributed to the increase;
+  the exact detector cause remains unverified.
+- `INSUFFICIENT EVIDENCE`: continuous AprilTag observation, formal observation
+  gate classification for this run, and a machine-readable start/finish event.
+
+#### NEXT INTERFACE
+
+- Keep B3 blocked. Audit the equal timestamp as an offline evidence-integrity
+  issue, then run one constrained observation experiment selected from the
+  retained thumbnails. Do not bundle detector, camera, and calibration changes.

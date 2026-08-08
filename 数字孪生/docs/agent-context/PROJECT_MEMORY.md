@@ -239,3 +239,25 @@ evidence.
 - Offline status after this change: `708 passed, 5 skipped`, compileall `0`.
   No new hardware evidence exists, and B3 remains blocked until an authorized
   rerun produces interpretable failure-frame evidence.
+
+## B3 camera-height rerun (2026-08-08)
+
+- Authorized run `simulation/digital_twin/logs/c260808033248336/` used the
+  existing capture path after the operator raised the camera. It used
+  `1280x720/MJPG/30 fps`, completed START/RUNNING and commanded STOP/STOPPED,
+  and did not flash firmware.
+- The run produced 389 readable frames, 154 poses, and 631 telemetry frames.
+  Detection ratio was `39.59%`; all 235 failures were
+  `candidates_rejected`; eight representative failure thumbnails were saved.
+  The fixed sync gate passed at 100% coverage and `15.36 ms` p95 time error.
+- The prior run had 28/206 poses (`13.59%`), so the increased pose count is
+  verified and the camera-height contribution is an inference, not isolated
+  causal proof.
+- The strict offline B3 observation analyzer rejected this run because frames
+  380 and 381 have an equal camera timestamp. Do not rewrite the raw artifact
+  or silently ignore the duplicate. Detection p95 was `64.75 ms` and the
+  maximum pose gap was 28 frame records, so observation readiness remains
+  blocked even apart from the timestamp evidence issue.
+- The next agent must audit the timestamp contract offline before selecting one
+  constrained detector/camera/calibration experiment. Do not bundle changes or
+  claim continuous AprilTag tracking from this run.
