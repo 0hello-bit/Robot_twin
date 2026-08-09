@@ -1462,7 +1462,7 @@ Status: `HARDWARE_CAPTURE_BLOCKED_CALIBRATION_MISMATCH`
 
 ### WORKSPACE FREEZE BEFORE B3-A HARDWARE HANDOFF (2026-08-09)
 
-Status: `OFFLINE_CANDIDATE_FREEZE_PENDING_HARDWARE_AUTHORIZATION`
+Status: `FLASH_VERIFIED_HARDWARE_RUN_PENDING`
 
 - The current checkpoint groups the offline Transport A implementation, the
   offline-only transparent-session alternative C, the 1080p camera tooling,
@@ -1472,12 +1472,16 @@ Status: `OFFLINE_CANDIDATE_FREEZE_PENDING_HARDWARE_AUTHORIZATION`
   source, tests, JSON controls/reports, plans, and handoffs remain versioned.
 - The two generated Host C object files formerly at the `数字孪生` root are
   archived under `archive/generated_workspace_20260809/project_root_objects/`.
+- Scheme A was already flashed successfully at `2026-08-09 20:23:19`.
+  The immutable Keil log records `Erase Done`, `Programming Done`, `Verify OK`,
+  and `Application running` after a clean rebuild at `20:23:02`.
 
 #### EVIDENCE BOUNDARY
 
 - `VERIFIED`: offline A/C ownership tests, the existing Keil offline build
-  record, the fresh Keil Target 1 rebuild, the real 1080p synchronized-capture
-  result, and the current workspace classification after the freeze procedure.
+  record, the fresh Keil Target 1 rebuild, the successful Scheme A flash, the
+  real 1080p synchronized-capture result, and the current workspace
+  classification after the freeze procedure.
 - `INFERENCE`: the offline A artifact is the appropriate first hardware
   candidate because it preserves the existing AA55/P/R/A/S, heartbeat, and
   safety-stop boundaries while repairing pending/in-flight delivery ownership.
@@ -1488,11 +1492,14 @@ Status: `OFFLINE_CANDIDATE_FREEZE_PENDING_HARDWARE_AUTHORIZATION`
 
 #### NEXT INTERFACE
 
-- After fresh offline verification and the Git checkpoint, request explicit
-  ST-Link authorization to flash A and run the existing bounded shakedown
-  entrypoint. Do not flash C, introduce nRF24L01, or claim B3 complete from
-  the offline checkpoint.
+- Do not flash A again solely because the latest rebuild has a different AXF
+  hash; the successful flash log is the current hardware-flash evidence. The
+  next action is a separately authorized bounded hardware run using the
+  existing shakedown entrypoint. Do not flash C, introduce nRF24L01, or claim
+  B3 complete from the flash record alone.
 
-The fresh A candidate for that handoff is
+The latest rebuilt A candidate, which is not cryptographically proven to be
+the exact byte image used by the earlier flash because the AXF was rebuilt
+afterward, is
 `firmware/stm32_line_follower/Objects/Project.axf` with SHA-256
 `1161FA2EEE9C86A3D2409120125AD0BC6D7A7BE237144849564C8A868130E379`.

@@ -7,8 +7,8 @@ Branch: `master`
 ## Scope
 
 This checkpoint freezes the current offline B3-A transport work and the
-1080p camera-observation work. It is a versioning and handoff boundary, not a
-hardware authorization.
+1080p camera-observation work. A prior successful Scheme A flash is recorded
+below; this checkpoint does not authorize vehicle motion.
 
 ## Included in the checkpoint
 
@@ -20,6 +20,8 @@ hardware authorization.
   connected to runtime code and is not a hardware candidate.
 - Camera capture uses the configured 1080p profile and retains synchronized
   session evidence plus failure-frame metadata.
+- Scheme A was successfully flashed at `2026-08-09 20:23:19` after a clean
+  rebuild at `20:23:02`; the Keil log records programming and verification.
 - Reproducible source, tests, JSON controls/reports, plans, specifications,
   and handoffs are eligible for Git.
 
@@ -55,6 +57,8 @@ Generated root `.obj` files were moved, without deletion, to:
 - The real 1080p capture `c260809100608075` passed its synchronization gate:
   166 camera records, 260 telemetry records, 100% coverage, and p95 camera /
   telemetry difference `15.294889 ms`.
+- The successful flash evidence is at
+  `.embeddedskills/build/2026-08-09-v1-b3-transport-a-c-flash/project-Target 1-flash.log`.
 - The same real capture failed the independent observation gate: 90/166
   AprilTag detections (`54.2168%`), 76 rejected frames, maximum pose gap
   `34.946622` frame periods, and detector processing p95 `75.541850 ms`.
@@ -74,6 +78,10 @@ Generated root `.obj` files were moved, without deletion, to:
 ### INSUFFICIENT EVIDENCE
 
 - No real-car delivery after the current A source change.
+- The exact SHA-256 of the AXF bytes used by the `20:23:19` flash cannot be
+  recovered from the Keil log because the same output path was rebuilt later;
+  the flash log and matching build metrics remain the authoritative flash
+  evidence.
 - No independently verified live firmware identity for the current artifact.
 - No measured wheel speed, displacement, formal 1080p ground homography,
   continuous AprilTag observation, or complete B3 pass.
@@ -82,8 +90,8 @@ Generated root `.obj` files were moved, without deletion, to:
 
 ## Next authorized interface
 
-After the fresh offline gate and Git checkpoint are verified, request explicit
-ST-Link authorization to flash only scheme A. Then use the existing canonical
-`ground_shakedown.py --execute` entrypoint for a bounded run. Keep scheme C,
+Do not flash again for this handoff. After a separate motion-safety
+authorization, use the existing canonical `ground_shakedown.py --execute`
+entrypoint for a bounded run of the already flashed Scheme A. Keep scheme C,
 nRF24L01, encoder integration, detector-threshold changes, and control changes
 out of that first hardware comparison.
