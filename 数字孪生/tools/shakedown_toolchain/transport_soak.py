@@ -253,13 +253,16 @@ class RawIoLogger(object):
             "dir": "TX", "monotonic_s": round(mono, 6), "wall_iso": wall_iso,
             "n_bytes": len(data), "bytes_hex": data.hex()})
 
-    def log_recv(self, data: bytes, note=None) -> None:
+    def log_recv(self, data: bytes, note=None, arrival_pc_ns=None) -> None:
         mono, wall_iso = self._now()
         ev = {"dir": "RX", "monotonic_s": round(mono, 6),
               "wall_iso": wall_iso, "n_bytes": len(data),
               "bytes_hex": data.hex()}
         if note:
             ev["note"] = note
+        if arrival_pc_ns is not None:
+            ev["arrival_pc_ns"] = int(arrival_pc_ns)
+            ev["pc_recv_ns"] = int(arrival_pc_ns)
         self._events.append(ev)
 
     def events(self):
@@ -362,6 +365,7 @@ class _SessionCtx(object):
         self.cv = threading.Condition()
         self.stop = threading.Event()
         self.reader_err = None
+        self._current_recv_arrival_pc_ns = None
         self._mixed = MixedStreamParser(
             on_telemetry=self._on_telemetry, on_line=self._on_line,
             on_health=self._on_health)
@@ -370,11 +374,15 @@ class _SessionCtx(object):
         d = decode_telemetry(payload)
         if not d:
             return
-        pc_ns = time.monotonic_ns()
+        decode_pc_ns = time.monotonic_ns()
+        pc_ns = self._current_recv_arrival_pc_ns
+        if pc_ns is None:
+            pc_ns = decode_pc_ns
         yaw_deg = round(float(d.get("yaw", 0.0)), 6)
         frame = {
             "tick_ms": int(d["tick_ms"]),
             "pc_recv_ns": pc_ns,
+            "decode_pc_ns": decode_pc_ns,
             "s0": int(d["s0"]), "s1": int(d["s1"]),
             "s2": int(d["s2"]), "s3": int(d["s3"]),
             "m1": int(d["m1"]), "m2": int(d["m2"]),
@@ -396,8 +404,13 @@ class _SessionCtx(object):
         d = decode_health(payload)
         if not d:
             return
-        pc_ns = time.monotonic_ns()
-        record = {"frame_ts_s": round(time.time(), 6), "pc_recv_ns": pc_ns}
+        decode_pc_ns = time.monotonic_ns()
+        pc_ns = self._current_recv_arrival_pc_ns
+        if pc_ns is None:
+            pc_ns = decode_pc_ns
+        record = {"frame_ts_s": round(time.time(), 6),
+                  "pc_recv_ns": pc_ns,
+                  "decode_pc_ns": decode_pc_ns}
         for key, value in d.items():
             record[key] = int(value)
         with self.frames_lock:
@@ -431,7 +444,9 @@ class _SessionCtx(object):
                 break
             if not data:
                 continue
-            self.rx_log.log_recv(data)
+            arrival_pc_ns = time.monotonic_ns()
+            self._current_recv_arrival_pc_ns = arrival_pc_ns
+            self.rx_log.log_recv(data, arrival_pc_ns=arrival_pc_ns)
             for b in data:
                 self._mixed.feed(b)
 

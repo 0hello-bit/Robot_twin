@@ -1,0 +1,542 @@
+[
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_00.png",
+    "x_mm": 0.0,
+    "y_mm": 0.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_01.png",
+    "x_mm": 120.0,
+    "y_mm": 0.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_02.png",
+    "x_mm": 240.0,
+    "y_mm": 0.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_03.png",
+    "x_mm": 360.0,
+    "y_mm": 0.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_04.png",
+    "x_mm": 480.0,
+    "y_mm": 0.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_05.png",
+    "x_mm": 600.0,
+    "y_mm": 0.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_06.png",
+    "x_mm": 720.0,
+    "y_mm": 0.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_07.png",
+    "x_mm": 840.0,
+    "y_mm": 0.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_08.png",
+    "x_mm": 960.0,
+    "y_mm": 0.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_09.png",
+    "x_mm": 1080.0,
+    "y_mm": 0.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_10.png",
+    "x_mm": 0.0,
+    "y_mm": 75.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_11.png",
+    "x_mm": 120.0,
+    "y_mm": 75.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_12.png",
+    "x_mm": 240.0,
+    "y_mm": 75.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_13.png",
+    "x_mm": 360.0,
+    "y_mm": 75.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_14.png",
+    "x_mm": 480.0,
+    "y_mm": 75.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_15.png",
+    "x_mm": 600.0,
+    "y_mm": 75.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_16.png",
+    "x_mm": 720.0,
+    "y_mm": 75.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_17.png",
+    "x_mm": 840.0,
+    "y_mm": 75.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_18.png",
+    "x_mm": 960.0,
+    "y_mm": 75.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_19.png",
+    "x_mm": 1080.0,
+    "y_mm": 75.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_20.png",
+    "x_mm": 0.0,
+    "y_mm": 150.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_21.png",
+    "x_mm": 120.0,
+    "y_mm": 150.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_22.png",
+    "x_mm": 240.0,
+    "y_mm": 150.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_23.png",
+    "x_mm": 360.0,
+    "y_mm": 150.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_24.png",
+    "x_mm": 480.0,
+    "y_mm": 150.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_25.png",
+    "x_mm": 600.0,
+    "y_mm": 150.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_26.png",
+    "x_mm": 720.0,
+    "y_mm": 150.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_27.png",
+    "x_mm": 840.0,
+    "y_mm": 150.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_28.png",
+    "x_mm": 960.0,
+    "y_mm": 150.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_29.png",
+    "x_mm": 1080.0,
+    "y_mm": 150.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_30.png",
+    "x_mm": 0.0,
+    "y_mm": 225.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_31.png",
+    "x_mm": 120.0,
+    "y_mm": 225.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_32.png",
+    "x_mm": 240.0,
+    "y_mm": 225.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_33.png",
+    "x_mm": 360.0,
+    "y_mm": 225.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_34.png",
+    "x_mm": 480.0,
+    "y_mm": 225.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_35.png",
+    "x_mm": 600.0,
+    "y_mm": 225.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_36.png",
+    "x_mm": 720.0,
+    "y_mm": 225.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_37.png",
+    "x_mm": 840.0,
+    "y_mm": 225.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_38.png",
+    "x_mm": 960.0,
+    "y_mm": 225.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_39.png",
+    "x_mm": 1080.0,
+    "y_mm": 225.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_40.png",
+    "x_mm": 0.0,
+    "y_mm": 300.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_41.png",
+    "x_mm": 120.0,
+    "y_mm": 300.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_42.png",
+    "x_mm": 240.0,
+    "y_mm": 300.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_43.png",
+    "x_mm": 360.0,
+    "y_mm": 300.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_44.png",
+    "x_mm": 480.0,
+    "y_mm": 300.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_45.png",
+    "x_mm": 600.0,
+    "y_mm": 300.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_46.png",
+    "x_mm": 720.0,
+    "y_mm": 300.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_47.png",
+    "x_mm": 840.0,
+    "y_mm": 300.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_48.png",
+    "x_mm": 960.0,
+    "y_mm": 300.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_49.png",
+    "x_mm": 1080.0,
+    "y_mm": 300.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_50.png",
+    "x_mm": 0.0,
+    "y_mm": 375.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_51.png",
+    "x_mm": 120.0,
+    "y_mm": 375.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_52.png",
+    "x_mm": 240.0,
+    "y_mm": 375.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_53.png",
+    "x_mm": 360.0,
+    "y_mm": 375.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_54.png",
+    "x_mm": 480.0,
+    "y_mm": 375.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_55.png",
+    "x_mm": 600.0,
+    "y_mm": 375.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_56.png",
+    "x_mm": 720.0,
+    "y_mm": 375.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_57.png",
+    "x_mm": 840.0,
+    "y_mm": 375.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_58.png",
+    "x_mm": 960.0,
+    "y_mm": 375.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_59.png",
+    "x_mm": 1080.0,
+    "y_mm": 375.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_60.png",
+    "x_mm": 0.0,
+    "y_mm": 450.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_61.png",
+    "x_mm": 120.0,
+    "y_mm": 450.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_62.png",
+    "x_mm": 240.0,
+    "y_mm": 450.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_63.png",
+    "x_mm": 360.0,
+    "y_mm": 450.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_64.png",
+    "x_mm": 480.0,
+    "y_mm": 450.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_65.png",
+    "x_mm": 600.0,
+    "y_mm": 450.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_66.png",
+    "x_mm": 720.0,
+    "y_mm": 450.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_67.png",
+    "x_mm": 840.0,
+    "y_mm": 450.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_68.png",
+    "x_mm": 960.0,
+    "y_mm": 450.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_69.png",
+    "x_mm": 1080.0,
+    "y_mm": 450.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_70.png",
+    "x_mm": 0.0,
+    "y_mm": 525.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_71.png",
+    "x_mm": 120.0,
+    "y_mm": 525.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_72.png",
+    "x_mm": 240.0,
+    "y_mm": 525.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_73.png",
+    "x_mm": 360.0,
+    "y_mm": 525.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_74.png",
+    "x_mm": 480.0,
+    "y_mm": 525.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_75.png",
+    "x_mm": 600.0,
+    "y_mm": 525.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_76.png",
+    "x_mm": 720.0,
+    "y_mm": 525.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_77.png",
+    "x_mm": 840.0,
+    "y_mm": 525.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_78.png",
+    "x_mm": 960.0,
+    "y_mm": 525.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_79.png",
+    "x_mm": 1080.0,
+    "y_mm": 525.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_80.png",
+    "x_mm": 0.0,
+    "y_mm": 600.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_81.png",
+    "x_mm": 120.0,
+    "y_mm": 600.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_82.png",
+    "x_mm": 240.0,
+    "y_mm": 600.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_83.png",
+    "x_mm": 360.0,
+    "y_mm": 600.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_84.png",
+    "x_mm": 480.0,
+    "y_mm": 600.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_85.png",
+    "x_mm": 600.0,
+    "y_mm": 600.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_86.png",
+    "x_mm": 720.0,
+    "y_mm": 600.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_87.png",
+    "x_mm": 840.0,
+    "y_mm": 600.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_88.png",
+    "x_mm": 960.0,
+    "y_mm": 600.0,
+    "angle_deg": 0
+  },
+  {
+    "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\tools\\camera_toolchain\\ground_controls_15mm_1080p_20260809_run3\\view_89.png",
+    "x_mm": 1080.0,
+    "y_mm": 600.0,
+    "angle_deg": 0
+  }
+]

@@ -735,6 +735,16 @@
               <FilePath>.\User\telemetry_batch.h</FilePath>
             </File>
             <File>
+              <FileName>telemetry_delivery.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\User\telemetry_delivery.c</FilePath>
+            </File>
+            <File>
+              <FileName>telemetry_delivery.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\User\telemetry_delivery.h</FilePath>
+            </File>
+            <File>
               <FileName>telemetry_rate.h</FileName>
               <FileType>5</FileType>
               <FilePath>.\User\telemetry_rate.h</FilePath>
@@ -860,6 +870,16 @@
               <FilePath>.\User\esp_tx_coordinator.h</FilePath>
             </File>
             <File>
+              <FileName>esp_transparent_session.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\User\esp_transparent_session.c</FilePath>
+            </File>
+            <File>
+              <FileName>esp_transparent_session.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\User\esp_transparent_session.h</FilePath>
+            </File>
+            <File>
               <FileName>health_frame.h</FileName>
               <FileType>5</FileType>
               <FilePath>.\User\health_frame.h</FilePath>
@@ -889,7 +909,6 @@
               <FileType>1</FileType>
               <FilePath>.\User\health_watchdog.c</FilePath>
             </File>
-
           </Files>
         </Group>
       </Groups>

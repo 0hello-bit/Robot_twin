@@ -25,7 +25,7 @@ import numpy as np
 import camera_common as cc
 
 PATTERN = (9, 6)
-SQUARE_MM = 15.0
+SQUARE_MM = cc.GROUND_CHECKERBOARD_SQUARE_MM
 MM_W = 8 * SQUARE_MM   # 120
 MM_H = 5 * SQUARE_MM   # 75
 CRITERIA = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-6)
@@ -35,8 +35,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("index", nargs="?", type=int, default=None)
     ap.add_argument("outdir", nargs="?", default=None)
-    ap.add_argument("--width", type=int, default=1280)
-    ap.add_argument("--height", type=int, default=720)
+    ap.add_argument("--width", type=int, default=cc.DEFAULT_WIDTH)
+    ap.add_argument("--height", type=int, default=cc.DEFAULT_HEIGHT)
     args = ap.parse_args()
 
     index = cc.get_camera_index(args.index)

@@ -49,8 +49,8 @@ def main():
     ap.add_argument("outdir", nargs="?", default=None)
     ap.add_argument("--grid", type=int, default=GRID)
     ap.add_argument("--min-sharpness", type=float, default=150.0)
-    ap.add_argument("--width", type=int, default=1280)
-    ap.add_argument("--height", type=int, default=720)
+    ap.add_argument("--width", type=int, default=cc.DEFAULT_WIDTH)
+    ap.add_argument("--height", type=int, default=cc.DEFAULT_HEIGHT)
     args = ap.parse_args()
 
     index = cc.get_camera_index(args.index)

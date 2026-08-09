@@ -1,7 +1,7 @@
 """C960 实时预览：用于人工调整摄像头构图。
 
-用法: python live_preview.py [index]   默认 index=1
-窗口实时显示摄像头画面（请求 1280x720），按 ESC 关闭。
+用法: python live_preview.py [index]   默认使用 camera_config.json
+窗口实时显示摄像头画面（请求 1920x1080），按 ESC 关闭。
 """
 import sys
 import time

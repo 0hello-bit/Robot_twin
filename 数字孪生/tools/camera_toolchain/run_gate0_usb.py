@@ -1,8 +1,8 @@
-"""4B-1 Gate 0 重验 — EMEET SmartCam C960 (USB index-2), 1280x720, 600s with warm-up.
+"""4B-1 Gate 0 重验 — EMEET SmartCam C960, 1920x1080, 600s with warm-up.
 
 用法: python run_gate0_usb.py
 输出: gate0_report.json, frame_start/mid/end.png, montage.png, gate0_log.txt
-判据: fps>=20, drop<=5%, timestamps monotonic, resolution 1280x720 match,
+判据: fps>=20, drop<=5%, timestamps monotonic, resolution 1920x1080 match,
       content valid (no black/near-black/duplicate in official interval).
 """
 import json

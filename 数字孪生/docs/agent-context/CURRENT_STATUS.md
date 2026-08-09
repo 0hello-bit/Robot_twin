@@ -1,6 +1,6 @@
 # Robot Twin AI - Current Status
 
-Snapshot: 2026-08-07
+Snapshot: 2026-08-09
 Canonical workspace: stm32小车/数字孪生
 
 This file is the current authoritative status for the active workspace.
@@ -1392,3 +1392,107 @@ Status: `OFFLINE_CANDIDATE_HARDWARE_RERUN_REQUIRED`
   timestamp monotonicity, detection ratio, maximum pose gap, detector p95, and
   sync gate. Do not combine this rerun with camera resolution, calibration,
   threshold, or firmware changes.
+
+### B3 CAMERA SOURCE AND RESOLUTION AUDIT (2026-08-09)
+
+Status: `OFFLINE_VERIFIED_HARDWARE_RERUN_REQUIRED`
+
+- The retained run `c260808052942717` was not a 1080p run: its immutable
+  `sync_report.json` records actual `1280x720/MJPG/30` capture from camera
+  index `1`.
+- Its retained failure images are `640x360` diagnostic thumbnails. They are
+  not raw 1080p frames and must not be used as 1080p visibility evidence.
+- The current source defaults are `1920x1080/MJPG/30`, and a new run's failure
+  frame limit follows the current capture width. `capture_sync_run.py` now
+  resolves an omitted `--camera` from `camera_config.json` (current C960
+  index `0`); an explicit numeric `--camera` remains supported.
+- The capture/cleanup, camera-common, and guided-coverage checks pass `47`;
+  the Python 3.7 path-compatibility fix for calibration manifests is included.
+
+#### EVIDENCE BOUNDARY
+
+- `VERIFIED`: the historical run's actual mode and thumbnail dimensions, the
+  stale default-camera selection, and the offline source-selection fix.
+- `INSUFFICIENT EVIDENCE`: any real B3 capture at `1920x1080`, 1080p failure
+  frame visibility, continuous AprilTag detection, and observation-gate pass.
+
+#### NEXT INTERFACE
+
+- After explicit authorization, run one bounded B3 capture without specifying
+  `--camera`, then verify `sync_report.json` actual mode is `1920x1080/MJPG/30`
+  and inspect failure-frame file dimensions before interpreting detector
+  behavior. Do not bundle calibration, threshold, equalization, or firmware
+  changes into that run.
+
+### B3 1080P CALIBRATION GATE (2026-08-09)
+
+Status: `HARDWARE_CAPTURE_BLOCKED_CALIBRATION_MISMATCH`
+
+- The authorized rerun `c260809052036487` reached the capture preflight with
+  the car TCP service available, but failed closed before the control session:
+  actual camera mode was `1920x1080/MJPG/30`, while the supplied calibration
+  manifest expected `1280x720`. Its `sync_report.json` records
+  `start_sent=false`, `n_poses=0`, and `n_telemetry=0`; no START/STOP or vehicle
+  motion occurred.
+- The retained 1080p checkerboard video contains 1048 frames at `1920x1080`
+  and produced 14/14 detected candidate views from 13/16 image cells. An
+  offline intrinsics fit produced `rms=0.93106 px` and `p95=1.98737 px`.
+- The same 15 mm video produced only an exploratory homography candidate with
+  13/16 cell coverage and mean board-size error `13.7792%` (max `21.3193%`).
+  It is not promoted to the runtime profile, and the historical 720p profile is
+  not scaled or reused for a 1080p run.
+
+#### EVIDENCE BOUNDARY
+
+- `VERIFIED`: the 1080p camera mode, the fail-closed calibration mismatch, the
+  absence of START/STOP, the 1080p video dimensions, and the offline fit
+  measurements above.
+- `INFERENCE`: the existing 1080p video may be sufficient for a new exploratory
+  intrinsics profile after independent review.
+- `INSUFFICIENT EVIDENCE`: a validated 1080p ground homography, a coherent
+  1080p calibration manifest, continuous AprilTag observation, and any new
+  synchronized real-car result.
+
+#### NEXT INTERFACE
+
+- Keep B3 hardware capture blocked. Complete a fresh 1080p calibration bundle:
+  valid intrinsics plus a separately verified ground homography using the
+  actual printed target size. Only then rerun the unchanged B3 capture path;
+  do not downgrade the camera to 720p or bypass the dimension gate.
+
+### WORKSPACE FREEZE BEFORE B3-A HARDWARE HANDOFF (2026-08-09)
+
+Status: `OFFLINE_CANDIDATE_FREEZE_PENDING_HARDWARE_AUTHORIZATION`
+
+- The current checkpoint groups the offline Transport A implementation, the
+  offline-only transparent-session alternative C, the 1080p camera tooling,
+  calibration reports, and their tests. Scheme C remains unconnected to the
+  runtime and is not a hardware candidate.
+- Large dated raw camera media is retained locally and excluded from Git;
+  source, tests, JSON controls/reports, plans, and handoffs remain versioned.
+- The two generated Host C object files formerly at the `数字孪生` root are
+  archived under `archive/generated_workspace_20260809/project_root_objects/`.
+
+#### EVIDENCE BOUNDARY
+
+- `VERIFIED`: offline A/C ownership tests, the existing Keil offline build
+  record, the fresh Keil Target 1 rebuild, the real 1080p synchronized-capture
+  result, and the current workspace classification after the freeze procedure.
+- `INFERENCE`: the offline A artifact is the appropriate first hardware
+  candidate because it preserves the existing AA55/P/R/A/S, heartbeat, and
+  safety-stop boundaries while repairing pending/in-flight delivery ownership.
+- `INSUFFICIENT EVIDENCE`: real-car delivery after A, live firmware identity,
+  measured wheel motion, clock synchronization after A, continuous AprilTag
+  observation, validated 1080p ground homography, and any AI-generated
+  algorithm or hardware improvement.
+
+#### NEXT INTERFACE
+
+- After fresh offline verification and the Git checkpoint, request explicit
+  ST-Link authorization to flash A and run the existing bounded shakedown
+  entrypoint. Do not flash C, introduce nRF24L01, or claim B3 complete from
+  the offline checkpoint.
+
+The fresh A candidate for that handoff is
+`firmware/stm32_line_follower/Objects/Project.axf` with SHA-256
+`1161FA2EEE9C86A3D2409120125AD0BC6D7A7BE237144849564C8A868130E379`.

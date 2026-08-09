@@ -1801,8 +1801,8 @@ def _valid_ffprobe(stdout=None, returncode=0):
             "codec_name": "mjpeg",
             "codec_tag_string": "MJPG",
             "codec_tag": "0x47504a4d",
-            "width": 1280,
-            "height": 720,
+            "width": 1920,
+            "height": 1080,
             "avg_frame_rate": "30/1",
         }]})
     return subprocess.CompletedProcess(
@@ -1847,7 +1847,7 @@ def test_camera_immediate_exit_publishes_failure_and_blocks_session(tmp_path):
     assert "camera.mkv" in report["missing_artifacts"]
 
 
-def test_camera_graceful_shutdown_requires_mjpeg_720p_30fps(tmp_path):
+def test_camera_graceful_shutdown_requires_mjpeg_1080p_30fps(tmp_path):
     evidence = tmp_path / "evidence"
     evidence.mkdir()
     process = _FakeProcess(returncode=None)
@@ -1883,8 +1883,8 @@ def test_camera_validation_accepts_matroska_when_directshow_input_tag_is_verifie
         "codec_name": "mjpeg",
         "codec_tag_string": "[0][0][0][0]",
         "codec_tag": "0x0000",
-        "width": 1280,
-        "height": 720,
+        "width": 1920,
+        "height": 1080,
         "avg_frame_rate": "30/1",
     }]})
     recorder = FfmpegCameraRecorder(
@@ -1900,7 +1900,7 @@ def test_camera_validation_accepts_matroska_when_directshow_input_tag_is_verifie
     (evidence / "camera_ffmpeg.log").write_text(
         "Input #0, dshow, from 'video=EMEET SmartCam C960':\n"
         "  Stream #0:0: Video: mjpeg (Baseline) "
-        "(MJPG / 0x47504A4D), yuvj422p(pc), 1280x720, 30 fps\n",
+        "(MJPG / 0x47504A4D), yuvj422p(pc), 1920x1080, 30 fps\n",
         encoding="utf-8",
     )
     report = recorder.validate()
@@ -1918,8 +1918,8 @@ def test_camera_validation_keeps_codec_name_and_marks_missing_codec_tag_unknown(
     process = _FakeProcess(returncode=None)
     stdout = json.dumps({"streams": [{
         "codec_name": "mjpeg",
-        "width": 1280,
-        "height": 720,
+        "width": 1920,
+        "height": 1080,
         "avg_frame_rate": "30/1",
     }]})
     recorder = FfmpegCameraRecorder(
@@ -1956,8 +1956,8 @@ def test_camera_validation_fails_closed_on_wrong_codec_tag(
         "codec_name": "mjpeg",
         "codec_tag_string": codec_tag_string,
         "codec_tag": codec_tag,
-        "width": 1280,
-        "height": 720,
+        "width": 1920,
+        "height": 1080,
         "avg_frame_rate": "30/1",
     }]})
     recorder = FfmpegCameraRecorder(
@@ -2493,7 +2493,7 @@ def test_camera_broken_pipe_is_recorded_as_camera_failure(tmp_path):
     lambda: subprocess.CompletedProcess(["ffprobe"], 0, json.dumps(
         {"streams": ["not-an-object"]}), ""),
     lambda: subprocess.CompletedProcess(["ffprobe"], 0, json.dumps({
-        "streams": [{"codec_name": "h264", "width": 1280, "height": 720,
+        "streams": [{"codec_name": "h264", "width": 1920, "height": 1080,
                      "avg_frame_rate": "30/1"}]}), ""),
     lambda: subprocess.CompletedProcess(["ffprobe"], 0, json.dumps({
         "streams": [{"codec_name": "mjpeg", "width": 640, "height": 480,

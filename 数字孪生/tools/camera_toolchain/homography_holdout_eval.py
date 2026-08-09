@@ -31,7 +31,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(_HERE, "..", "..", "simulation", "digital_twin")))
 
 PATTERN = cc.CHECKERBOARD_PATTERN
-SQUARE_MM = cc.CHECKERBOARD_SQUARE_MM
+SQUARE_MM = cc.GROUND_CHECKERBOARD_SQUARE_MM
 CRITERIA = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-6)
 
 

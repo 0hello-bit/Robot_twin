@@ -1,0 +1,547 @@
+{
+  "angle_source": "relative_planar_reference_first_view",
+  "reference_index": 0,
+  "n_controls": 90,
+  "angles": [
+    {
+      "index": 0,
+      "angle_deg": 0.0,
+      "relative_tx_mm": 0.0,
+      "relative_ty_mm": 0.0
+    },
+    {
+      "index": 1,
+      "angle_deg": -1.011754,
+      "relative_tx_mm": 124.565804,
+      "relative_ty_mm": 7.674357
+    },
+    {
+      "index": 2,
+      "angle_deg": -3.516359,
+      "relative_tx_mm": 240.703571,
+      "relative_ty_mm": 8.80494
+    },
+    {
+      "index": 3,
+      "angle_deg": -4.960996,
+      "relative_tx_mm": 359.655709,
+      "relative_ty_mm": 15.352727
+    },
+    {
+      "index": 4,
+      "angle_deg": -2.123634,
+      "relative_tx_mm": 474.72715,
+      "relative_ty_mm": 17.544957
+    },
+    {
+      "index": 5,
+      "angle_deg": -2.099065,
+      "relative_tx_mm": 584.149225,
+      "relative_ty_mm": 19.917033
+    },
+    {
+      "index": 6,
+      "angle_deg": -3.136467,
+      "relative_tx_mm": 687.875173,
+      "relative_ty_mm": 21.195517
+    },
+    {
+      "index": 7,
+      "angle_deg": -3.958105,
+      "relative_tx_mm": 793.335079,
+      "relative_ty_mm": 26.253279
+    },
+    {
+      "index": 8,
+      "angle_deg": -5.921721,
+      "relative_tx_mm": 893.1605,
+      "relative_ty_mm": 25.224633
+    },
+    {
+      "index": 9,
+      "angle_deg": -7.709924,
+      "relative_tx_mm": 990.835376,
+      "relative_ty_mm": 30.784369
+    },
+    {
+      "index": 10,
+      "angle_deg": 1.982784,
+      "relative_tx_mm": 0.769875,
+      "relative_ty_mm": 81.396258
+    },
+    {
+      "index": 11,
+      "angle_deg": -0.640618,
+      "relative_tx_mm": 126.301926,
+      "relative_ty_mm": 82.682387
+    },
+    {
+      "index": 12,
+      "angle_deg": -3.167941,
+      "relative_tx_mm": 247.960542,
+      "relative_ty_mm": 87.087189
+    },
+    {
+      "index": 13,
+      "angle_deg": -4.284703,
+      "relative_tx_mm": 366.17369,
+      "relative_ty_mm": 87.604103
+    },
+    {
+      "index": 14,
+      "angle_deg": -3.749513,
+      "relative_tx_mm": 475.490239,
+      "relative_ty_mm": 89.979432
+    },
+    {
+      "index": 15,
+      "angle_deg": -5.567564,
+      "relative_tx_mm": 586.997339,
+      "relative_ty_mm": 93.205199
+    },
+    {
+      "index": 16,
+      "angle_deg": -5.975789,
+      "relative_tx_mm": 691.779592,
+      "relative_ty_mm": 92.221016
+    },
+    {
+      "index": 17,
+      "angle_deg": -6.903343,
+      "relative_tx_mm": 799.043037,
+      "relative_ty_mm": 94.523972
+    },
+    {
+      "index": 18,
+      "angle_deg": -6.564158,
+      "relative_tx_mm": 902.229756,
+      "relative_ty_mm": 97.725167
+    },
+    {
+      "index": 19,
+      "angle_deg": -5.050613,
+      "relative_tx_mm": 996.601536,
+      "relative_ty_mm": 96.673164
+    },
+    {
+      "index": 20,
+      "angle_deg": 0.561931,
+      "relative_tx_mm": 3.143223,
+      "relative_ty_mm": 158.52287
+    },
+    {
+      "index": 21,
+      "angle_deg": -2.137008,
+      "relative_tx_mm": 128.784291,
+      "relative_ty_mm": 160.802255
+    },
+    {
+      "index": 22,
+      "angle_deg": -1.936081,
+      "relative_tx_mm": 249.343078,
+      "relative_ty_mm": 162.647684
+    },
+    {
+      "index": 23,
+      "angle_deg": -2.61448,
+      "relative_tx_mm": 369.180502,
+      "relative_ty_mm": 161.715729
+    },
+    {
+      "index": 24,
+      "angle_deg": -2.588349,
+      "relative_tx_mm": 482.884886,
+      "relative_ty_mm": 163.77837
+    },
+    {
+      "index": 25,
+      "angle_deg": -4.581604,
+      "relative_tx_mm": 593.570567,
+      "relative_ty_mm": 163.584937
+    },
+    {
+      "index": 26,
+      "angle_deg": -2.093911,
+      "relative_tx_mm": 702.816122,
+      "relative_ty_mm": 164.023635
+    },
+    {
+      "index": 27,
+      "angle_deg": -4.10189,
+      "relative_tx_mm": 808.400803,
+      "relative_ty_mm": 163.600911
+    },
+    {
+      "index": 28,
+      "angle_deg": -5.644363,
+      "relative_tx_mm": 910.734135,
+      "relative_ty_mm": 165.215751
+    },
+    {
+      "index": 29,
+      "angle_deg": -7.422834,
+      "relative_tx_mm": 1009.277287,
+      "relative_ty_mm": 165.50425
+    },
+    {
+      "index": 30,
+      "angle_deg": -1.828014,
+      "relative_tx_mm": 3.942013,
+      "relative_ty_mm": 240.018342
+    },
+    {
+      "index": 31,
+      "angle_deg": -5.340704,
+      "relative_tx_mm": 132.460645,
+      "relative_ty_mm": 241.237174
+    },
+    {
+      "index": 32,
+      "angle_deg": -1.976533,
+      "relative_tx_mm": 254.877412,
+      "relative_ty_mm": 241.967378
+    },
+    {
+      "index": 33,
+      "angle_deg": -2.198233,
+      "relative_tx_mm": 371.490987,
+      "relative_ty_mm": 241.519722
+    },
+    {
+      "index": 34,
+      "angle_deg": -3.192348,
+      "relative_tx_mm": 485.601249,
+      "relative_ty_mm": 240.359876
+    },
+    {
+      "index": 35,
+      "angle_deg": -1.639059,
+      "relative_tx_mm": 601.775915,
+      "relative_ty_mm": 238.876706
+    },
+    {
+      "index": 36,
+      "angle_deg": -3.490068,
+      "relative_tx_mm": 707.02389,
+      "relative_ty_mm": 235.876137
+    },
+    {
+      "index": 37,
+      "angle_deg": -2.63529,
+      "relative_tx_mm": 812.727136,
+      "relative_ty_mm": 235.861147
+    },
+    {
+      "index": 38,
+      "angle_deg": -2.732683,
+      "relative_tx_mm": 917.421509,
+      "relative_ty_mm": 238.230407
+    },
+    {
+      "index": 39,
+      "angle_deg": -2.284223,
+      "relative_tx_mm": 1019.505559,
+      "relative_ty_mm": 235.532601
+    },
+    {
+      "index": 40,
+      "angle_deg": -1.400623,
+      "relative_tx_mm": 2.461326,
+      "relative_ty_mm": 320.426521
+    },
+    {
+      "index": 41,
+      "angle_deg": -4.386082,
+      "relative_tx_mm": 132.635826,
+      "relative_ty_mm": 322.699692
+    },
+    {
+      "index": 42,
+      "angle_deg": -4.347211,
+      "relative_tx_mm": 252.006723,
+      "relative_ty_mm": 320.230192
+    },
+    {
+      "index": 43,
+      "angle_deg": -3.603747,
+      "relative_tx_mm": 375.294128,
+      "relative_ty_mm": 319.033701
+    },
+    {
+      "index": 44,
+      "angle_deg": -4.067684,
+      "relative_tx_mm": 489.956571,
+      "relative_ty_mm": 315.401009
+    },
+    {
+      "index": 45,
+      "angle_deg": -4.526194,
+      "relative_tx_mm": 603.557132,
+      "relative_ty_mm": 315.57382
+    },
+    {
+      "index": 46,
+      "angle_deg": -4.132007,
+      "relative_tx_mm": 713.305829,
+      "relative_ty_mm": 311.776562
+    },
+    {
+      "index": 47,
+      "angle_deg": -2.697914,
+      "relative_tx_mm": 821.782587,
+      "relative_ty_mm": 313.167122
+    },
+    {
+      "index": 48,
+      "angle_deg": -1.37921,
+      "relative_tx_mm": 926.623065,
+      "relative_ty_mm": 310.492839
+    },
+    {
+      "index": 49,
+      "angle_deg": -2.84449,
+      "relative_tx_mm": 1028.211505,
+      "relative_ty_mm": 310.39129
+    },
+    {
+      "index": 50,
+      "angle_deg": 1.439939,
+      "relative_tx_mm": 5.269023,
+      "relative_ty_mm": 405.308605
+    },
+    {
+      "index": 51,
+      "angle_deg": -3.679526,
+      "relative_tx_mm": 134.51419,
+      "relative_ty_mm": 405.10153
+    },
+    {
+      "index": 52,
+      "angle_deg": -1.956675,
+      "relative_tx_mm": 257.803725,
+      "relative_ty_mm": 398.756054
+    },
+    {
+      "index": 53,
+      "angle_deg": -5.276014,
+      "relative_tx_mm": 380.157163,
+      "relative_ty_mm": 395.952638
+    },
+    {
+      "index": 54,
+      "angle_deg": -3.749587,
+      "relative_tx_mm": 501.008285,
+      "relative_ty_mm": 394.131671
+    },
+    {
+      "index": 55,
+      "angle_deg": -5.493593,
+      "relative_tx_mm": 613.446874,
+      "relative_ty_mm": 388.732177
+    },
+    {
+      "index": 56,
+      "angle_deg": -5.144082,
+      "relative_tx_mm": 721.435315,
+      "relative_ty_mm": 389.978042
+    },
+    {
+      "index": 57,
+      "angle_deg": -3.95145,
+      "relative_tx_mm": 832.917804,
+      "relative_ty_mm": 385.508068
+    },
+    {
+      "index": 58,
+      "angle_deg": -5.330856,
+      "relative_tx_mm": 931.550143,
+      "relative_ty_mm": 381.619035
+    },
+    {
+      "index": 59,
+      "angle_deg": -4.196119,
+      "relative_tx_mm": 1032.800903,
+      "relative_ty_mm": 382.500953
+    },
+    {
+      "index": 60,
+      "angle_deg": -4.584765,
+      "relative_tx_mm": 7.357112,
+      "relative_ty_mm": 490.88584
+    },
+    {
+      "index": 61,
+      "angle_deg": -5.867701,
+      "relative_tx_mm": 134.149199,
+      "relative_ty_mm": 486.04598
+    },
+    {
+      "index": 62,
+      "angle_deg": -2.557387,
+      "relative_tx_mm": 261.057714,
+      "relative_ty_mm": 479.788225
+    },
+    {
+      "index": 63,
+      "angle_deg": -2.926187,
+      "relative_tx_mm": 383.886652,
+      "relative_ty_mm": 477.317317
+    },
+    {
+      "index": 64,
+      "angle_deg": -4.079063,
+      "relative_tx_mm": 504.365566,
+      "relative_ty_mm": 473.379346
+    },
+    {
+      "index": 65,
+      "angle_deg": -3.213542,
+      "relative_tx_mm": 614.614746,
+      "relative_ty_mm": 469.570577
+    },
+    {
+      "index": 66,
+      "angle_deg": -4.810071,
+      "relative_tx_mm": 726.54036,
+      "relative_ty_mm": 465.775671
+    },
+    {
+      "index": 67,
+      "angle_deg": -3.438886,
+      "relative_tx_mm": 836.571924,
+      "relative_ty_mm": 461.723172
+    },
+    {
+      "index": 68,
+      "angle_deg": -6.597263,
+      "relative_tx_mm": 943.559266,
+      "relative_ty_mm": 460.717542
+    },
+    {
+      "index": 69,
+      "angle_deg": -4.745221,
+      "relative_tx_mm": 1045.207293,
+      "relative_ty_mm": 453.615389
+    },
+    {
+      "index": 70,
+      "angle_deg": -0.691301,
+      "relative_tx_mm": 5.427155,
+      "relative_ty_mm": 573.86429
+    },
+    {
+      "index": 71,
+      "angle_deg": -3.346961,
+      "relative_tx_mm": 138.063305,
+      "relative_ty_mm": 570.461202
+    },
+    {
+      "index": 72,
+      "angle_deg": -3.715746,
+      "relative_tx_mm": 268.356448,
+      "relative_ty_mm": 564.877938
+    },
+    {
+      "index": 73,
+      "angle_deg": -3.734851,
+      "relative_tx_mm": 391.703827,
+      "relative_ty_mm": 560.380609
+    },
+    {
+      "index": 74,
+      "angle_deg": -4.748618,
+      "relative_tx_mm": 508.512881,
+      "relative_ty_mm": 551.559084
+    },
+    {
+      "index": 75,
+      "angle_deg": -6.319261,
+      "relative_tx_mm": 625.131695,
+      "relative_ty_mm": 549.431007
+    },
+    {
+      "index": 76,
+      "angle_deg": -5.161268,
+      "relative_tx_mm": 736.480796,
+      "relative_ty_mm": 545.776642
+    },
+    {
+      "index": 77,
+      "angle_deg": -3.273648,
+      "relative_tx_mm": 847.650483,
+      "relative_ty_mm": 540.427758
+    },
+    {
+      "index": 78,
+      "angle_deg": -4.96309,
+      "relative_tx_mm": 950.741006,
+      "relative_ty_mm": 533.976362
+    },
+    {
+      "index": 79,
+      "angle_deg": -8.213432,
+      "relative_tx_mm": 1052.711813,
+      "relative_ty_mm": 529.10169
+    },
+    {
+      "index": 80,
+      "angle_deg": 1.138214,
+      "relative_tx_mm": 7.834982,
+      "relative_ty_mm": 663.085431
+    },
+    {
+      "index": 81,
+      "angle_deg": -5.695723,
+      "relative_tx_mm": 142.841279,
+      "relative_ty_mm": 660.415074
+    },
+    {
+      "index": 82,
+      "angle_deg": -2.182149,
+      "relative_tx_mm": 270.673191,
+      "relative_ty_mm": 649.057429
+    },
+    {
+      "index": 83,
+      "angle_deg": -7.075299,
+      "relative_tx_mm": 391.209718,
+      "relative_ty_mm": 643.745042
+    },
+    {
+      "index": 84,
+      "angle_deg": -3.211856,
+      "relative_tx_mm": 516.461019,
+      "relative_ty_mm": 638.877118
+    },
+    {
+      "index": 85,
+      "angle_deg": -4.091088,
+      "relative_tx_mm": 629.031676,
+      "relative_ty_mm": 628.165311
+    },
+    {
+      "index": 86,
+      "angle_deg": -5.762774,
+      "relative_tx_mm": 742.085022,
+      "relative_ty_mm": 624.069278
+    },
+    {
+      "index": 87,
+      "angle_deg": -4.708714,
+      "relative_tx_mm": 856.38266,
+      "relative_ty_mm": 616.119589
+    },
+    {
+      "index": 88,
+      "angle_deg": -4.019633,
+      "relative_tx_mm": 957.706476,
+      "relative_ty_mm": 610.010206
+    },
+    {
+      "index": 89,
+      "angle_deg": -4.843405,
+      "relative_tx_mm": 1065.07257,
+      "relative_ty_mm": 608.650713
+    }
+  ]
+}

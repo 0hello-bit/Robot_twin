@@ -1,0 +1,73 @@
+{
+  "status": "EXPLORATORY_RELATIVE_PLANE_FIT",
+  "input_domain": "RAW_PIXEL",
+  "undistortion": "not_applied",
+  "n_controls": 90,
+  "detected_corner_sets": 90,
+  "full_fit": {
+    "optimization_success": true,
+    "nfev": 9,
+    "cost": 1129.8257108064026,
+    "corner_error_mm": {
+      "mean_mm": 0.5317050298034508,
+      "p50_mm": 0.4171185567246006,
+      "p95_mm": 1.378359091461558,
+      "max_mm": 3.458356326471105
+    }
+  },
+  "spatial_holdout": {
+    "checkerboard_split": {
+      "n_calibration_views": 45,
+      "n_holdout_views": 45,
+      "corner_error_mm": {
+        "mean_mm": 0.5614988481541743,
+        "p50_mm": 0.44560568490961205,
+        "p95_mm": 1.493371748409703,
+        "max_mm": 2.9833498194741357
+      }
+    },
+    "every_third_column_split": {
+      "n_calibration_views": 54,
+      "n_holdout_views": 36,
+      "corner_error_mm": {
+        "mean_mm": 0.7095237298129228,
+        "p50_mm": 0.4995422668115263,
+        "p95_mm": 1.9952282968939834,
+        "max_mm": 3.728334068490131
+      }
+    }
+  },
+  "original_grid_label_comparison": {
+    "meaning": "joint-fit translation minus pixel-grid labels; not independent physical truth",
+    "x_abs_error_mm": {
+      "mean_mm": 10.09477865429538,
+      "p50_mm": 11.02820809871551,
+      "p95_mm": 17.804683856153794,
+      "max_mm": 18.364796958201282
+    },
+    "y_abs_error_mm": {
+      "mean_mm": 13.261359976937475,
+      "p50_mm": 13.66851264345482,
+      "p95_mm": 18.491509904223683,
+      "max_mm": 19.868093408713815
+    }
+  },
+  "evidence_boundary": "Relative planar consistency only. Absolute ground accuracy requires an independently measured origin, translation, and orientation.",
+  "homography_matrix": [
+    [
+      0.6986284470761802,
+      -0.00506296827698177,
+      -16.357136104142878
+    ],
+    [
+      0.009831745614258864,
+      0.6827972573074583,
+      -13.887974563115089
+    ],
+    [
+      1.2599134999955378e-05,
+      -1.551865137865001e-06,
+      1.0
+    ]
+  ]
+}

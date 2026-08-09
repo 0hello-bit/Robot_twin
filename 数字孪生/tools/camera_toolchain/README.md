@@ -7,6 +7,18 @@ unicode 安全读写图像。任何新会话（Claude/Codex）涉及摄像头操
 
 ---
 
+## 当前 1080p 地面标定契约（2026-08-09）
+
+- 活动相机工具统一请求 `1920x1080`、`MJPG`、`30 FPS`，同步录制器和地面
+  shakedown 会拒绝实际帧尺寸不一致的输入。
+- 当前地面标定使用已有的实体棋盘格，单格实际尺寸是 `15 mm`，9x6 内角点
+  对应的棋盘范围是 `120x75 mm`；活动地面几何工具默认使用这一物理尺度。
+- 手持棋盘格在不同角度移动，只适用于相机内参覆盖。地面单应性必须使用刚性
+  背板上的棋盘格，平放且与赛道平面共面；这一步是相机-only采集，小车不需要
+  上电或运动。
+- 仓库中的 `a4_checkerboard_9x6_25mm.*` 是独立的打印目标候选，保留但不能把
+  25 mm 坐标与当前 15 mm 地面标定混用。
+
 ## 摄像头索引自动检测（重要）
 
 DirectShow 索引**热插拔会漂移**（2026-08-03 实测：EMEET C960 曾为 2，重插后为 1；
@@ -32,7 +44,7 @@ DirectShow 索引**热插拔会漂移**（2026-08-03 实测：EMEET C960 曾为 
 | `frame_border_analysis.py` | 暗区贴边/裁切分析（4B-2 input_cropped 检查） | `py frame_border_analysis.py [index]` |
 | `perpendicularity_preview.py` | 实时垂直度检查（棋盘格纵横比/各向异性） | `py perpendicularity_preview.py [index]` |
 | `capture_intrinsics_views.py` | 多角度采集（内参标定，15 张） | `py capture_intrinsics_views.py [index] [outdir]` |
-| `capture_intrinsics_coverage.py` | **多角度全覆盖采集**（3×3 网格强制覆盖 4 角+4 边+中央；畸变标定必须用这个） | `py capture_intrinsics_coverage.py [index] [outdir]` |
+| `capture_intrinsics_coverage.py` | **带目标格引导的多角度全覆盖采集**（4×4 网格；黄色=下一格，绿色=已完成；畸变标定必须用这个） | `py capture_intrinsics_coverage.py [index] [outdir]` |
 | `record_chessboard_video.py` | **录棋盘格视频**（1920×1080@30，检测到棋盘格后自动开录；内参标定用） | `py record_chessboard_video.py [index] [out.mp4] [sec]` |
 | `extract_calibration_frames.py` | **从视频解析标定视图**（逐帧检测 + 清晰度过滤 + 4×4 空间覆盖 + 角度去重） | `py extract_calibration_frames.py video.mp4 outdir [--grid 4] [--min-sharpness 100]` |
 | `guided_capture.py` | **实时引导采集**：4×4 覆盖地图 + 清晰度/平贴度实时反馈 + 下一步提示，质量达标自动存（免返工） | `py guided_capture.py [index] [outdir]` |
@@ -62,13 +74,13 @@ py generate_a4_checkerboard.py
 - `a4_checkerboard_9x6_25mm.png`：300 DPI 预览图；
 - `a4_checkerboard_9x6_25mm.json`：几何尺寸和打印比例元数据。
 
-当前唯一的标准目标为：A4 横向、9×6 个内角点、10×7 个方格、每格
+这是独立的 A4 打印目标候选：A4 横向、9×6 个内角点、10×7 个方格、每格
 25 mm，连续棋盘区域为 250×175 mm，四周白边 10 mm。PDF 和 PNG 必须按
 `100% / 实际大小` 打印，禁止“适应页面”“缩放到可打印区域”或拼接多张纸。
-打印后应使用尺子核对棋盘格边长，再进行 1080p 相机采集。
 
-旧的 15 mm 标定数据只能在工具参数中显式指定 `--square-size-mm 15` 时回放；
-新采集默认使用 25 mm，不能把两种物理目标混写进同一个标定数据集。
+当前 B3 地面标定不使用这个 25 mm 候选，而使用已有的 15 mm 实体棋盘格；
+地面工具默认使用 `--square-size-mm 15` 对应的物理尺度。两种目标必须保持
+独立，不能把 25 mm 与 15 mm 坐标混写进同一个标定数据集。
 
 ---
 
@@ -78,7 +90,7 @@ py generate_a4_checkerboard.py
    纵横比≈1.60、各向异性≈1.00）。注意：均值法会漏掉轻微梯形倾角，
    最终以 homography 局部 Jacobian ratio≈1.0 为准。
 2. **多角度全覆盖内参采集**：**推荐录视频法**——`record_chessboard_video.py` 以 1920×1080@30 录 60-90s
-   （手持棋盘格慢速扫过 4 角+4 边+中央、变换角度）→ `extract_calibration_frames.py`
+   （手持棋盘格慢速扫过 4×4 目标格、变换角度）→ `extract_calibration_frames.py`
    解析出 ~20-30 张覆盖全画面的视图。备选：`capture_intrinsics_coverage.py` 实时 3×3 覆盖。
    然后标定畸变（p95 ≤ 2px；覆盖不足时边缘畸变未约束 → homography 全局失真）。
    视频法覆盖更密更平滑，优于离散采帧。

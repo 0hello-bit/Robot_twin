@@ -107,8 +107,8 @@ IO_CALL_BUDGET_S = 0.15
 # this module must not resolve executables, create directories, or start a
 # process.
 CAMERA_DEVICE_NAME = "EMEET SmartCam C960"
-CAMERA_WIDTH = 1280
-CAMERA_HEIGHT = 720
+CAMERA_WIDTH = 1920
+CAMERA_HEIGHT = 1080
 CAMERA_FPS = 30.0
 CAMERA_FPS_TOLERANCE = 0.5
 MAX_DEFAULT_DURATION_S = 3.0
@@ -2275,9 +2275,9 @@ class FfmpegCameraRecorder(object):
                 if stream.get("codec_name") != "mjpeg":
                     errors.append("video codec is not mjpeg")
                 if stream.get("width") != CAMERA_WIDTH:
-                    errors.append("video width is not 1280")
+                    errors.append("video width is not 1920")
                 if stream.get("height") != CAMERA_HEIGHT:
-                    errors.append("video height is not 720")
+                    errors.append("video height is not 1080")
                 fps = _parse_frame_rate(stream.get("avg_frame_rate"))
                 if fps is None or abs(fps - CAMERA_FPS) > CAMERA_FPS_TOLERANCE:
                     errors.append("video average frame rate is not 30 +/- 0.5 fps")

@@ -23,9 +23,9 @@ def _load_camera_common():
     return module
 
 
-def test_saved_camera_index_is_c960_index_1():
+def test_saved_camera_index_is_c960_index_0():
     config = json.loads((TOOLCHAIN_DIR / "camera_config.json").read_text("utf-8"))
-    assert config["index"] == 1
+    assert config["index"] == 0
 
 
 def test_open_camera_requests_c960_1080p30_mjpg_dshow(monkeypatch):
@@ -86,6 +86,13 @@ def test_1080p_calibration_target_geometry_is_explicit():
     assert camera_common.CHECKERBOARD_SQUARE_MM == pytest.approx(25.0)
     assert camera_common.CHECKERBOARD_GRID_SQUARES == (10, 7)
     assert camera_common.CHECKERBOARD_ACTIVE_SIZE_MM == (250.0, 175.0)
+
+
+def test_active_ground_target_geometry_matches_existing_15mm_board():
+    camera_common = _load_camera_common()
+
+    assert camera_common.GROUND_CHECKERBOARD_SQUARE_MM == pytest.approx(15.0)
+    assert camera_common.GROUND_CHECKERBOARD_ACTIVE_SIZE_MM == (120.0, 75.0)
 
 
 def test_gate0_runner_imports_without_external_pythonpath():

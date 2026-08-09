@@ -46,6 +46,18 @@ from v1_twin.v1_twin_schema import (
 from v1_twin.v1_twin_sync import ClockSync
 
 
+def test_capture_resolves_unspecified_camera_from_saved_config(monkeypatch):
+    monkeypatch.setattr(
+        capture_sync_run.camera_common,
+        "get_camera_index",
+        lambda preferred=None: 0,
+    )
+
+    assert capture_sync_run.resolve_camera_source(None) == 0
+    assert capture_sync_run.resolve_camera_source("0") == 0
+    assert capture_sync_run.resolve_camera_source("1") == 1
+
+
 # ── Fake objects ────────────────────────────────────────────────────────
 
 def _encode_telemetry_frame(tick_ms=0, yaw_deg=0.0, validity=None,
@@ -113,6 +125,8 @@ class FakeSocket:
     def __init__(self, recv_data=b"", fail_start=False, fail_stop=False):
         self._recv_data = recv_data
         self._recv_sent = False
+        self._start_seen = False
+        self._pending_chunks = []
         self.fail_start = fail_start
         self.fail_stop = fail_stop
         self.sendall_calls = 0
@@ -126,6 +140,10 @@ class FakeSocket:
 
     def recv(self, _n):
         self.recv_calls += 1
+        if self._pending_chunks:
+            return self._pending_chunks.pop(0)
+        if not self._start_seen:
+            raise socket.timeout()
         if not self._recv_sent:
             self._recv_sent = True
             return self._recv_data
@@ -136,6 +154,11 @@ class FakeSocket:
         self.sent.append(data)
         if b"START" in data and self.fail_start:
             raise OSError("fake start failure")
+        if b"START" in data:
+            fields = data.decode("ascii").strip().split(",")
+            self._start_seen = True
+            self._pending_chunks.append(_encode_status_line(
+                fields[1], fields[2], "RUNNING", "START", 1))
         if b"STOP" in data and self.fail_stop:
             raise OSError("fake stop failure")
         return None
@@ -160,6 +183,11 @@ class StopStatusSocket(FakeSocket):
         self._status_chunks = list(status_chunks)
 
     def recv(self, n):
+        if not self._start_seen:
+            time.sleep(0.005)
+            raise socket.timeout()
+        if self._pending_chunks:
+            return self._pending_chunks.pop(0)
         if self._chunks:
             return self._chunks.pop(0)
         if self.closed:
@@ -431,11 +459,11 @@ def test_capture_waits_for_reader_to_quiesce_before_return(tracker):
         def recv(self, n):
             if self.recv_calls == 0:
                 return super().recv(n)
-            self.recv_calls += 1
             self.second_recv_started.set()
-            time.sleep(0.15)
-            self.reader_done.set()
-            return b""
+            if not self.reader_done.is_set():
+                time.sleep(0.15)
+                self.reader_done.set()
+            return super().recv(n)
 
     class WaitForReaderCamera(FakeCamera):
         def __init__(self, sock):
@@ -822,6 +850,26 @@ def test_write_capture_artifacts_publishes_b3_jsonl_and_legacy_json(tmp_path):
     assert failure_summary["saved"] == 1
     assert failure_summary["by_reason"] == {"no_markers": 3}
     assert (out_dir / "fusion.jsonl").read_text(encoding="utf-8") == ""
+
+
+def test_failure_frame_thumbnail_writes_jpeg_under_unicode_path(tmp_path):
+    output_dir = tmp_path / "失败帧"
+    frame = np.full((24, 32, 3), 127, dtype=np.uint8)
+
+    relative_path, error = capture_sync_run._save_failure_frame_thumbnail(
+        frame,
+        frame_index=7,
+        reason="candidates_rejected",
+        failure_frame_dir=output_dir,
+    )
+
+    assert error is None
+    assert relative_path == "失败帧/frame_000007_candidates_rejected.jpg"
+    image_path = output_dir / "frame_000007_candidates_rejected.jpg"
+    assert image_path.is_file()
+    assert cv2.imdecode(
+        np.fromfile(str(image_path), dtype=np.uint8), cv2.IMREAD_COLOR
+    ) is not None
 
 
 def _fusion_pose(t_pc_ns=100):

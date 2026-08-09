@@ -27,6 +27,12 @@ CHECKERBOARD_SQUARE_MM = 25.0
 CHECKERBOARD_GRID_SQUARES = (10, 7)
 CHECKERBOARD_ACTIVE_SIZE_MM = (250.0, 175.0)
 
+# The existing physical board used for the ground campaign is 15 mm per
+# square.  Keep it separate from the printable 25 mm A4 target above so a
+# calibration run cannot silently mix their physical scales.
+GROUND_CHECKERBOARD_SQUARE_MM = 15.0
+GROUND_CHECKERBOARD_ACTIVE_SIZE_MM = (120.0, 75.0)
+
 
 def detect_camera_indices(max_index: int = 6, min_ok: int = 3) -> list:
     """扫描能实际取到有效帧的摄像头索引。

@@ -67,3 +67,60 @@ void telemetry_batch_consume(TelemetryBatch *batch)
 {
     if (batch != 0) telemetry_batch_clear(batch);
 }
+
+uint8_t telemetry_batch_copy_prefix(const TelemetryBatch *src,
+                                    TelemetryBatch *dst,
+                                    uint8_t max_frames)
+{
+    uint8_t count;
+
+    if (src == 0 || dst == 0 || max_frames == 0U) return 0U;
+    telemetry_batch_clear(dst);
+    count = src->count;
+    if (count > max_frames) count = max_frames;
+    if (count == 0U) return 0U;
+    memcpy(dst->data, src->data,
+           (uint16_t)count * TELEMETRY_BATCH_FRAME_SIZE);
+    dst->count = count;
+    dst->len = (uint16_t)count * TELEMETRY_BATCH_FRAME_SIZE;
+    return 1U;
+}
+
+uint8_t telemetry_batch_drop_prefix(TelemetryBatch *batch,
+                                     uint8_t frame_count)
+{
+    uint8_t remaining;
+    uint16_t drop_bytes;
+
+    if (batch == 0 || frame_count == 0U) return 0U;
+    if (frame_count > batch->count) frame_count = batch->count;
+    if (frame_count == 0U) return 0U;
+
+    remaining = (uint8_t)(batch->count - frame_count);
+    drop_bytes = (uint16_t)frame_count * TELEMETRY_BATCH_FRAME_SIZE;
+    if (remaining != 0U) {
+        memmove(batch->data, batch->data + drop_bytes,
+                (uint16_t)remaining * TELEMETRY_BATCH_FRAME_SIZE);
+    }
+    batch->count = remaining;
+    batch->len = (uint16_t)remaining * TELEMETRY_BATCH_FRAME_SIZE;
+    return 1U;
+}
+
+uint8_t telemetry_batch_drop_at(TelemetryBatch *batch, uint8_t index)
+{
+    uint8_t remaining;
+    uint16_t offset;
+
+    if (batch == 0 || index >= batch->count) return 0U;
+    remaining = (uint8_t)(batch->count - index - 1U);
+    offset = (uint16_t)index * TELEMETRY_BATCH_FRAME_SIZE;
+    if (remaining != 0U) {
+        memmove(batch->data + offset,
+                batch->data + offset + TELEMETRY_BATCH_FRAME_SIZE,
+                (uint16_t)remaining * TELEMETRY_BATCH_FRAME_SIZE);
+    }
+    batch->count--;
+    batch->len = (uint16_t)batch->count * TELEMETRY_BATCH_FRAME_SIZE;
+    return 1U;
+}

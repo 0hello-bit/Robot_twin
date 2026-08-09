@@ -23,6 +23,7 @@
 #include "health_frame.h"
 #include "health_watchdog.h"
 #include "telemetry_batch.h"
+#include "telemetry_delivery.h"
 #include "telemetry_rate.h"
 
 /******************************************************************************
@@ -156,9 +157,9 @@ static uint16_t discard_tx_ring_cb(void *ctx)
     return discarded;
 }
 
-/* 遥测批量槽：最多保留最新 8 帧，ESP 忙时只丢可丢的最旧遥测。 */
+/* 遥测交付槽：pending 保留待确认数据，inflight 保留当前 CIPSEND 副本。 */
 static uint8_t s_tele_frame[TELEMETRY_BATCH_FRAME_SIZE];
-static TelemetryBatch s_tele_batch;
+static TelemetryDelivery s_tele_delivery;
 /* Droppable TX is released only after the current sensor/control phase. */
 static uint8_t s_control_cycle_ready;
 /* Keep the boot-time IMU identity observable until an existing client accepts
@@ -184,7 +185,7 @@ static uint8_t uart_tx_sink(void *ctx, uint8_t byte)
 
 static void clear_telemetry_batch_cb(void *ctx)
 {
-    telemetry_batch_clear((TelemetryBatch *)ctx);
+    telemetry_delivery_clear((TelemetryDelivery *)ctx);
 }
 
 static void build_cipsend_cmd(char *cmd, uint16_t len)
@@ -218,6 +219,17 @@ static void ESP_TX_HandleTerminal(void)
        which is Host-testable via the same production code path.  See
        tx_boundary_design_decision.md §4 and §9. */
     etc_handle_terminal(&g_coordinator, mono_now_ms());
+
+    /* Only SEND OK commits the in-flight telemetry prefix.  Error/timeout
+       leaves it owned by telemetry_delivery for a same-connection retry;
+       CLOSED has already cleared it through the coordinator callback. */
+    if (terminal_tag == CIPSEND_TX_TAG_TELEMETRY
+        && terminal_result == CTS_RESULT_OK) {
+        telemetry_delivery_commit_success(&s_tele_delivery);
+    } else if (terminal_tag == CIPSEND_TX_TAG_TELEMETRY
+               && terminal_result != CTS_RESULT_CLOSED) {
+        telemetry_delivery_retain_failure(&s_tele_delivery);
+    }
 
     if (imu_diagnostic_delivery_confirmed(terminal_tag, terminal_result)) {
         s_imu_diag_pending = 0U;
@@ -305,8 +317,9 @@ static void build_telemetry_frame(int16_t s0, int16_t s1, int16_t s2, int16_t s3
 static void ESP_TrySendTelemetry(void)
 {
     char cmd[24];
+    const TelemetryBatch *inflight;
     uint16_t batch_len;
-    if (!telemetry_batch_has_data(&s_tele_batch)) return;
+    if (!telemetry_delivery_has_data(&s_tele_delivery)) return;
     if (hstats_health_due(&g_health_stats)) return;  /* 健康帧优先：让行（仲裁） */
     if (cipsend_tx_busy(&g_cipsend_tx)) return;
     if (twin_control_has_pending_status()) return;
@@ -318,19 +331,21 @@ static void ESP_TrySendTelemetry(void)
             twin_control_has_pending_status())) {
         return;  /* A/S 优先, including frames queued later this loop */
     }
-    batch_len = telemetry_batch_length(&s_tele_batch);
+    if (!telemetry_delivery_prepare(&s_tele_delivery)) return;
+    inflight = telemetry_delivery_inflight(&s_tele_delivery);
+    if (inflight == NULL) return;
+    batch_len = telemetry_batch_length(inflight);
     build_cipsend_cmd(cmd, batch_len);
     if (cipsend_tx_start(&g_cipsend_tx, cmd, (uint16_t)strlen(cmd),
-                         telemetry_batch_data(&s_tele_batch), batch_len,
+                         telemetry_batch_data(inflight), batch_len,
                          CIPSEND_TX_PRIORITY_DROPPABLE, CIPSEND_TX_TAG_TELEMETRY,
                          mono_now_ms())) {
-        telemetry_batch_consume(&s_tele_batch);
         hstats_tx_started(&g_health_stats, CIPSEND_TX_TAG_TELEMETRY,
                           mono_now_ms());
     }
 }
 
-/* 遥测入队（latest-eight）：由 ESP_TrySendTelemetry 择机批量发送。
+/* 遥测入队（pending FIFO）：由 ESP_TrySendTelemetry 择机批量发送。
    tick 为采样时的真实单调毫秒（mono_now_ms），不再是 g_loop_count*5。 */
 static void Telemetry_Queue(int16_t s0, int16_t s1, int16_t s2, int16_t s3,
                             int16_t m1, int16_t m2, int16_t m3, int16_t m4,
@@ -340,13 +355,13 @@ static void Telemetry_Queue(int16_t s0, int16_t s1, int16_t s2, int16_t s3,
 {
     uint8_t overwrote;
     if (!g_tcp_client_connected || g_tcp_client_id > 4) {
-        telemetry_batch_clear(&s_tele_batch);
+        telemetry_delivery_clear(&s_tele_delivery);
         return;
     }
     build_telemetry_frame(s0, s1, s2, s3, m1, m2, m3, m4,
                           error, pid_output, tick, yaw, imu_validity);
-    if (telemetry_batch_append(&s_tele_batch, s_tele_frame,
-                               TELEMETRY_BATCH_FRAME_SIZE, &overwrote)) {
+    if (telemetry_delivery_append(&s_tele_delivery, s_tele_frame,
+                                  TELEMETRY_BATCH_FRAME_SIZE, &overwrote)) {
         hstats_telemetry_generated(&g_health_stats);
         if (overwrote) hstats_telemetry_overwritten(&g_health_stats);
         ESP_TrySendTelemetry();
@@ -759,7 +774,7 @@ int main(void)
     cipsend_tx_init(&g_cipsend_tx);
     /* Task 4B-4 fix (Codex review remediation): 发送队列（连接代次隔离）初始化。 */
     txfq_init(&g_tx_queue);
-    telemetry_batch_init(&s_tele_batch);
+    telemetry_delivery_init(&s_tele_delivery);
 
     /* Read identity once through hardware I2C2 before the normal software-I2C
        initialization.  This is read-only and motion-inhibited. */
@@ -782,10 +797,10 @@ int main(void)
        the UART TX ring so the coordinator is Host-testable. */
     hstats_init(&g_health_stats);
     etc_init(&g_coordinator, &g_cipsend_tx, &g_tx_queue,
-             &s_tele_batch.count, &g_health_stats,
+              &s_tele_delivery.pending.count, &g_health_stats,
              discard_tx_ring_cb, NULL);
     etc_set_telemetry_clear(&g_coordinator, clear_telemetry_batch_cb,
-                            &s_tele_batch);
+                            &s_tele_delivery);
 
     /* Task 2B: queue the INIT/MOTION_INHIBITED status event for PC visibility. */
     {

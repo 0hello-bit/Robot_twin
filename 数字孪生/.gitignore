@@ -39,11 +39,21 @@ simulation/digital_twin/web_showcase/dist/
 # Keil regenerates these outputs on every build.
 firmware/stm32_line_follower/Objects/
 firmware/stm32_line_follower/Listings/
+firmware/stm32_line_follower/*.uvguix.*
 
 # Camera probe captures are local inspection artifacts, not calibration assets.
 tools/camera_toolchain/live_*.png
 tools/camera_toolchain/preview.png
 tools/camera_toolchain/probe_report.txt
+
+# Dated raw calibration media stays local; reproducible JSON controls and
+# reports remain eligible for the Git checkpoint.
+tools/camera_toolchain/calibration_15mm_1080p_20260809.mp4
+tools/camera_toolchain/calibration_frames_15mm_1080p_20260809/
+tools/camera_toolchain/calibration_views_coverage_15mm_20260808/
+tools/camera_toolchain/calibration_views_guided_15mm_20260809_index0/
+tools/camera_toolchain/ground_controls_15mm_1080p_20260809_run2/view_*.png
+tools/camera_toolchain/ground_controls_15mm_1080p_20260809_run3/view_*.png
 
 # PCB screenshots are transient inspection artifacts.
 hardware/pcb_evidence/
@@ -57,3 +67,6 @@ hardware/pcb_evidence/
 
 # Physical migration backup; keep it outside version control.
 /archive/legacy_workspace_20260805/
+
+# Generated cleanup archive; source and evidence remain in their canonical paths.
+/archive/generated_workspace_20260809/

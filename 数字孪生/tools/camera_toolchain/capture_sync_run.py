@@ -1,7 +1,7 @@
 """Task 4B-4 同步采集 + 时间对齐验证（真车运行）。
 
 流程:
-  1. 连摄像头 (index1, 1280x720) + 小车 WiFi (ESP01S TCP 8888)
+  1. 连摄像头 (camera_config.json, 1920x1080) + 小车 WiFi (ESP01S TCP 8888)
   2. 读取相机**实际**帧尺寸并与 CameraCalibration.image_size / homography
      严格核对；不一致立即 FAIL（Task 4B-4 fix，cap.set 不能作为成功证据）。
   3. 打印 READY，等待小车开始跑（出现第一帧遥测，30s 超时）
@@ -112,6 +112,7 @@ OUTPUT_FILENAMES = (
     "fusion.jsonl",
     "raw_poses.json",
     "raw_telemetry.json",
+    "telemetry_boundary.json",
     "raw_health.json",
     "raw_io.json",
     "sync_report.json",
@@ -120,13 +121,25 @@ OUTPUT_FILENAMES = (
     "motion_evidence.json",
 )
 B3_RAW_FILENAMES = ("pose.jsonl", "telemetry.jsonl", "frame_index.jsonl")
-B3_DIAGNOSTIC_FILENAMES = ("raw_health.json", "raw_io.json")
+B3_DIAGNOSTIC_FILENAMES = (
+    "raw_health.json", "raw_io.json", "telemetry_boundary.json"
+)
 
 FAILURE_FRAME_DIRNAME = "failed_frames"
 MAX_FAILURE_FRAME_THUMBNAILS = 12
 FAILURE_FRAME_SAMPLE_STRIDE = 30
 FAILURE_FRAME_MAX_WIDTH = CAMERA_WIDTH
 FAILURE_FRAME_JPEG_QUALITY = 95
+
+
+def resolve_camera_source(camera_arg=None):
+    """Resolve an explicit index or the persisted camera configuration."""
+    if camera_arg is None or not str(camera_arg).strip():
+        return camera_common.get_camera_index()
+    camera_text = str(camera_arg).strip()
+    if camera_text.isdigit():
+        return int(camera_text)
+    raise ValueError("--camera must be a numeric index when specified")
 
 
 def open_capture_camera(index: int):
@@ -172,6 +185,101 @@ def make_run_id() -> str:
 def binarize_sensor(v):
     """固件 s0-s3 二值化：>0 → 1（1=白底，0=黑线，权威定义=固件阈值）。"""
     return 1 if int(v) > 0 else 0
+
+
+class TelemetryCaptureBoundary:
+    """Separate formal-window telemetry from boundary evidence.
+
+    The reader may start before START so it cannot miss the control
+    handshake. Only frames after the matching RUNNING/START status and before
+    the collection window closes are eligible for ClockSync.
+    """
+
+    BEFORE_WINDOW = "before_window"
+    INSIDE_WINDOW = "inside_window"
+    AFTER_WINDOW = "after_window"
+
+    def __init__(self, campaign_id, run_id):
+        self.campaign_id = str(campaign_id)
+        self.run_id = str(run_id)
+        self.phase = self.BEFORE_WINDOW
+        self._arrival_pc_ns = None
+        self._lock = threading.Lock()
+        self.records = []
+        self.formal_records = []
+        self.boundary_records = []
+        self.close_reason = None
+
+    def begin_recv(self, arrival_pc_ns):
+        with self._lock:
+            self._arrival_pc_ns = int(arrival_pc_ns)
+
+    def observe_status(self, status):
+        with self._lock:
+            matches = (
+                status.campaign_id == self.campaign_id
+                and status.run_id == self.run_id
+            )
+            if not matches:
+                return self.phase
+            if (
+                self.phase == self.BEFORE_WINDOW
+                and status.state == "RUNNING"
+                and status.reason == "START"
+            ):
+                self.phase = self.INSIDE_WINDOW
+            elif (
+                self.phase == self.INSIDE_WINDOW
+                and status.state == "STOPPED"
+                and status.reason == "STOP"
+            ):
+                self.phase = self.AFTER_WINDOW
+                self.close_reason = "matching_stop_status"
+            return self.phase
+
+    def close_window(self, reason):
+        with self._lock:
+            if self.phase != self.AFTER_WINDOW:
+                self.phase = self.AFTER_WINDOW
+            if self.close_reason is None:
+                self.close_reason = str(reason)
+
+    def observe_frame(self, *, tick_ms, decode_pc_ns):
+        with self._lock:
+            arrival_pc_ns = self._arrival_pc_ns
+            if arrival_pc_ns is None:
+                arrival_pc_ns = int(decode_pc_ns)
+            record = {
+                "tick_ms": int(tick_ms),
+                "arrival_pc_ns": int(arrival_pc_ns),
+                "decode_pc_ns": int(decode_pc_ns),
+                "phase": self.phase,
+            }
+            self.records.append(record)
+            if self.phase == self.INSIDE_WINDOW:
+                self.formal_records.append(record)
+            else:
+                self.boundary_records.append(record)
+            return dict(record)
+
+    @property
+    def formal_count(self):
+        return len(self.formal_records)
+
+    @property
+    def boundary_count(self):
+        return len(self.boundary_records)
+
+    def to_dict(self):
+        return {
+            "campaign_id": self.campaign_id,
+            "run_id": self.run_id,
+            "phase": self.phase,
+            "close_reason": self.close_reason,
+            "formal_count": self.formal_count,
+            "boundary_count": self.boundary_count,
+            "records": list(self.records),
+        }
 
 
 # ── 资源清理（Task 4B-4 fix, Codex review remediation）───────────────
@@ -254,11 +362,15 @@ def _save_failure_frame_thumbnail(frame, frame_index, reason, failure_frame_dir)
             )
         filename = _failure_frame_filename(frame_index, reason)
         path = output_dir / filename
-        if not cv2.imwrite(
-            str(path), image,
+        encoded, buffer = cv2.imencode(
+            ".jpg",
+            image,
             [cv2.IMWRITE_JPEG_QUALITY, FAILURE_FRAME_JPEG_QUALITY],
-        ):
+        )
+        if not encoded:
             return None, "cv2.imwrite returned false"
+        with path.open("wb") as handle:
+            handle.write(buffer.tobytes())
         return "{}/{}".format(output_dir.name, filename), None
     except BaseException as exc:  # noqa: BLE001 - diagnostics must not stop capture
         return None, repr(exc)
@@ -381,6 +493,10 @@ def write_capture_artifacts(out_dir, poses, telemetry, frame_index=None,
         json.dump(telemetry_records, f, ensure_ascii=False)
 
     diagnostics = diagnostics or {}
+    with open(os.path.join(out_dir, "telemetry_boundary.json"), "w",
+              encoding="utf-8") as f:
+        json.dump(diagnostics.get("telemetry_boundary", {}), f, indent=2,
+                  ensure_ascii=False)
     with open(os.path.join(out_dir, "raw_health.json"), "w", encoding="utf-8") as f:
         json.dump(diagnostics.get("health_frames", []), f, indent=2,
                   ensure_ascii=False)
@@ -541,6 +657,8 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
     diagnostics["health_frames"] = health_frames
     tele_lock = threading.Lock()
     stop_reader = threading.Event()
+    boundary = TelemetryCaptureBoundary("sync", run_id)
+    current_recv = {"arrival_pc_ns": None}
     status_cv = threading.Condition()
     statuses = []
     status_parse_errors = []
@@ -568,7 +686,12 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
         d = decode_telemetry(payload)
         if not d:
             return
-        pc_ns = capture_pc_clock_ns()
+        decode_pc_ns = capture_pc_clock_ns()
+        boundary_record = boundary.observe_frame(
+            tick_ms=int(d["tick_ms"]), decode_pc_ns=decode_pc_ns)
+        if boundary_record["phase"] != TelemetryCaptureBoundary.INSIDE_WINDOW:
+            return
+        pc_ns = boundary_record["arrival_pc_ns"]
         pwm = tuple(int(d[k]) for k in ("m1", "m2", "m3", "m4"))
         frame = V1TelemetryFrame(
             sensors=(binarize_sensor(d["s0"]), binarize_sensor(d["s1"]),
@@ -592,9 +715,15 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
         d = decode_health(payload)
         if not d:
             return
+        decode_pc_ns = capture_pc_clock_ns()
         record = {
             "frame_ts_s": round(time.time(), 6),
-            "pc_recv_ns": capture_pc_clock_ns(),
+            "pc_recv_ns": (
+                current_recv["arrival_pc_ns"]
+                if current_recv["arrival_pc_ns"] is not None
+                else decode_pc_ns
+            ),
+            "decode_pc_ns": decode_pc_ns,
         }
         record.update({key: int(value) for key, value in d.items()})
         with tele_lock:
@@ -610,6 +739,7 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                 status_cv.notify_all()
             return
         with status_cv:
+            boundary.observe_status(status)
             statuses.append(status)
             status_cv.notify_all()
 
@@ -632,7 +762,10 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                 break
             if not data:
                 break
-            raw_io.log_recv(data)
+            arrival_pc_ns = capture_pc_clock_ns()
+            current_recv["arrival_pc_ns"] = arrival_pc_ns
+            boundary.begin_recv(arrival_pc_ns)
+            raw_io.log_recv(data, arrival_pc_ns=arrival_pc_ns)
             try:
                 for byte in data:
                     parser.feed(byte)
@@ -788,6 +921,7 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
             outcome = "collect_error"
             return telemetry, poses, actions, outcome
     finally:
+        boundary.close_window("collection_end_or_cleanup")
         def status_cursor():
             with status_cv:
                 return len(statuses)
@@ -821,6 +955,9 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                 actions["reader_error"] = reader_error[-1]
         diagnostics["health_frames"] = list(health_frames)
         diagnostics["health"] = compute_health_summary(health_frames)
+        diagnostics["telemetry_boundary"] = boundary.to_dict()
+        diagnostics["formal_telemetry_count"] = boundary.formal_count
+        diagnostics["boundary_telemetry_count"] = boundary.boundary_count
         diagnostics["raw_io"] = raw_io.write()
 
     return telemetry, poses, actions, outcome
@@ -856,6 +993,13 @@ def build_sync_report(*, host, duration_s, run_id, camera_mode, actions,
             "health": dict((diagnostics or {}).get("health", {})),
             "raw_health_file": "raw_health.json",
             "raw_io_file": "raw_io.json",
+            "telemetry_boundary_file": "telemetry_boundary.json",
+            "formal_telemetry_count": int(
+                (diagnostics or {}).get("formal_telemetry_count", n_telemetry)
+            ),
+            "boundary_telemetry_count": int(
+                (diagnostics or {}).get("boundary_telemetry_count", 0)
+            ),
         },
         "clock": {
             "a": float(clock["a"]),
@@ -964,7 +1108,9 @@ def _manifest_path(manifest_path, value):
     if not path.is_absolute():
         path = Path(manifest_path).parent / path
     path = path.resolve()
-    if not path.is_relative_to(_WORKSPACE_ROOT):
+    try:
+        path.relative_to(Path(_WORKSPACE_ROOT).resolve())
+    except ValueError:
         raise ValueError("calibration input must stay inside the workspace")
     if not path.is_file():
         raise FileNotFoundError(str(path))
@@ -1033,7 +1179,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default="192.168.110.236")
     ap.add_argument("--port", type=int, default=8888)
-    ap.add_argument("--camera", default="1")
+    ap.add_argument(
+        "--camera",
+        default=None,
+        help="camera index; omitted uses camera_config.json",
+    )
     ap.add_argument("--duration", type=float, default=12.0)
     ap.add_argument("--wait-timeout", type=float, default=30.0)
     ap.add_argument("--calibration-manifest", required=True)
@@ -1066,7 +1216,11 @@ def main():
         return 1
     tracker = PoseTracker(calib, hom, tag_id=0, detect_scales=(1.0, 2.0, 3.0))
 
-    src = int(args.camera) if str(args.camera).isdigit() else args.camera
+    try:
+        src = resolve_camera_source(args.camera)
+    except (TypeError, ValueError, SystemExit) as exc:
+        print("ERROR: camera selection failed: {}".format(exc))
+        return 1
     try:
         cap, actual_w, actual_h = open_capture_camera(src)
     except BaseException as exc:

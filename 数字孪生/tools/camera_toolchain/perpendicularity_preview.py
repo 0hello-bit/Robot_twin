@@ -24,9 +24,9 @@ import camera_common as cc
 
 SOURCE = cc.get_camera_index(int(_sys.argv[1]) if len(_sys.argv) > 1 else None)
 PATTERN = cc.CHECKERBOARD_PATTERN
-SQUARE_MM = cc.CHECKERBOARD_SQUARE_MM
-MM_W = 8 * SQUARE_MM          # 200mm
-MM_H = 5 * SQUARE_MM          # 125mm
+SQUARE_MM = cc.GROUND_CHECKERBOARD_SQUARE_MM
+MM_W = 8 * SQUARE_MM          # 120mm
+MM_H = 5 * SQUARE_MM          # 75mm
 TARGET_ASPECT = MM_W / MM_H   # 1.60
 
 CRITERIA = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-6)
