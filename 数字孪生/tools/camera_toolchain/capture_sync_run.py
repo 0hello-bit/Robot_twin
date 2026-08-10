@@ -63,11 +63,16 @@ from v1_twin.v1_twin_pose_fusion import V1PoseFusion
 from v1_twin.v1_twin_imu_control import summarize_imu_evidence
 from v1_twin.v1_twin_motion_evidence import build_camera_motion_evidence
 from v1_twin.v1_twin_schema import V1TelemetryFrame, V1Pose
+from v1_twin.v1_twin_causal_sync import build_causal_sync_report
 from v1_twin.v1_twin_sync import ClockSync
 from real_world.frame_parser import decode_health, decode_telemetry
 from real_world.runtime_protocol import (
+    ClockSyncProbe,
+    ClockSyncReply,
+    ProtocolError,
     RunCommand,
     make_runtime_identifier,
+    parse_clock_sync_reply,
     parse_status,
 )
 from transport_soak import (
@@ -84,6 +89,7 @@ CAMERA_FPS = camera_common.DEFAULT_FPS
 CAMERA_PERIOD_NS = int(round(1_000_000_000 / CAMERA_FPS))
 TELEMETRY_PERIOD_NS = 30_000_000  # firmware generation interval
 TOLERANCE_NS = max(CAMERA_PERIOD_NS, TELEMETRY_PERIOD_NS)
+CLOCK_PROBE_PERIOD_S = 0.25
 STOP_CONFIRM_TIMEOUT_S = 1.0
 READER_JOIN_TIMEOUT_S = 1.0
 
@@ -255,6 +261,7 @@ OUTPUT_FILENAMES = (
     "telemetry_boundary.json",
     "raw_health.json",
     "raw_io.json",
+    "clock_exchanges.jsonl",
     "sync_report.json",
     "imu_evidence.json",
     "camera_motion.jsonl",
@@ -401,6 +408,68 @@ def binarize_sensor(v):
     return 1 if int(v) > 0 else 0
 
 
+class ClockExchangeCollector:
+    """Retain complete PC/MCU clock exchanges without hiding gaps."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._pending = {}
+        self._records = []
+        self._unmatched_replies = []
+
+    def begin_probe(self, sequence, pc_tx_ns):
+        sequence = int(sequence)
+        pc_tx_ns = int(pc_tx_ns)
+        if sequence <= 0 or pc_tx_ns < 0:
+            raise ValueError("clock probe sequence/timestamp must be positive")
+        with self._lock:
+            if sequence in self._pending:
+                raise ValueError("clock probe sequence is already pending")
+            self._pending[sequence] = pc_tx_ns
+        return ClockSyncProbe(sequence).encode().encode("ascii")
+
+    def cancel_probe(self, sequence):
+        with self._lock:
+            self._pending.pop(int(sequence), None)
+
+    def has_pending(self):
+        with self._lock:
+            return bool(self._pending)
+
+    def complete_probe(self, reply, pc_rx_ns):
+        if not isinstance(reply, ClockSyncReply):
+            raise TypeError("clock reply must be ClockSyncReply")
+        pc_rx_ns = int(pc_rx_ns)
+        with self._lock:
+            pc_tx_ns = self._pending.pop(reply.sequence, None)
+            if pc_tx_ns is None:
+                self._unmatched_replies.append(int(reply.sequence))
+                return False
+            if pc_rx_ns < pc_tx_ns:
+                self._unmatched_replies.append(int(reply.sequence))
+                return False
+            self._records.append({
+                "sequence": int(reply.sequence),
+                "pc_tx_ns": int(pc_tx_ns),
+                "mcu_rx_tick_ms": int(reply.mcu_rx_tick_ms),
+                "mcu_tx_tick_ms": int(reply.mcu_tx_tick_ms),
+                "pc_rx_ns": int(pc_rx_ns),
+            })
+            return True
+
+    def records(self):
+        with self._lock:
+            return [dict(record) for record in self._records]
+
+    def to_dict(self):
+        with self._lock:
+            return {
+                "records": [dict(record) for record in self._records],
+                "pending_sequences": sorted(self._pending),
+                "unmatched_replies": list(self._unmatched_replies),
+            }
+
+
 class TelemetryCaptureBoundary:
     """Separate formal-window telemetry from boundary evidence.
 
@@ -418,15 +487,19 @@ class TelemetryCaptureBoundary:
         self.run_id = str(run_id)
         self.phase = self.BEFORE_WINDOW
         self._arrival_pc_ns = None
+        self._recv_batch_id = 0
+        self._recv_batch_bytes = 0
         self._lock = threading.Lock()
         self.records = []
         self.formal_records = []
         self.boundary_records = []
         self.close_reason = None
 
-    def begin_recv(self, arrival_pc_ns):
+    def begin_recv(self, arrival_pc_ns, recv_batch_bytes=0):
         with self._lock:
             self._arrival_pc_ns = int(arrival_pc_ns)
+            self._recv_batch_id += 1
+            self._recv_batch_bytes = max(0, int(recv_batch_bytes))
 
     def observe_status(self, status):
         with self._lock:
@@ -467,6 +540,8 @@ class TelemetryCaptureBoundary:
                 "tick_ms": int(tick_ms),
                 "arrival_pc_ns": int(arrival_pc_ns),
                 "decode_pc_ns": int(decode_pc_ns),
+                "recv_batch_id": int(self._recv_batch_id),
+                "recv_batch_bytes": int(self._recv_batch_bytes),
                 "phase": self.phase,
             }
             self.records.append(record)
@@ -485,6 +560,30 @@ class TelemetryCaptureBoundary:
         return len(self.boundary_records)
 
     def to_dict(self):
+        batches = {}
+        for record in self.records:
+            batch_id = int(record["recv_batch_id"])
+            batch = batches.setdefault(batch_id, {
+                "recv_batch_id": batch_id,
+                "recv_batch_bytes": int(record["recv_batch_bytes"]),
+                "frame_count": 0,
+                "first_tick_ms": int(record["tick_ms"]),
+                "last_tick_ms": int(record["tick_ms"]),
+            })
+            batch["frame_count"] += 1
+            batch["first_tick_ms"] = min(
+                batch["first_tick_ms"], int(record["tick_ms"])
+            )
+            batch["last_tick_ms"] = max(
+                batch["last_tick_ms"], int(record["tick_ms"])
+            )
+        recv_batches = []
+        for batch_id in sorted(batches):
+            batch = batches[batch_id]
+            batch["tick_span_ms"] = (
+                batch["last_tick_ms"] - batch["first_tick_ms"]
+            )
+            recv_batches.append(batch)
         return {
             "campaign_id": self.campaign_id,
             "run_id": self.run_id,
@@ -493,6 +592,7 @@ class TelemetryCaptureBoundary:
             "formal_count": self.formal_count,
             "boundary_count": self.boundary_count,
             "records": list(self.records),
+            "recv_batches": recv_batches,
         }
 
 
@@ -724,6 +824,12 @@ def write_capture_artifacts(out_dir, poses, telemetry, frame_index=None,
     with open(os.path.join(out_dir, "raw_io.json"), "w", encoding="utf-8") as f:
         json.dump(diagnostics.get("raw_io", {}), f, indent=2,
                   ensure_ascii=False)
+    clock_exchange_evidence = diagnostics.get("clock_exchanges", {})
+    with open(os.path.join(out_dir, "clock_exchanges.jsonl"), "w",
+              encoding="utf-8") as f:
+        for record in clock_exchange_evidence.get("records", []):
+            f.write(json.dumps(record, ensure_ascii=False,
+                                sort_keys=True) + "\n")
     with open(os.path.join(out_dir, "failure_frame_summary.json"),
               "w", encoding="utf-8") as f:
         json.dump(diagnostics.get("failure_frame_summary", {
@@ -923,9 +1029,14 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
     status_cv = threading.Condition()
     statuses = []
     status_parse_errors = []
+    clock_exchanges = ClockExchangeCollector()
+    clock_sync_parse_errors = []
+    diagnostics["clock_sync_parse_errors"] = clock_sync_parse_errors
     reader_error = []
     heartbeat_cmd = HeartbeatCommand("sync", run_id).encode().encode("ascii")
     next_heartbeat = None
+    next_clock_probe = None
+    next_clock_sequence = 1
 
     def send_heartbeat(force=False):
         """Keep the firmware's one-second lease alive on the capture thread."""
@@ -942,6 +1053,33 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
         actions["heartbeat_sent"] += 1
         next_heartbeat = time.monotonic() + HEARTBEAT_PERIOD_S
         return True
+
+    def send_clock_probe(force=False):
+        """Send at most one outstanding Q probe on the existing TCP path."""
+        nonlocal next_clock_probe, next_clock_sequence
+        now = time.monotonic()
+        if not force and next_clock_probe is not None and now < next_clock_probe:
+            return True
+        if clock_exchanges.has_pending():
+            return True
+        sequence = next_clock_sequence
+        next_clock_sequence += 1
+        pc_tx_ns = capture_pc_clock_ns()
+        try:
+            command = clock_exchanges.begin_probe(sequence, pc_tx_ns)
+            sock.sendall(command)
+            raw_io.log_send(command)
+            next_clock_probe = time.monotonic() + CLOCK_PROBE_PERIOD_S
+            return True
+        except BaseException as exc:  # noqa: BLE001 - retain evidence and continue
+            clock_exchanges.cancel_probe(sequence)
+            clock_sync_parse_errors.append({
+                "stage": "send",
+                "sequence": int(sequence),
+                "error": repr(exc),
+            })
+            next_clock_probe = time.monotonic() + CLOCK_PROBE_PERIOD_S
+            return True
 
     def on_telemetry(payload):
         d = decode_telemetry(payload)
@@ -991,6 +1129,22 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
             health_frames.append(record)
 
     def on_status(line):
+        if line.startswith("T,"):
+            try:
+                reply = parse_clock_sync_reply(line)
+            except ProtocolError as exc:
+                with status_cv:
+                    clock_sync_parse_errors.append({
+                        "stage": "receive",
+                        "line": line,
+                        "error": repr(exc),
+                    })
+                    status_cv.notify_all()
+                return
+            clock_exchanges.complete_probe(reply, capture_pc_clock_ns())
+            with status_cv:
+                status_cv.notify_all()
+            return
         try:
             status = parse_status(line)
         except Exception as exc:  # noqa: BLE001 - retain malformed evidence
@@ -1025,7 +1179,7 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                 break
             arrival_pc_ns = capture_pc_clock_ns()
             current_recv["arrival_pc_ns"] = arrival_pc_ns
-            boundary.begin_recv(arrival_pc_ns)
+            boundary.begin_recv(arrival_pc_ns, recv_batch_bytes=len(data))
             raw_io.log_recv(data, arrival_pc_ns=arrival_pc_ns)
             try:
                 for byte in data:
@@ -1055,6 +1209,7 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
         if not send_heartbeat(force=True):
             outcome = "heartbeat_failed"
             return telemetry, poses, actions, outcome
+        send_clock_probe(force=True)
 
         # 等待第一帧遥测
         t_wait = time.time()
@@ -1065,6 +1220,7 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
             if not send_heartbeat():
                 outcome = "heartbeat_failed"
                 return telemetry, poses, actions, outcome
+            send_clock_probe()
             if time.time() - t_wait > wait_timeout_s:
                 print("ERROR: 超时未收到遥测（小车未运行？）")
                 outcome = "no_telemetry_timeout"
@@ -1081,6 +1237,7 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                 if not send_heartbeat():
                     outcome = "heartbeat_failed"
                     return telemetry, poses, actions, outcome
+                send_clock_probe()
                 ok, frame = cap.read()
                 frame_record = {
                     "frame_index": camera_frame_number,
@@ -1255,6 +1412,7 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
         diagnostics["health_frames"] = list(health_frames)
         diagnostics["health"] = compute_health_summary(health_frames)
         diagnostics["telemetry_boundary"] = boundary.to_dict()
+        diagnostics["clock_exchanges"] = clock_exchanges.to_dict()
         diagnostics["formal_telemetry_count"] = boundary.formal_count
         diagnostics["boundary_telemetry_count"] = boundary.boundary_count
         diagnostics["raw_io"] = raw_io.write()
@@ -1265,11 +1423,15 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
 def build_sync_report(*, host, duration_s, run_id, camera_mode, actions,
                       outcome, n_poses, n_telemetry, clock, residuals, sync,
                       calibration_evidence=None, diagnostics=None,
-                      observation_profile=None):
+                      observation_profile=None, causal_sync=None):
     """Build the auditable 4B-4 report without touching hardware or files."""
     actual_camera = dict(camera_mode)
     video_evidence = dict(
         (diagnostics or {}).get("video_evidence", _new_video_evidence())
+    )
+    causal_sync_report = dict(
+        causal_sync if causal_sync is not None
+        else build_causal_sync_report([])
     )
     report = {
         "schema_version": 1,
@@ -1303,6 +1465,7 @@ def build_sync_report(*, host, duration_s, run_id, camera_mode, actions,
             "health": dict((diagnostics or {}).get("health", {})),
             "raw_health_file": "raw_health.json",
             "raw_io_file": "raw_io.json",
+            "clock_exchanges_file": "clock_exchanges.jsonl",
             "telemetry_boundary_file": "telemetry_boundary.json",
             "formal_telemetry_count": int(
                 (diagnostics or {}).get("formal_telemetry_count", n_telemetry)
@@ -1319,6 +1482,7 @@ def build_sync_report(*, host, duration_s, run_id, camera_mode, actions,
             "residual_rms_ns": float(residuals["rms_ns"]),
             "residual_max_ns": float(residuals["max_ns"]),
         },
+        "causal_sync": causal_sync_report,
     }
     for key in (
         "coverage", "p95_time_diff_ns", "tolerance_ns", "n_sync_frames",
@@ -1332,7 +1496,16 @@ def build_sync_report(*, host, duration_s, run_id, camera_mode, actions,
     sync_gate_verdict = sync["verdict"]
     final_verdict, final_reason = evaluate_capture_gate(
         sync_gate_verdict, actions, outcome, video_evidence=video_evidence)
+    causal_verdict = causal_sync_report.get(
+        "verdict", "INSUFFICIENT EVIDENCE"
+    )
+    alignment_verdict = sync_gate_verdict
+    if final_verdict == "PASS" and causal_verdict != "PASS":
+        final_verdict = causal_verdict
+        final_reason = "causal sync gate verdict: {}".format(causal_verdict)
+    report["alignment_verdict"] = alignment_verdict
     report["sync_gate_verdict"] = sync_gate_verdict
+    report["causal_sync_verdict"] = causal_verdict
     report["verdict"] = final_verdict
     report["gate_reason"] = final_reason
     return report
@@ -1368,6 +1541,8 @@ def build_session_failure_report(*, host, duration_s, run_id, camera_mode,
         "video_evidence": dict(
             video_evidence or _new_video_evidence()
         ),
+        "causal_sync": build_causal_sync_report([]),
+        "causal_sync_verdict": "INSUFFICIENT EVIDENCE",
         "observation_profile": _observation_profile_evidence(
             observation_profile
         ),
@@ -1853,6 +2028,11 @@ def main():
         return 1
     print("ClockSync(batched): pc_ns = {:.3f} * tick + {:.0f}, resid_rms={:.0f}ns".format(
         a, b, residuals["rms_ns"]))
+    clock_exchange_records = (diagnostics.get("clock_exchanges", {})
+                              .get("records", []))
+    causal_sync = build_causal_sync_report(clock_exchange_records)
+    print("CausalClockSync: {} (samples={})".format(
+        causal_sync["verdict"], causal_sync.get("sample_count", 0)))
 
     # 对齐（共同区间语义 + 全量 p95 + 诊断指标）
     try:
@@ -1925,6 +2105,7 @@ def main():
         calibration_evidence=calibration_evidence,
         diagnostics=diagnostics,
         observation_profile=observation_profile,
+        causal_sync=causal_sync,
     )
     with open(os.path.join(out_dir, "sync_report.json"), "w",
               encoding="utf-8") as f:

@@ -235,6 +235,28 @@ class RunCommand:
 
 
 @dataclass(frozen=True)
+class ClockSyncProbe:
+    """Request one MCU receive/send timestamp pair on the existing TCP path."""
+
+    sequence: int
+
+    def encode(self):
+        _validate_positive_integer(self.sequence, "sequence")
+        body = "Q,{0}".format(self.sequence)
+        _validate_command_body(body)
+        return frame(body)
+
+
+@dataclass(frozen=True)
+class ClockSyncReply:
+    """MCU timestamps returned for one clock-sync probe."""
+
+    sequence: int
+    mcu_rx_tick_ms: int
+    mcu_tx_tick_ms: int
+
+
+@dataclass(frozen=True)
 class ParameterAck:
     campaign_id: str
     version: int
@@ -308,7 +330,7 @@ class RuntimeParameterBoundary:
 
 
 def parse_command(text):
-    """Parse a complete P or R frame after verifying every protocol guard."""
+    """Parse a complete P, R, or Q frame after every protocol guard."""
     if not isinstance(text, str) or not text:
         raise ProtocolError("frame must be newline-terminated")
     if not text.endswith("\n") or "\r" in text:
@@ -340,6 +362,10 @@ def parse_command(text):
         if action not in _RUN_ACTIONS:
             raise ProtocolError("invalid run action")
         return RunCommand(campaign_id, run_id, action)
+    if frame_type == "Q":
+        fields = _split_and_verify(text, "Q", 3)
+        sequence = _parse_positive_integer(fields[1], "sequence")
+        return ClockSyncProbe(sequence)
     raise ProtocolError("unexpected frame type")
 
 
@@ -367,3 +393,26 @@ def parse_status(text):
     if not re.fullmatch(r"[0-9]+", tick_text):
         raise ProtocolError("tick_ms must be a non-negative integer")
     return RunStatus(campaign_id, run_id, state, reason, int(tick_text))
+
+
+def parse_clock_sync_reply(text):
+    """Parse a checksummed ``T,sequence,mcu_rx,mcu_tx`` response."""
+    fields = _split_and_verify(text, "T", 5)
+    sequence_text, rx_text, tx_text = fields[1], fields[2], fields[3]
+    for value, name in (
+        (sequence_text, "sequence"),
+        (rx_text, "mcu_rx_tick_ms"),
+        (tx_text, "mcu_tx_tick_ms"),
+    ):
+        if not re.fullmatch(r"[0-9]+", value):
+            raise ProtocolError("{0} must be a non-negative integer".format(name))
+        if int(value) > MAX_VERSION:
+            raise ProtocolError("{0} exceeds uint32".format(name))
+    sequence = int(sequence_text)
+    rx_tick = int(rx_text)
+    tx_tick = int(tx_text)
+    if sequence == 0:
+        raise ProtocolError("sequence must be a positive integer")
+    if tx_tick < rx_tick:
+        raise ProtocolError("mcu_tx_tick_ms must be >= mcu_rx_tick_ms")
+    return ClockSyncReply(sequence, rx_tick, tx_tick)

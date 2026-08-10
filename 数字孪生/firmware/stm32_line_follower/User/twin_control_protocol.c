@@ -366,13 +366,33 @@ static void parse_heartbeat(char *line)
     g_heartbeat_pending = 1U;
 }
 
-static uint8_t parse_line(TwinControlResult *result)
+static uint8_t parse_clock_sync(char *line, uint32_t now_ms,
+                                TwinControlClockSync *clock_sync)
+{
+    char *fields[2];
+    uint32_t sequence;
+    if (clock_sync == 0 || !verify_frame(line, fields, 2U) ||
+        strcmp(fields[0], "Q") != 0 || !parse_u32(fields[1], &sequence)) {
+        return 0U;
+    }
+    clock_sync->has_reply = 1U;
+    clock_sync->sequence = sequence;
+    clock_sync->mcu_rx_tick_ms = now_ms;
+    return 1U;
+}
+
+static uint8_t parse_line(TwinControlResult *result, uint32_t now_ms,
+                          TwinControlClockSync *clock_sync)
 {
     if (g_line_length == 0U || g_line_overflow) return 0U;
     g_line[g_line_length] = '\0';
     if (g_line[0] == 'P') return parse_parameter(g_line, result);
     if (g_line[0] == 'R') parse_run(g_line);
     if (g_line[0] == 'H') parse_heartbeat(g_line);
+    if (g_line[0] == 'Q') {
+        (void)parse_clock_sync(g_line, now_ms, clock_sync);
+        return 0U;
+    }
     return 0U;
 }
 
@@ -421,13 +441,21 @@ void twin_control_init(const TwinControlParams *baseline)
 
 uint8_t twin_control_receive_byte(uint8_t byte, TwinControlResult *result)
 {
+    return twin_control_receive_byte_at(byte, 0U, result, 0);
+}
+
+uint8_t twin_control_receive_byte_at(uint8_t byte, uint32_t now_ms,
+                                     TwinControlResult *result,
+                                     TwinControlClockSync *clock_sync)
+{
     clear_result(result);
+    if (clock_sync != 0) memset(clock_sync, 0, sizeof(*clock_sync));
     if (byte == '\r') {
         g_line_overflow = 1U;
         return 0U;
     }
     if (byte == '\n') {
-        uint8_t has_result = parse_line(result);
+        uint8_t has_result = parse_line(result, now_ms, clock_sync);
         g_line_length = 0U;
         g_line_overflow = 0U;
         return has_result;
@@ -693,6 +721,34 @@ uint16_t twin_control_encode_status(const TwinControlStatus *status,
     written = sprintf(body, "S,%s,%s,%s,%s,%lu", status->campaign_id,
                       status->run_id, status->state, status->reason,
                       (unsigned long)status->tick_ms);
+    if (written < 0 || written >= (int)sizeof(body)) return 0U;
+    length = (uint16_t)written;
+    if ((uint32_t)length + 5U > output_size) return 0U;
+    value = checksum(body, length);
+    memcpy(output, body, length);
+    output[length++] = ',';
+    output[length++] = g_hex[(value >> 4) & 0x0FU];
+    output[length++] = g_hex[value & 0x0FU];
+    output[length++] = '\n';
+    output[length] = '\0';
+    return length;
+}
+
+uint16_t twin_control_encode_clock_sync(const TwinControlClockSync *clock_sync,
+                                        uint32_t mcu_tx_tick_ms,
+                                        char *output,
+                                        uint16_t output_size)
+{
+    char body[TWIN_CONTROL_LINE_MAX + 1U];
+    int written;
+    uint16_t length;
+    uint8_t value;
+    if (clock_sync == 0 || output == 0 || !clock_sync->has_reply ||
+        clock_sync->sequence == 0U) return 0U;
+    written = sprintf(body, "T,%lu,%lu,%lu",
+                      (unsigned long)clock_sync->sequence,
+                      (unsigned long)clock_sync->mcu_rx_tick_ms,
+                      (unsigned long)mcu_tx_tick_ms);
     if (written < 0 || written >= (int)sizeof(body)) return 0U;
     length = (uint16_t)written;
     if ((uint32_t)length + 5U > output_size) return 0U;

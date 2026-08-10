@@ -242,6 +242,7 @@ static void ESP_ServiceRX(void)
 {
     uint8_t ch;
     while (uart_ring_pop(&g_uart_ring, &ch)) {
+        esp_transport_set_now_ms(mono_now_ms());
         esp_transport_process_byte(ch);        /* CONNECT/CLOSED/+IPD 输入路径 */
         cipsend_tx_feed_byte(&g_cipsend_tx, ch); /* TX 事务 '>' / SEND OK 解析 */
     }
@@ -470,6 +471,27 @@ static void ESP_SendQueuedFrames(uint8_t allow_telemetry)
                              CIPSEND_TX_PRIORITY_CRITICAL, CIPSEND_TX_TAG_STATUS,
                              mono_now_ms())) {
             hstats_tx_started(&g_health_stats, CIPSEND_TX_TAG_STATUS, mono_now_ms());
+        }
+        return;
+    }
+
+    /* --- Clock sync response: after safety frames, before telemetry --- */
+    if (esp_transport_has_pending_clock_sync()) {
+        char clock_sync_frame[TX_FRAME_QUEUE_LINE_MAX + 1U];
+        uint32_t mcu_tx_tick_ms = mono_now_ms();
+        uint16_t clock_sync_len = esp_transport_get_pending_clock_sync(
+            clock_sync_frame, sizeof(clock_sync_frame), mcu_tx_tick_ms);
+        if (clock_sync_len > 0U) {
+            build_cipsend_cmd(cmd, clock_sync_len);
+            if (cipsend_tx_start(&g_cipsend_tx, cmd, (uint16_t)strlen(cmd),
+                                 (const uint8_t *)clock_sync_frame,
+                                 clock_sync_len,
+                                 CIPSEND_TX_PRIORITY_CRITICAL,
+                                 CIPSEND_TX_TAG_DIAG,
+                                 mcu_tx_tick_ms)) {
+                hstats_tx_started(&g_health_stats, CIPSEND_TX_TAG_DIAG,
+                                  mcu_tx_tick_ms);
+            }
         }
         return;
     }

@@ -20,6 +20,11 @@ void esp_transport_init(volatile uint8_t *tcp_connected_flag,
 */
 void esp_transport_process_byte(uint8_t byte);
 
+/* Set the monotonic tick used when the next RX byte reaches the protocol
+   parser.  The firmware caller updates this immediately before processing
+   each byte; host callers may leave the default at zero. */
+void esp_transport_set_now_ms(uint32_t now_ms);
+
 /* Returns non-zero if an ACK has been queued by the last ProcessByte call. */
 uint8_t esp_transport_has_pending_ack(void);
 
@@ -30,6 +35,9 @@ uint8_t esp_transport_can_queue_status(void);
 /* Returns non-zero if a status frame has been queued. */
 uint8_t esp_transport_has_pending_status(void);
 
+/* Returns non-zero if a Q request has produced a pending T response. */
+uint8_t esp_transport_has_pending_clock_sync(void);
+
 /* Retrieve and clear the pending ACK text (null-terminated ASCII, with \n).
    Returns 0 if no pending ACK. */
 uint16_t esp_transport_get_pending_ack(char *output, uint16_t output_size);
@@ -37,6 +45,15 @@ uint16_t esp_transport_get_pending_ack(char *output, uint16_t output_size);
 /* Retrieve and clear the pending status text (null-terminated ASCII, with \n).
    Returns 0 if no pending status. */
 uint16_t esp_transport_get_pending_status(char *output, uint16_t output_size);
+
+/* Queue one Q result without replacing an outstanding response. */
+uint8_t esp_transport_queue_clock_sync(const TwinControlClockSync *clock_sync);
+
+/* Encode and consume the pending T response with the dispatch tick supplied
+   by the caller immediately before the CIPSEND transaction is started. */
+uint16_t esp_transport_get_pending_clock_sync(char *output,
+                                              uint16_t output_size,
+                                              uint32_t mcu_tx_tick_ms);
 
 /* Queue a status frame for sending.  Called by main.c on STOP/TIMEOUT/
    track-loss / run-timeout events. */

@@ -8,6 +8,9 @@ static char s_pending_ack[TWIN_CONTROL_LINE_MAX + 1U];
 static uint16_t s_pending_ack_len;
 static char s_pending_status[TWIN_CONTROL_LINE_MAX + 1U];
 static uint16_t s_pending_status_len;
+static TwinControlClockSync s_pending_clock_sync;
+static uint8_t s_has_pending_clock_sync;
+static uint32_t s_now_ms;
 static char s_at_line[32];
 static uint8_t s_at_line_len;
 
@@ -19,6 +22,9 @@ static void clear_pending_frames(void)
 {
     s_pending_ack_len = 0U;
     s_pending_status_len = 0U;
+    memset(&s_pending_clock_sync, 0, sizeof(s_pending_clock_sync));
+    s_has_pending_clock_sync = 0U;
+    s_now_ms = 0U;
 }
 
 static void process_at_line(void)
@@ -58,6 +64,9 @@ void esp_transport_init(volatile uint8_t *tcp_connected_flag,
     s_client_id = tcp_client_id_ptr;
     s_pending_ack_len = 0U;
     s_pending_status_len = 0U;
+    memset(&s_pending_clock_sync, 0, sizeof(s_pending_clock_sync));
+    s_has_pending_clock_sync = 0U;
+    s_now_ms = 0U;
     s_at_line_len = 0U;
     s_connection_generation = 0U;
 }
@@ -67,7 +76,12 @@ void esp_transport_process_byte(uint8_t byte)
     uint8_t ipd_state = ipd_parser_feed(&s_parser, byte);
     if (ipd_state == IPD_STATE_PAYLOAD || ipd_state == IPD_STATE_COMPLETE) {
         TwinControlResult result;
-        uint8_t has_result = twin_control_receive_byte(byte, &result);
+        TwinControlClockSync clock_sync;
+        uint8_t has_result = twin_control_receive_byte_at(
+            byte, s_now_ms, &result, &clock_sync);
+        if (clock_sync.has_reply) {
+            (void)esp_transport_queue_clock_sync(&clock_sync);
+        }
         if (has_result && result.has_ack) {
             s_pending_ack_len = twin_control_encode_ack(
                 &result, s_pending_ack, sizeof(s_pending_ack));
@@ -88,6 +102,11 @@ void esp_transport_process_byte(uint8_t byte)
     }
 }
 
+void esp_transport_set_now_ms(uint32_t now_ms)
+{
+    s_now_ms = now_ms;
+}
+
 uint8_t esp_transport_has_pending_ack(void)
 {
     return (s_pending_ack_len > 0U) ? 1U : 0U;
@@ -96,6 +115,11 @@ uint8_t esp_transport_has_pending_ack(void)
 uint8_t esp_transport_has_pending_status(void)
 {
     return (s_pending_status_len > 0U) ? 1U : 0U;
+}
+
+uint8_t esp_transport_has_pending_clock_sync(void)
+{
+    return s_has_pending_clock_sync;
 }
 
 uint8_t esp_transport_can_queue_status(void)
@@ -123,6 +147,31 @@ uint16_t esp_transport_get_pending_status(char *output, uint16_t output_size)
     output[copy_len] = '\0';
     s_pending_status_len = 0U;
     return copy_len;
+}
+
+uint8_t esp_transport_queue_clock_sync(const TwinControlClockSync *clock_sync)
+{
+    if (clock_sync == 0 || !clock_sync->has_reply ||
+        s_has_pending_clock_sync) return 0U;
+    s_pending_clock_sync = *clock_sync;
+    s_has_pending_clock_sync = 1U;
+    return 1U;
+}
+
+uint16_t esp_transport_get_pending_clock_sync(char *output,
+                                              uint16_t output_size,
+                                              uint32_t mcu_tx_tick_ms)
+{
+    uint16_t length;
+    if (!s_has_pending_clock_sync || output == 0 || output_size == 0U) return 0U;
+    length = twin_control_encode_clock_sync(&s_pending_clock_sync,
+                                            mcu_tx_tick_ms,
+                                            output, output_size);
+    if (length > 0U) {
+        memset(&s_pending_clock_sync, 0, sizeof(s_pending_clock_sync));
+        s_has_pending_clock_sync = 0U;
+    }
+    return length;
 }
 
 void esp_transport_queue_status(const TwinControlStatus *status)

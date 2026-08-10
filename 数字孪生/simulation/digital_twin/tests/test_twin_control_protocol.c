@@ -50,6 +50,78 @@ static unsigned char feed_bytes(const unsigned char *bytes, unsigned int length,
     return has_result;
 }
 
+static unsigned char feed_clock_frame(const char *frame, uint32_t tick_ms,
+                                      TwinControlResult *result,
+                                      TwinControlClockSync *clock_sync)
+{
+    unsigned char has_result = 0U;
+    unsigned int index;
+    for (index = 0U; frame[index] != '\0'; ++index) {
+        has_result = twin_control_receive_byte_at(
+            (unsigned char)frame[index], tick_ms, result, clock_sync);
+    }
+    return has_result;
+}
+
+static int test_clock_sync_probe_captures_mcu_receive_tick(void)
+{
+    TwinControlResult result;
+    TwinControlClockSync clock_sync;
+    char frame[96];
+
+    twin_control_init(&k_baseline);
+    memset(&clock_sync, 0, sizeof(clock_sync));
+    make_frame(frame, sizeof(frame), "Q,7");
+    CHECK(feed_clock_frame(frame, 1234U, &result, &clock_sync) == 0U);
+    CHECK(clock_sync.has_reply == 1U);
+    CHECK(clock_sync.sequence == 7U);
+    CHECK(clock_sync.mcu_rx_tick_ms == 1234U);
+    return 0;
+}
+
+static int test_clock_sync_probe_bad_checksum_is_ignored(void)
+{
+    TwinControlResult result;
+    TwinControlClockSync clock_sync;
+
+    twin_control_init(&k_baseline);
+    memset(&clock_sync, 0, sizeof(clock_sync));
+    CHECK(feed_clock_frame("Q,7,00\n", 1234U, &result, &clock_sync) == 0U);
+    CHECK(clock_sync.has_reply == 0U);
+    return 0;
+}
+
+static int test_clock_sync_probe_zero_sequence_is_ignored(void)
+{
+    TwinControlResult result;
+    TwinControlClockSync clock_sync;
+
+    twin_control_init(&k_baseline);
+    memset(&clock_sync, 0, sizeof(clock_sync));
+    {
+        char frame[96];
+        make_frame(frame, sizeof(frame), "Q,0");
+        CHECK(feed_clock_frame(frame, 1234U, &result, &clock_sync) == 0U);
+    }
+    CHECK(clock_sync.has_reply == 0U);
+    return 0;
+}
+
+static int test_clock_sync_response_encodes_both_mcu_ticks(void)
+{
+    TwinControlClockSync clock_sync;
+    char output[96];
+
+    memset(&clock_sync, 0, sizeof(clock_sync));
+    clock_sync.has_reply = 1U;
+    clock_sync.sequence = 7U;
+    clock_sync.mcu_rx_tick_ms = 1234U;
+    CHECK(twin_control_encode_clock_sync(&clock_sync, 1235U,
+                                         output, sizeof(output)) > 0U);
+    CHECK(strcmp(output, "T,7,1234,1235,4E\n") == 0);
+    return 0;
+}
+
 static int active_is_baseline(const TwinControlParams *active)
 {
     return active->kp == k_baseline.kp && active->ki == k_baseline.ki &&
@@ -1815,6 +1887,11 @@ static int run_all_tests(void)
     if (test_authoritative_state_cached()) return 1;
     if (test_authoritative_survives_fifo_overflow()) return 1;
     if (test_fifo_full_safety_still_inhibits()) return 1;
+    /* --- Causal clock exchange contract --- */
+    if (test_clock_sync_probe_captures_mcu_receive_tick()) return 1;
+    if (test_clock_sync_probe_bad_checksum_is_ignored()) return 1;
+    if (test_clock_sync_probe_zero_sequence_is_ignored()) return 1;
+    if (test_clock_sync_response_encodes_both_mcu_ticks()) return 1;
     /* FIFO tests replace the old overwrite test */
     /* --- end Task 2B --- */
     /* --- Health baseline heartbeat (Task 3) --- */
@@ -1851,6 +1928,15 @@ int main(int argc, char **argv)
     else if (strcmp(selector, "line_lost") == 0) result = test_line_lost_exceeds_threshold();
     else if (strcmp(selector, "reset_flag") == 0) result = test_controller_reset_flag_on_rollback();
     else if (strcmp(selector, "status") == 0) result = test_init_produces_status();
+    else if (strcmp(selector, "clock_sync") == 0) {
+        result = test_clock_sync_probe_captures_mcu_receive_tick();
+        if (result) return result;
+        result = test_clock_sync_probe_bad_checksum_is_ignored();
+        if (result) return result;
+        result = test_clock_sync_probe_zero_sequence_is_ignored();
+        if (result) return result;
+        result = test_clock_sync_response_encodes_both_mcu_ticks();
+    }
     else if (strcmp(selector, "killer") == 0) {
         result = test_killer_default_not_motion_allowed();
         if (result) return result;

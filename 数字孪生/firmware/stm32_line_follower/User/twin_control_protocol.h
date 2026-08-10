@@ -62,9 +62,18 @@ typedef struct {
     uint32_t tick_ms;
 } TwinControlStatus;
 
+typedef struct {
+    uint8_t has_reply;
+    uint32_t sequence;
+    uint32_t mcu_rx_tick_ms;
+} TwinControlClockSync;
+
 void twin_control_init(const TwinControlParams *baseline);
 /* The caller supplies result storage and immediately owns every terminal P result. */
 uint8_t twin_control_receive_byte(uint8_t byte, TwinControlResult *result);
+uint8_t twin_control_receive_byte_at(uint8_t byte, uint32_t now_ms,
+                                     TwinControlResult *result,
+                                     TwinControlClockSync *clock_sync);
 uint8_t twin_control_apply_pending(TwinControlParams *active,
                                    const TwinControlParams *baseline,
                                    TwinControlResult *result);
@@ -76,6 +85,10 @@ uint16_t twin_control_encode_ack(const TwinControlResult *result,
 uint16_t twin_control_encode_status(const TwinControlStatus *status,
                                     char *output,
                                     uint16_t output_size);
+uint16_t twin_control_encode_clock_sync(const TwinControlClockSync *clock_sync,
+                                        uint32_t mcu_tx_tick_ms,
+                                        char *output,
+                                        uint16_t output_size);
 
 /* --- Task 2B safety-hardening API --- */
 

@@ -198,12 +198,12 @@ class MixedStreamParser(object):
             self._ascii.clear()
             if self._on_line is None:
                 return
-            if line.startswith("S,"):
+            if line.startswith(("S,", "T,")):
                 self._on_line(line)
                 return
             # ESP AT 回声噪声可能与 S 帧拆段合并进同一行（真实抓包：
             # 'AT+CIPSEND=0,3S,soak,...'）。从行内最后一个 'S,' 起提取。
-            idx = line.rfind("S,")
+            idx = max(line.rfind("S,"), line.rfind("T,"))
             if idx >= 0:
                 self._on_line(line[idx:])
         elif byte == 0x0D:
