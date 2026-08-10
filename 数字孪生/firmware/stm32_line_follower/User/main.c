@@ -250,7 +250,7 @@ static void ESP_TX_HandleTerminal(void)
     /* A pending clock sample remains retryable until the fixed-length
        response receives SEND OK.  Command acceptance, prompt receipt, and
        payload preparation are not delivery evidence. */
-    if (terminal_tag == CIPSEND_TX_TAG_DIAG
+    if (terminal_tag == CIPSEND_TX_TAG_CLOCK_SYNC
         && terminal_result == CTS_RESULT_OK) {
         esp_transport_consume_pending_clock_sync();
     }
@@ -508,9 +508,9 @@ static void ESP_SendQueuedFrames(uint8_t allow_telemetry)
             if (cipsend_tx_start_late_data(
                     &g_cipsend_tx, cmd, (uint16_t)strlen(cmd),
                     clock_sync_len, CIPSEND_TX_PRIORITY_CRITICAL,
-                    CIPSEND_TX_TAG_DIAG, start_tick_ms,
+                    CIPSEND_TX_TAG_CLOCK_SYNC, start_tick_ms,
                     fill_clock_sync_payload, &s_clock_sync_inflight)) {
-                hstats_tx_started(&g_health_stats, CIPSEND_TX_TAG_DIAG,
+                hstats_tx_started(&g_health_stats, CIPSEND_TX_TAG_CLOCK_SYNC,
                                   start_tick_ms);
             }
         }

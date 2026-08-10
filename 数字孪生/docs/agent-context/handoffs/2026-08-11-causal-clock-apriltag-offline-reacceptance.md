@@ -23,7 +23,13 @@ payload transmission.
 - The clock response is encoded after the prompt with a fixed 38-byte wire
   length, preserving the payload length reserved in `AT+CIPSEND`.
 - A pending clock sample is peeked before starting a transaction and consumed
-  only for `CIPSEND_TX_TAG_DIAG` with `CTS_RESULT_OK`.
+  only for the dedicated `CIPSEND_TX_TAG_CLOCK_SYNC` with `CTS_RESULT_OK`.
+- The ordinary legacy `0x7E` diagnostic frame keeps
+  `CIPSEND_TX_TAG_DIAG`; it cannot consume a clock sample.
+- The legacy `esp_transport_get_pending_clock_sync()` API still has its
+  historical encode-and-consume semantics. The current production path does
+  not call it; future causal-clock code must use `peek` and consume only from
+  the dedicated `CLOCK_SYNC` `SEND OK` terminal path.
 - `ERROR`, `CLOSED`, transaction rejection, and timeout leave the pending
   sample retryable according to the existing transport boundary.
 - A payload callback rejection is a normal failed transaction; it is not
@@ -35,11 +41,14 @@ payload transmission.
   consumed in the clock-start block (`3 passed, 1 failed`).
 - RED: temporarily restoring `timeout_abort = 1` caused the C regression to
   fail at `test_cipsend_tx.c:169`, as expected.
-- GREEN: firmware-contract, causal-clock policy, and V1 causal-sync tests:
-  `11 passed`.
+- RED: the independent-tag contract failed while clock sync reused the
+  ordinary diagnostic tag, exposing a possible false consume on a `0x7E`
+  `SEND OK`.
+- GREEN: the dedicated-tag firmware contract, causal-clock policy, and V1
+  causal-sync tests: `12 passed` across the focused groups.
 - GREEN: Host C `test_cipsend_tx`: `PASS test_cipsend_tx`.
 - GREEN: Host C `test_twin_control_protocol`: `PASS test_twin_control_protocol`.
-- Full Python regression: `826 passed, 5 skipped`.
+- Full Python regression: `827 passed, 5 skipped`.
 - Python compileall for `simulation/digital_twin` and `tools`: exit `0`.
 - `git diff --check`: no whitespace errors.
 - Keil `Target 1` rebuild: `0 Error(s), 0 Warning(s)`.
@@ -48,7 +57,7 @@ payload transmission.
 - Current AXF:
   `firmware/stm32_line_follower/Objects/Project.axf`
 - Current AXF SHA-256:
-  `9F7A433712984B72A31BC57E2D062C46AB7A3F6CB2D162CBD3DB7D005B06ECD8`
+  `02F6665C65B9027BC64B5BDC6EA4E984947A82ED31BD1DDF0E3EAC6DC7612319`
 - Keil program size: `Code=27072 RO-data=460 RW-data=168 ZI-data=4272`.
 
 ## AprilTag retained-video result
@@ -65,7 +74,10 @@ Independent file checks confirm:
 - the original evidence recorded `91` failed frames, all classified as
   `candidates_rejected`, with `4` retained failure images.
 
-The same-video offline candidate replay reported:
+The delegated same-video offline candidate replay reported the following
+measurements. No hash-matched replay `report.json` or complete persistent
+per-frame output was found, so these numbers remain observational evidence
+for this handoff rather than independently auditable acceptance artifacts:
 
 | Candidate | Detection | Max gap | p95 processing |
 | --- | ---: | ---: | ---: |
@@ -89,17 +101,20 @@ gap `<=2` frames, and p95 `<=33.33 ms`; this candidate fails that gate.
 - The changed firmware passes the focused tests, full Python regression, and
   a clean Keil rebuild.
 - The AprilTag replay used the retained 1080p video and its hash is confirmed.
-- On that replay, all observed failed detections were recorded as
-  `candidates_rejected`; the bounded candidate measurements above are
-  offline replay measurements.
+- The retained video's original failure summary records all `91` observed
+  failures as `candidates_rejected`.
+- The offline matrix contains an explicit single-variable
+  `adaptiveThreshWinSizeMax = 53` candidate; this is a screening definition,
+  not production readiness.
 
 ### INFERENCE
 
 - The late-materialized timestamp should remove the known command/prompt
   timestamp bias when the new firmware is actually running.
-- The wide adaptive threshold improves recovery on this video, but the
-  remaining gap and processing cost indicate that detector strictness alone is
-  not the complete cause. ROI/tracker lag is a plausible contributor.
+- The delegated replay reported that the wide adaptive threshold improves
+  recovery on this video, but the remaining gap and processing cost indicate
+  that detector strictness alone is not the complete cause. ROI/tracker lag is
+  a plausible contributor.
 
 ### INSUFFICIENT EVIDENCE
 
@@ -111,6 +126,9 @@ gap `<=2` frames, and p95 `<=33.33 ms`; this candidate fails that gate.
   exposed by the current production diagnostics.
 - Motion blur and camera exposure are not proven as the cause by this video
   alone.
+- The exact `adaptive_wide` detection/gap/p95 measurements lack a persistent,
+  hash-matched replay report in the workspace; they cannot support a formal
+  acceptance claim.
 - `adaptive_wide` is not production-ready and must not be flashed or used for
   a real-car conclusion without an independently reviewed next step.
 

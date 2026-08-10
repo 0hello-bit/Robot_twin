@@ -22,7 +22,7 @@ def test_clock_probe_uses_existing_protocol_and_transport_path():
     clock_block_start = main.index("/* --- Clock sync response")
     clock_block_end = main.index("/* --- Telemetry", clock_block_start)
     clock_block = main[clock_block_start:clock_block_end]
-    assert "CIPSEND_TX_TAG_DIAG" in clock_block
+    assert "CIPSEND_TX_TAG_CLOCK_SYNC" in clock_block
     assert "CIPSEND_TX_TAG_TELEMETRY" not in clock_block
 
 
@@ -55,6 +55,25 @@ def test_clock_sync_pending_is_consumed_only_after_send_ok():
     terminal_block = main[terminal_block_start:terminal_block_end]
 
     assert "esp_transport_consume_pending_clock_sync" not in clock_block
-    assert "terminal_tag == CIPSEND_TX_TAG_DIAG" in terminal_block
+    assert "terminal_tag == CIPSEND_TX_TAG_CLOCK_SYNC" in terminal_block
     assert "terminal_result == CTS_RESULT_OK" in terminal_block
     assert "esp_transport_consume_pending_clock_sync" in terminal_block
+
+
+def test_clock_sync_has_a_transaction_tag_distinct_from_legacy_diag():
+    main = (FIRMWARE / "main.c").read_text(encoding="utf-8")
+
+    clock_block_start = main.index("/* --- Clock sync response")
+    clock_block_end = main.index("/* --- Telemetry", clock_block_start)
+    clock_block = main[clock_block_start:clock_block_end]
+    terminal_block_start = main.index("static void ESP_TX_HandleTerminal")
+    terminal_block_end = main.index("/* Phase 1:", terminal_block_start)
+    terminal_block = main[terminal_block_start:terminal_block_end]
+    diag_block_start = main.index("static uint8_t ESP_SendDiagFrame")
+    diag_block_end = main.index("/* 发送队列", diag_block_start)
+    diag_block = main[diag_block_start:diag_block_end]
+
+    assert "CIPSEND_TX_TAG_CLOCK_SYNC" in clock_block
+    assert "CIPSEND_TX_TAG_DIAG" not in clock_block
+    assert "terminal_tag == CIPSEND_TX_TAG_CLOCK_SYNC" in terminal_block
+    assert "tag = CIPSEND_TX_TAG_DIAG" in diag_block

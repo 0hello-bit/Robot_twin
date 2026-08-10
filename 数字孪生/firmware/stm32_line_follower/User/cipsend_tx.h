@@ -34,6 +34,7 @@
 #define CIPSEND_TX_TAG_TELEMETRY  3U
 #define CIPSEND_TX_TAG_DIAG       4U
 #define CIPSEND_TX_TAG_IMU_DIAGNOSTIC 6U
+#define CIPSEND_TX_TAG_CLOCK_SYNC 7U
 
 /* ── 状态 ────────────────────────────────────────────────────────────── */
 #define CIPSEND_TX_STATE_IDLE          0U  /* 无事务                          */
