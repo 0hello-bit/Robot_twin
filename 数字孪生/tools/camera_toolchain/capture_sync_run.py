@@ -90,6 +90,9 @@ CAMERA_PERIOD_NS = int(round(1_000_000_000 / CAMERA_FPS))
 TELEMETRY_PERIOD_NS = 30_000_000  # firmware generation interval
 TOLERANCE_NS = max(CAMERA_PERIOD_NS, TELEMETRY_PERIOD_NS)
 CLOCK_PROBE_PERIOD_S = 0.25
+CLOCK_PREFLIGHT_EXCHANGES = 8
+CLOCK_POSTFLIGHT_EXCHANGES = 8
+CLOCK_QUIET_PROBE_TIMEOUT_S = 1.0
 STOP_CONFIRM_TIMEOUT_S = 1.0
 READER_JOIN_TIMEOUT_S = 1.0
 
@@ -417,15 +420,20 @@ class ClockExchangeCollector:
         self._records = []
         self._unmatched_replies = []
 
-    def begin_probe(self, sequence, pc_tx_ns):
+    def begin_probe(self, sequence, pc_tx_ns, phase=None):
         sequence = int(sequence)
         pc_tx_ns = int(pc_tx_ns)
         if sequence <= 0 or pc_tx_ns < 0:
             raise ValueError("clock probe sequence/timestamp must be positive")
+        if phase is not None and not str(phase):
+            raise ValueError("clock probe phase must not be empty")
         with self._lock:
             if sequence in self._pending:
                 raise ValueError("clock probe sequence is already pending")
-            self._pending[sequence] = pc_tx_ns
+            self._pending[sequence] = {
+                "pc_tx_ns": pc_tx_ns,
+                "phase": (str(phase) if phase is not None else None),
+            }
         return ClockSyncProbe(sequence).encode().encode("ascii")
 
     def cancel_probe(self, sequence):
@@ -441,20 +449,24 @@ class ClockExchangeCollector:
             raise TypeError("clock reply must be ClockSyncReply")
         pc_rx_ns = int(pc_rx_ns)
         with self._lock:
-            pc_tx_ns = self._pending.pop(reply.sequence, None)
-            if pc_tx_ns is None:
+            pending = self._pending.pop(reply.sequence, None)
+            if pending is None:
                 self._unmatched_replies.append(int(reply.sequence))
                 return False
+            pc_tx_ns = int(pending["pc_tx_ns"])
             if pc_rx_ns < pc_tx_ns:
                 self._unmatched_replies.append(int(reply.sequence))
                 return False
-            self._records.append({
+            record = {
                 "sequence": int(reply.sequence),
                 "pc_tx_ns": int(pc_tx_ns),
                 "mcu_rx_tick_ms": int(reply.mcu_rx_tick_ms),
                 "mcu_tx_tick_ms": int(reply.mcu_tx_tick_ms),
                 "pc_rx_ns": int(pc_rx_ns),
-            })
+            }
+            if pending["phase"] is not None:
+                record["phase"] = pending["phase"]
+            self._records.append(record)
             return True
 
     def records(self):
@@ -626,6 +638,8 @@ def _new_action_state():
         "reader_error": None,
         "status_events": [],
         "status_parse_errors": [],
+        "clock_preflight_ok": False,
+        "clock_postflight_ok": False,
         "cleaned_up": False,
     }
 
@@ -919,7 +933,7 @@ def _wait_for_matching_stop(status_cv, statuses, start_index, run_id,
 def cleanup_session(sock, cap, run_id, actions, *, wait_for_stop=None,
                     status_cursor=None,
                     stop_confirm_timeout_s=STOP_CONFIRM_TIMEOUT_S,
-                    raw_io=None):
+                    raw_io=None, after_stop=None):
     """统一、幂等的清理：STOP（仅当 START 已发出）→ 关 socket → 释放 camera。
 
     - 仅当 *actions*['start_sent'] 才尝试 STOP；STOP 发送失败记录在
@@ -950,6 +964,14 @@ def cleanup_session(sock, cap, run_id, actions, *, wait_for_stop=None,
                 if status is not None:
                     actions["stop_confirmed"] = True
                     actions["stop_status"] = _status_to_dict(status)
+                    if after_stop is not None:
+                        try:
+                            if after_stop() is False:
+                                actions["after_stop_error"] = (
+                                    "after_stop callback reported failure"
+                                )
+                        except BaseException as exc:  # noqa: BLE001
+                            actions["after_stop_error"] = repr(exc)
             except BaseException as exc:  # noqa: BLE001 - cleanup continues
                 actions["stop_confirm_error"] = repr(exc)
 
@@ -1054,7 +1076,7 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
         next_heartbeat = time.monotonic() + HEARTBEAT_PERIOD_S
         return True
 
-    def send_clock_probe(force=False):
+    def send_clock_probe(force=False, phase=None):
         """Send at most one outstanding Q probe on the existing TCP path."""
         nonlocal next_clock_probe, next_clock_sequence
         now = time.monotonic()
@@ -1066,7 +1088,9 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
         next_clock_sequence += 1
         pc_tx_ns = capture_pc_clock_ns()
         try:
-            command = clock_exchanges.begin_probe(sequence, pc_tx_ns)
+            command = clock_exchanges.begin_probe(
+                sequence, pc_tx_ns, phase=phase
+            )
             sock.sendall(command)
             raw_io.log_send(command)
             next_clock_probe = time.monotonic() + CLOCK_PROBE_PERIOD_S
@@ -1079,7 +1103,51 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                 "error": repr(exc),
             })
             next_clock_probe = time.monotonic() + CLOCK_PROBE_PERIOD_S
+            return False
+
+    # Q/T calibration is intentionally outside the motion window. The ESP
+    # path has one CIPSEND transaction, so active probes would measure queue
+    # contention from telemetry instead of only clock transport quality.
+    clock_sampling = {
+        "policy": "quiet_pre_start_post_stop",
+        "pre_start_requested": int(CLOCK_PREFLIGHT_EXCHANGES),
+        "post_stop_requested": int(CLOCK_POSTFLIGHT_EXCHANGES),
+        "active_run_probes": 0,
+        "pre_start_ok": False,
+        "post_stop_ok": False,
+    }
+    diagnostics["clock_sync_sampling"] = clock_sampling
+
+    def collect_quiet_clock_exchanges(count, phase):
+        """Collect sequential Q/T samples while no motion telemetry is due."""
+        target = max(0, int(count))
+        if target == 0:
             return True
+        initial_count = len(clock_exchanges.records())
+        for _ in range(target):
+            before_count = len(clock_exchanges.records())
+            if not send_clock_probe(force=True, phase=phase):
+                clock_sync_parse_errors.append({
+                    "stage": "quiet_window_send",
+                    "phase": phase,
+                    "error": "clock probe send failed",
+                })
+                return False
+            deadline = time.monotonic() + CLOCK_QUIET_PROBE_TIMEOUT_S
+            with status_cv:
+                while len(clock_exchanges.records()) <= before_count:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0.0 or reader_error:
+                        break
+                    status_cv.wait(remaining)
+            if len(clock_exchanges.records()) <= before_count:
+                clock_sync_parse_errors.append({
+                    "stage": "quiet_window_receive",
+                    "phase": phase,
+                    "error": "clock probe reply timeout",
+                })
+                return False
+        return len(clock_exchanges.records()) >= initial_count + target
 
     def on_telemetry(payload):
         d = decode_telemetry(payload)
@@ -1195,6 +1263,14 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
 
     outcome = "ok"
     try:
+        clock_sampling["pre_start_ok"] = collect_quiet_clock_exchanges(
+            CLOCK_PREFLIGHT_EXCHANGES, "pre_start_quiet"
+        )
+        actions["clock_preflight_ok"] = clock_sampling["pre_start_ok"]
+        if not clock_sampling["pre_start_ok"]:
+            actions["collect_error"] = "pre-start quiet clock exchange failed"
+            outcome = "clock_preflight_failed"
+            return telemetry, poses, actions, outcome
         # 发送 START 运行指令
         try:
             start_cmd = RunCommand("sync", run_id, "START").encode()
@@ -1209,7 +1285,6 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
         if not send_heartbeat(force=True):
             outcome = "heartbeat_failed"
             return telemetry, poses, actions, outcome
-        send_clock_probe(force=True)
 
         # 等待第一帧遥测
         t_wait = time.time()
@@ -1220,7 +1295,6 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
             if not send_heartbeat():
                 outcome = "heartbeat_failed"
                 return telemetry, poses, actions, outcome
-            send_clock_probe()
             if time.time() - t_wait > wait_timeout_s:
                 print("ERROR: 超时未收到遥测（小车未运行？）")
                 outcome = "no_telemetry_timeout"
@@ -1237,7 +1311,6 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                 if not send_heartbeat():
                     outcome = "heartbeat_failed"
                     return telemetry, poses, actions, outcome
-                send_clock_probe()
                 ok, frame = cap.read()
                 frame_record = {
                     "frame_index": camera_frame_number,
@@ -1388,13 +1461,29 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                 target_run_id, timeout_s)
 
         # 统一幂等清理：无论 outcome 是什么都恰好执行一次。
+        post_stop_result = {"ok": True}
+
+        def collect_post_stop_clock_exchanges():
+            post_stop_result["ok"] = collect_quiet_clock_exchanges(
+                CLOCK_POSTFLIGHT_EXCHANGES, "post_stop_quiet"
+            )
+            clock_sampling["post_stop_ok"] = post_stop_result["ok"]
+            actions["clock_postflight_ok"] = post_stop_result["ok"]
+            return post_stop_result["ok"]
+
         cleanup_session(
             sock, cap, run_id, actions,
             wait_for_stop=wait_for_stop,
             status_cursor=status_cursor,
             stop_confirm_timeout_s=stop_confirm_timeout_s,
             raw_io=raw_io,
+            after_stop=collect_post_stop_clock_exchanges,
         )
+        if actions["stop_confirmed"] and (
+            not post_stop_result["ok"] or actions.get("after_stop_error")
+        ):
+            if outcome == "ok":
+                outcome = "clock_postflight_failed"
         stop_reader.set()
         try:
             reader.join(timeout=READER_JOIN_TIMEOUT_S)
@@ -1466,6 +1555,9 @@ def build_sync_report(*, host, duration_s, run_id, camera_mode, actions,
             "raw_health_file": "raw_health.json",
             "raw_io_file": "raw_io.json",
             "clock_exchanges_file": "clock_exchanges.jsonl",
+            "clock_sync_sampling": dict(
+                (diagnostics or {}).get("clock_sync_sampling", {})
+            ),
             "telemetry_boundary_file": "telemetry_boundary.json",
             "formal_telemetry_count": int(
                 (diagnostics or {}).get("formal_telemetry_count", n_telemetry)

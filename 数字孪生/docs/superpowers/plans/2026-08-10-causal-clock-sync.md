@@ -255,6 +255,47 @@ Do not flash, reset, connect to, or command the physical car in this plan. After
 - [ ] No hardware command, flash, reset, or new data collection is performed.
 - [ ] Git diff contains only the plan, causal-sync code/tests, and report integration explicitly listed above.
 
+### Task 5: Remove active-run Q/T queue contamination
+
+**Evidence that motivates this task:** the real run
+`simulation/digital_twin/logs/causal_sync_real_20260810_retry/c260810143527776`
+has `mcu_tx_tick_ms - mcu_rx_tick_ms` values up to hundreds of milliseconds.
+That is firmware-side response queue time, not merely PC-side timestamp noise:
+the Q request is accepted while another single-channel CIPSEND transaction is in
+flight. The current response priority can only run after that transaction
+returns to idle. Aborting an in-flight CIPSEND on the same ESP-01S connection is
+not an acceptable offline fix because it can leave the module in prompt/data
+mode and corrupt the existing transport lifecycle.
+
+**Boundary:** collect causal clock exchanges only in quiet windows: before
+`R,...,START` and after matching `R,...,STOP` confirmation. Do not send active
+Q probes during the physical experiment. Keep all exchange records, including
+high-delay and timeout evidence; do not filter samples to pass the policy.
+
+**Files:**
+- Modify: `tools/camera_toolchain/capture_sync_run.py`
+- Test: `simulation/digital_twin/tests/test_causal_clock_capture_policy.py`
+- Modify: this plan
+
+**Acceptance:**
+- [x] The offline session test proves no Q command is sent between matching START
+  and STOP commands.
+- [x] Every recorded exchange has `pre_start_quiet` or `post_stop_quiet` phase.
+- [x] Existing P/R/H, telemetry payload, heartbeat lease, cleanup, and safety
+  behavior remain unchanged.
+- [x] The frozen real run is never rewritten; the current FAIL remains FAIL until a
+  future authorized run produces new four-timestamp evidence.
+
+**Offline verification record (2026-08-10):**
+
+- [x] The first policy test was RED against the old active-run probe behavior.
+- [x] Focused causal/cleanup suite: `70 passed`.
+- [x] Digital-twin test suite: `824 passed, 5 skipped` under Python 3.11.
+- [x] `capture_sync_run.py` compile and repository diff checks pass.
+- [x] Read-only replay of `c260810143527776` remains `FAIL`, with 44 samples,
+  RTT p95 about 89.6 ms, and uncertainty p95 about 45.3 ms.
+- [x] No hardware was connected, flashed, reset, or controlled.
+
 ## Independent Verification Record (2026-08-10)
 
 - [x] Targeted Python suite under `py -3.11`: 17 passed.

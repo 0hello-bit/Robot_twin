@@ -46,6 +46,13 @@ from v1_twin.v1_twin_schema import (
 from v1_twin.v1_twin_sync import ClockSync
 
 
+@pytest.fixture(autouse=True)
+def disable_quiet_clock_windows_for_legacy_session_fakes(monkeypatch):
+    """Legacy cleanup fakes model P/R/H, not the new Q/T exchange path."""
+    monkeypatch.setattr(capture_sync_run, "CLOCK_PREFLIGHT_EXCHANGES", 0)
+    monkeypatch.setattr(capture_sync_run, "CLOCK_POSTFLIGHT_EXCHANGES", 0)
+
+
 def test_capture_resolves_unspecified_camera_from_saved_config(monkeypatch):
     monkeypatch.setattr(
         capture_sync_run.camera_common,
