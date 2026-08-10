@@ -165,6 +165,7 @@ static uint8_t s_control_cycle_ready;
 /* Keep the boot-time IMU identity observable until an existing client accepts
    one diagnostic frame. */
 static uint8_t s_imu_diag_pending = 1U;
+static TwinControlClockSync s_clock_sync_inflight;
 
 /* 真实单调时间（mono_time.h / mono_time_core.h）。 */
 static uint32_t s_last_telemetry_ms = 0U;
@@ -181,6 +182,21 @@ static uint8_t uart_tx_sink(void *ctx, uint8_t byte)
     if (!uart_ring_push(&g_uart_tx_ring, byte)) return 0U;
     USART_ITConfig(USART1, USART_IT_TXE, ENABLE);
     return 1U;
+}
+
+static uint8_t fill_clock_sync_payload(uint8_t *data, uint16_t *data_len,
+                                       uint16_t capacity, uint32_t now_ms,
+                                       void *ctx)
+{
+    TwinControlClockSync *clock_sync = (TwinControlClockSync *)ctx;
+    uint16_t reserved_len;
+    uint16_t encoded_len;
+    if (data == 0 || data_len == 0 || clock_sync == 0) return 0U;
+    reserved_len = *data_len;
+    if (reserved_len != TWIN_CONTROL_CLOCK_SYNC_FRAME_LEN) return 0U;
+    encoded_len = twin_control_encode_clock_sync_fixed(
+        clock_sync, now_ms, (char *)data, capacity);
+    return (encoded_len == reserved_len) ? 1U : 0U;
 }
 
 static void clear_telemetry_batch_cb(void *ctx)
@@ -229,6 +245,14 @@ static void ESP_TX_HandleTerminal(void)
     } else if (terminal_tag == CIPSEND_TX_TAG_TELEMETRY
                && terminal_result != CTS_RESULT_CLOSED) {
         telemetry_delivery_retain_failure(&s_tele_delivery);
+    }
+
+    /* A pending clock sample remains retryable until the fixed-length
+       response receives SEND OK.  Command acceptance, prompt receipt, and
+       payload preparation are not delivery evidence. */
+    if (terminal_tag == CIPSEND_TX_TAG_DIAG
+        && terminal_result == CTS_RESULT_OK) {
+        esp_transport_consume_pending_clock_sync();
     }
 
     if (imu_diagnostic_delivery_confirmed(terminal_tag, terminal_result)) {
@@ -477,20 +501,17 @@ static void ESP_SendQueuedFrames(uint8_t allow_telemetry)
 
     /* --- Clock sync response: after safety frames, before telemetry --- */
     if (esp_transport_has_pending_clock_sync()) {
-        char clock_sync_frame[TX_FRAME_QUEUE_LINE_MAX + 1U];
-        uint32_t mcu_tx_tick_ms = mono_now_ms();
-        uint16_t clock_sync_len = esp_transport_get_pending_clock_sync(
-            clock_sync_frame, sizeof(clock_sync_frame), mcu_tx_tick_ms);
-        if (clock_sync_len > 0U) {
+        uint32_t start_tick_ms = mono_now_ms();
+        if (esp_transport_peek_pending_clock_sync(&s_clock_sync_inflight)) {
+            uint16_t clock_sync_len = TWIN_CONTROL_CLOCK_SYNC_FRAME_LEN;
             build_cipsend_cmd(cmd, clock_sync_len);
-            if (cipsend_tx_start(&g_cipsend_tx, cmd, (uint16_t)strlen(cmd),
-                                 (const uint8_t *)clock_sync_frame,
-                                 clock_sync_len,
-                                 CIPSEND_TX_PRIORITY_CRITICAL,
-                                 CIPSEND_TX_TAG_DIAG,
-                                 mcu_tx_tick_ms)) {
+            if (cipsend_tx_start_late_data(
+                    &g_cipsend_tx, cmd, (uint16_t)strlen(cmd),
+                    clock_sync_len, CIPSEND_TX_PRIORITY_CRITICAL,
+                    CIPSEND_TX_TAG_DIAG, start_tick_ms,
+                    fill_clock_sync_payload, &s_clock_sync_inflight)) {
                 hstats_tx_started(&g_health_stats, CIPSEND_TX_TAG_DIAG,
-                                  mcu_tx_tick_ms);
+                                  start_tick_ms);
             }
         }
         return;

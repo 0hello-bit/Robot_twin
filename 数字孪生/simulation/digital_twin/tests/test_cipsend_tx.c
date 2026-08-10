@@ -31,6 +31,8 @@
 static char   g_tx_out[512];
 static uint16_t g_tx_out_len;
 static uint8_t  g_sink_accept = 1U;
+static uint8_t  g_data_ready_calls;
+static uint32_t g_data_ready_tick;
 
 static uint8_t test_sink(void *ctx, uint8_t byte)
 {
@@ -46,6 +48,33 @@ static uint8_t test_sink(void *ctx, uint8_t byte)
 static void feed_str(CipsendTx *tx, const char *s)
 {
     for (; *s; ++s) cipsend_tx_feed_byte(tx, (uint8_t)*s);
+}
+
+static uint8_t fill_late_payload(uint8_t *data, uint16_t *data_len,
+                                 uint16_t capacity, uint32_t now_ms,
+                                 void *ctx)
+{
+    static const uint8_t payload[] = "late";
+    (void)ctx;
+    g_data_ready_calls++;
+    g_data_ready_tick = now_ms;
+    if (capacity < (uint16_t)(sizeof(payload) - 1U)) return 0U;
+    memcpy(data, payload, sizeof(payload) - 1U);
+    *data_len = (uint16_t)(sizeof(payload) - 1U);
+    return 1U;
+}
+
+static uint8_t reject_late_payload(uint8_t *data, uint16_t *data_len,
+                                   uint16_t capacity, uint32_t now_ms,
+                                   void *ctx)
+{
+    (void)data;
+    (void)data_len;
+    (void)capacity;
+    (void)now_ms;
+    (void)ctx;
+    g_data_ready_calls++;
+    return 0U;
 }
 
 /* ===================================================================
@@ -90,6 +119,54 @@ static int test_full_success(void)
     /* reset allows next transaction */
     cipsend_tx_reset(&tx);
     CHECK(tx.state == CIPSEND_TX_STATE_IDLE);
+    return 0;
+}
+
+static int test_late_payload_callback_runs_after_prompt(void)
+{
+    CipsendTx tx;
+    const char cmd[] = "AT+CIPSEND=0,4\r\n";
+
+    cipsend_tx_init(&tx);
+    g_tx_out_len = 0U;
+    g_data_ready_calls = 0U;
+    g_data_ready_tick = 0U;
+    CHECK(cipsend_tx_start_late_data(
+        &tx, cmd, (uint16_t)strlen(cmd), 4U,
+        CIPSEND_TX_PRIORITY_CRITICAL, CIPSEND_TX_TAG_DIAG, 1000U,
+        fill_late_payload, NULL));
+
+    cipsend_tx_tick(&tx, 1000U, test_sink, NULL);
+    CHECK(g_data_ready_calls == 0U);
+    feed_str(&tx, ">");
+    cipsend_tx_tick(&tx, 1042U, test_sink, NULL);
+
+    CHECK(g_data_ready_calls == 1U);
+    CHECK(g_data_ready_tick == 1042U);
+    CHECK(tx.state == CIPSEND_TX_STATE_WAIT_SENDOK);
+    CHECK(g_tx_out_len == (uint16_t)(strlen(cmd) + 4U));
+    CHECK(memcmp(g_tx_out + strlen(cmd), "late", 4U) == 0);
+    return 0;
+}
+
+static int test_late_payload_callback_failure_is_not_timeout(void)
+{
+    CipsendTx tx;
+    const char cmd[] = "AT+CIPSEND=0,4\r\n";
+
+    cipsend_tx_init(&tx);
+    g_data_ready_calls = 0U;
+    CHECK(cipsend_tx_start_late_data(
+        &tx, cmd, (uint16_t)strlen(cmd), 4U,
+        CIPSEND_TX_PRIORITY_CRITICAL, CIPSEND_TX_TAG_DIAG, 1000U,
+        reject_late_payload, NULL));
+    cipsend_tx_tick(&tx, 1000U, test_sink, NULL);
+    feed_str(&tx, ">");
+    cipsend_tx_tick(&tx, 1001U, test_sink, NULL);
+
+    CHECK(g_data_ready_calls == 1U);
+    CHECK(cipsend_tx_is_terminal(&tx));
+    CHECK(cipsend_tx_timeout_aborted(&tx) == 0U);
     return 0;
 }
 
@@ -513,6 +590,8 @@ static int test_init_resets(void)
 static int run_all_tests(void)
 {
     if (test_full_success()) return 1;
+    if (test_late_payload_callback_runs_after_prompt()) return 1;
+    if (test_late_payload_callback_failure_is_not_timeout()) return 1;
     if (test_fragmented_prompt()) return 1;
     if (test_fragmented_send_ok()) return 1;
     if (test_error_response()) return 1;

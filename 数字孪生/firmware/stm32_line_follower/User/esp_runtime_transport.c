@@ -122,6 +122,19 @@ uint8_t esp_transport_has_pending_clock_sync(void)
     return s_has_pending_clock_sync;
 }
 
+uint8_t esp_transport_peek_pending_clock_sync(TwinControlClockSync *output)
+{
+    if (!s_has_pending_clock_sync || output == 0) return 0U;
+    *output = s_pending_clock_sync;
+    return 1U;
+}
+
+void esp_transport_consume_pending_clock_sync(void)
+{
+    memset(&s_pending_clock_sync, 0, sizeof(s_pending_clock_sync));
+    s_has_pending_clock_sync = 0U;
+}
+
 uint8_t esp_transport_can_queue_status(void)
 {
     return (s_pending_status_len == 0U) ? 1U : 0U;
@@ -168,8 +181,7 @@ uint16_t esp_transport_get_pending_clock_sync(char *output,
                                             mcu_tx_tick_ms,
                                             output, output_size);
     if (length > 0U) {
-        memset(&s_pending_clock_sync, 0, sizeof(s_pending_clock_sync));
-        s_has_pending_clock_sync = 0U;
+        esp_transport_consume_pending_clock_sync();
     }
     return length;
 }

@@ -26,6 +26,9 @@ void cipsend_tx_init(CipsendTx *tx)
     tx->data_pos = 0U;
     tx->deadline_ms = 0U;
     tx->deadline_stale = 0U;
+    tx->data_ready_fn = 0;
+    tx->data_ready_ctx = 0;
+    tx->data_ready_called = 1U;
     cts_init(&tx->cts);
 }
 
@@ -57,6 +60,41 @@ uint8_t cipsend_tx_start(CipsendTx *tx,
     /* 初始截止锚定在 now_ms：即使 sink 一直拒绝（TX ring 满），事务也会
        在 SEND_CMD 超时失败，而不是永远卡死（now_ms 是真实输入，用于 C4100）。 */
     tx->deadline_ms = now_ms + CIPSEND_TX_PROMPT_TIMEOUT_MS;
+
+    cts_init(&tx->cts);
+    cts_start(&tx->cts);
+    tx->data_ready_fn = 0;
+    tx->data_ready_ctx = 0;
+    tx->data_ready_called = 1U;
+    return 1U;
+}
+
+uint8_t cipsend_tx_start_late_data(
+    CipsendTx *tx, const char *cmd, uint16_t cmd_len, uint16_t data_len,
+    uint8_t priority, uint8_t tag, uint32_t now_ms,
+    CipsendTxDataReadyFn data_ready_fn, void *data_ready_ctx)
+{
+    uint16_t i;
+    if (tx->state != CIPSEND_TX_STATE_IDLE || data_ready_fn == 0) return 0U;
+    if (cmd_len > CIPSEND_TX_MAX_CMD || data_len > CIPSEND_TX_MAX_DATA) {
+        return 0U;
+    }
+
+    for (i = 0U; i < cmd_len; i++) tx->cmd[i] = cmd[i];
+    tx->cmd_len = cmd_len;
+    tx->cmd_pos = 0U;
+    tx->data_len = data_len;
+    tx->data_pos = 0U;
+    tx->priority = priority;
+    tx->tag = tag;
+    tx->result = CTS_RESULT_NONE;
+    tx->timeout_abort = 0U;
+    tx->deadline_stale = 0U;
+    tx->state = CIPSEND_TX_STATE_SEND_CMD;
+    tx->deadline_ms = now_ms + CIPSEND_TX_PROMPT_TIMEOUT_MS;
+    tx->data_ready_fn = data_ready_fn;
+    tx->data_ready_ctx = data_ready_ctx;
+    tx->data_ready_called = 0U;
 
     cts_init(&tx->cts);
     cts_start(&tx->cts);
@@ -168,6 +206,23 @@ void cipsend_tx_tick(CipsendTx *tx, uint32_t now_ms,
         if (tx->deadline_stale) {
             tx->deadline_ms = now_ms + CIPSEND_TX_PROMPT_TIMEOUT_MS;
             tx->deadline_stale = 0U;
+        }
+        if (!tx->data_ready_called) {
+            uint16_t reserved_len = tx->data_len;
+            uint16_t filled_len = reserved_len;
+            tx->data_ready_called = 1U;
+            if (tx->data_ready_fn == 0
+                || !tx->data_ready_fn(tx->data, &filled_len,
+                                      CIPSEND_TX_MAX_DATA, now_ms,
+                                      tx->data_ready_ctx)
+                || filled_len != reserved_len) {
+                tx->state = CIPSEND_TX_STATE_FAILED;
+                tx->result = CTS_RESULT_NONE;
+                /* The callback rejected payload materialization; no prompt
+                   or SEND OK timeout occurred. */
+                tx->timeout_abort = 0U;
+                return;
+            }
         }
         /* 卡在 SEND_DATA（sink 持续拒绝）同样受截止约束。 */
         if (TX_DEADLINE_REACHED(now_ms, tx->deadline_ms)) {

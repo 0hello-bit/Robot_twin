@@ -52,6 +52,10 @@
  * 固件实现为压入 UART TX ring（非阻塞）；Host 测试实现为记录。 */
 typedef uint8_t (*CipsendTxByteSink)(void *ctx, uint8_t byte);
 
+typedef uint8_t (*CipsendTxDataReadyFn)(uint8_t *data, uint16_t *data_len,
+                                        uint16_t capacity, uint32_t now_ms,
+                                        void *ctx);
+
 typedef struct {
     char     cmd[CIPSEND_TX_MAX_CMD];   /* AT+CIPSEND=id,len\r\n             */
     uint16_t cmd_len;
@@ -67,6 +71,9 @@ typedef struct {
     uint8_t  deadline_stale;            /* 1 = 进入新阶段后首次 tick 需刷新   */
     CipsendTransaction cts;             /* '>' / SEND OK / ERROR / CLOSED    */
     uint32_t deadline_ms;               /* 当前阶段绝对截止（mono ms）       */
+    CipsendTxDataReadyFn data_ready_fn;
+    void    *data_ready_ctx;
+    uint8_t  data_ready_called;
 } CipsendTx;
 
 /* 初始化（置 IDLE）。开机调用一次。 */
@@ -81,6 +88,11 @@ uint8_t cipsend_tx_start(CipsendTx *tx,
                          const uint8_t *data, uint16_t data_len,
                          uint8_t priority, uint8_t tag,
                          uint32_t now_ms);
+
+uint8_t cipsend_tx_start_late_data(
+    CipsendTx *tx, const char *cmd, uint16_t cmd_len, uint16_t data_len,
+    uint8_t priority, uint8_t tag, uint32_t now_ms,
+    CipsendTxDataReadyFn data_ready_fn, void *data_ready_ctx);
 
 /* 是否有事务在推进（非 IDLE 且非终态）。 */
 uint8_t cipsend_tx_busy(const CipsendTx *tx);

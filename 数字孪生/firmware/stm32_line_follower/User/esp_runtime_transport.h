@@ -38,6 +38,14 @@ uint8_t esp_transport_has_pending_status(void);
 /* Returns non-zero if a Q request has produced a pending T response. */
 uint8_t esp_transport_has_pending_clock_sync(void);
 
+/* Copy the pending Q sample without consuming it.  The caller may use the
+ * copy to prepare a late-materialized CIPSEND payload. */
+uint8_t esp_transport_peek_pending_clock_sync(TwinControlClockSync *output);
+
+/* Consume the pending Q sample only after its CIPSEND transaction has
+ * actually been accepted by the TX state machine. */
+void esp_transport_consume_pending_clock_sync(void);
+
 /* Retrieve and clear the pending ACK text (null-terminated ASCII, with \n).
    Returns 0 if no pending ACK. */
 uint16_t esp_transport_get_pending_ack(char *output, uint16_t output_size);

@@ -122,6 +122,24 @@ static int test_clock_sync_response_encodes_both_mcu_ticks(void)
     return 0;
 }
 
+static int test_clock_sync_fixed_response_has_reserved_wire_length(void)
+{
+    TwinControlClockSync clock_sync;
+    char output[96];
+    uint16_t length;
+
+    memset(&clock_sync, 0, sizeof(clock_sync));
+    clock_sync.has_reply = 1U;
+    clock_sync.sequence = 7U;
+    clock_sync.mcu_rx_tick_ms = 1234U;
+    length = twin_control_encode_clock_sync_fixed(
+        &clock_sync, 1235U, output, sizeof(output));
+    CHECK(length == TWIN_CONTROL_CLOCK_SYNC_FRAME_LEN);
+    CHECK(strcmp(output,
+                 "T,0000000007,0000001234,0000001235,7E\n") == 0);
+    return 0;
+}
+
 static int active_is_baseline(const TwinControlParams *active)
 {
     return active->kp == k_baseline.kp && active->ki == k_baseline.ki &&
@@ -1892,6 +1910,7 @@ static int run_all_tests(void)
     if (test_clock_sync_probe_bad_checksum_is_ignored()) return 1;
     if (test_clock_sync_probe_zero_sequence_is_ignored()) return 1;
     if (test_clock_sync_response_encodes_both_mcu_ticks()) return 1;
+    if (test_clock_sync_fixed_response_has_reserved_wire_length()) return 1;
     /* FIFO tests replace the old overwrite test */
     /* --- end Task 2B --- */
     /* --- Health baseline heartbeat (Task 3) --- */
@@ -1936,6 +1955,8 @@ int main(int argc, char **argv)
         result = test_clock_sync_probe_zero_sequence_is_ignored();
         if (result) return result;
         result = test_clock_sync_response_encodes_both_mcu_ticks();
+        if (result) return result;
+        result = test_clock_sync_fixed_response_has_reserved_wire_length();
     }
     else if (strcmp(selector, "killer") == 0) {
         result = test_killer_default_not_motion_allowed();

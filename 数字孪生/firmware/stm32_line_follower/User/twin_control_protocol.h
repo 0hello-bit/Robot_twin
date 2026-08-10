@@ -9,6 +9,7 @@
 #define TWIN_CONTROL_STATE_MAX 16U
 #define TWIN_CONTROL_REASON_MAX 16U
 #define TWIN_CONTROL_LINE_MAX 96U
+#define TWIN_CONTROL_CLOCK_SYNC_FRAME_LEN 38U
 
 /* Task 2B: maximum consecutive line-loss duration (ms) before hard stop.
    This is an initial conservative value for the Task 2B test bench;
@@ -89,6 +90,9 @@ uint16_t twin_control_encode_clock_sync(const TwinControlClockSync *clock_sync,
                                         uint32_t mcu_tx_tick_ms,
                                         char *output,
                                         uint16_t output_size);
+uint16_t twin_control_encode_clock_sync_fixed(
+    const TwinControlClockSync *clock_sync, uint32_t mcu_tx_tick_ms,
+    char *output, uint16_t output_size);
 
 /* --- Task 2B safety-hardening API --- */
 

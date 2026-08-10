@@ -14,7 +14,8 @@ def test_clock_probe_uses_existing_protocol_and_transport_path():
 
     assert 'strcmp(fields[0], "Q")' in protocol
     assert "twin_control_receive_byte_at" in transport
-    assert "esp_transport_get_pending_clock_sync" in main
+    assert "esp_transport_peek_pending_clock_sync" in main
+    assert "esp_transport_consume_pending_clock_sync" in main
     assert "CIPSEND_TX_TAG_TELEMETRY" in main
     assert "twin_control_encode_clock_sync" in protocol
 
@@ -30,3 +31,30 @@ def test_clock_response_does_not_change_existing_telemetry_frame_size():
 
     assert "uint8_t len  = 26;" in main
     assert "TELEMETRY_BATCH_FRAME_SIZE" in main
+
+
+def test_clock_response_timestamp_is_filled_at_payload_ready_boundary():
+    tx_header = (FIRMWARE / "cipsend_tx.h").read_text(encoding="utf-8")
+    tx_source = (FIRMWARE / "cipsend_tx.c").read_text(encoding="utf-8")
+    main = (FIRMWARE / "main.c").read_text(encoding="utf-8")
+
+    assert "cipsend_tx_start_late_data" in tx_header
+    assert "data_ready" in tx_source
+    assert "cipsend_tx_start_late_data" in main
+    assert "twin_control_encode_clock_sync_fixed" in main
+
+
+def test_clock_sync_pending_is_consumed_only_after_send_ok():
+    main = (FIRMWARE / "main.c").read_text(encoding="utf-8")
+
+    clock_block_start = main.index("/* --- Clock sync response")
+    clock_block_end = main.index("/* --- Telemetry", clock_block_start)
+    clock_block = main[clock_block_start:clock_block_end]
+    terminal_block_start = main.index("static void ESP_TX_HandleTerminal")
+    terminal_block_end = main.index("/* Phase 1:", terminal_block_start)
+    terminal_block = main[terminal_block_start:terminal_block_end]
+
+    assert "esp_transport_consume_pending_clock_sync" not in clock_block
+    assert "terminal_tag == CIPSEND_TX_TAG_DIAG" in terminal_block
+    assert "terminal_result == CTS_RESULT_OK" in terminal_block
+    assert "esp_transport_consume_pending_clock_sync" in terminal_block

@@ -151,6 +151,18 @@ static uint8_t parse_u32(const char *text, uint32_t *value)
     return 1U;
 }
 
+static uint8_t parse_clock_sync_u32(const char *text, uint32_t *value)
+{
+    char *end;
+    unsigned long parsed;
+    if (!is_decimal_text(text, 0U)) return 0U;
+    errno = 0;
+    parsed = strtoul(text, &end, 10);
+    if (*end != '\0' || errno == ERANGE || parsed > 0xFFFFFFFFUL) return 0U;
+    *value = (uint32_t)parsed;
+    return 1U;
+}
+
 static uint8_t parse_speed(const char *text, int16_t *value)
 {
     char *end;
@@ -372,7 +384,8 @@ static uint8_t parse_clock_sync(char *line, uint32_t now_ms,
     char *fields[2];
     uint32_t sequence;
     if (clock_sync == 0 || !verify_frame(line, fields, 2U) ||
-        strcmp(fields[0], "Q") != 0 || !parse_u32(fields[1], &sequence)) {
+        strcmp(fields[0], "Q") != 0 ||
+        !parse_clock_sync_u32(fields[1], &sequence) || sequence == 0U) {
         return 0U;
     }
     clock_sync->has_reply = 1U;
@@ -752,6 +765,38 @@ uint16_t twin_control_encode_clock_sync(const TwinControlClockSync *clock_sync,
     if (written < 0 || written >= (int)sizeof(body)) return 0U;
     length = (uint16_t)written;
     if ((uint32_t)length + 5U > output_size) return 0U;
+    value = checksum(body, length);
+    memcpy(output, body, length);
+    output[length++] = ',';
+    output[length++] = g_hex[(value >> 4) & 0x0FU];
+    output[length++] = g_hex[value & 0x0FU];
+    output[length++] = '\n';
+    output[length] = '\0';
+    return length;
+}
+
+uint16_t twin_control_encode_clock_sync_fixed(
+    const TwinControlClockSync *clock_sync, uint32_t mcu_tx_tick_ms,
+    char *output, uint16_t output_size)
+{
+    char body[TWIN_CONTROL_CLOCK_SYNC_FRAME_LEN];
+    int written;
+    uint16_t length;
+    uint8_t value;
+
+    if (clock_sync == 0 || output == 0 || !clock_sync->has_reply ||
+        clock_sync->sequence == 0U || output_size <
+        (uint16_t)(TWIN_CONTROL_CLOCK_SYNC_FRAME_LEN + 1U)) {
+        return 0U;
+    }
+    written = sprintf(body, "T,%010lu,%010lu,%010lu",
+                      (unsigned long)clock_sync->sequence,
+                      (unsigned long)clock_sync->mcu_rx_tick_ms,
+                      (unsigned long)mcu_tx_tick_ms);
+    if (written != (int)(TWIN_CONTROL_CLOCK_SYNC_FRAME_LEN - 4U)) {
+        return 0U;
+    }
+    length = (uint16_t)written;
     value = checksum(body, length);
     memcpy(output, body, length);
     output[length++] = ',';
