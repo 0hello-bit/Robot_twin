@@ -89,6 +89,22 @@ def test_track_returns_none_on_blank():
     assert tracker.track(canvas) is None
 
 
+def test_tracker_accepts_injected_detector_parameters():
+    parameters = cv2.aruco.DetectorParameters()
+    parameters.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+
+    tracker = PoseTracker(
+        _identity_calib(),
+        HomographyTransform(np.eye(3)),
+        detector_parameters=parameters,
+    )
+
+    assert (
+        tracker._detector.getDetectorParameters().cornerRefinementMethod
+        == cv2.aruco.CORNER_REFINE_SUBPIX
+    )
+
+
 def test_track_with_diagnostics_reports_scale_and_tag_size():
     canvas = _place_tag(center=(260, 210))
     tracker = PoseTracker(
@@ -161,6 +177,26 @@ def test_tracker_reuses_last_tag_region_before_full_frame_fallback():
     assert second_diagnostics["search_mode"] == "roi"
     assert second_diagnostics["roi_bounds"] is not None
     assert second_diagnostics["full_frame_fallback"] is False
+
+
+def test_fast_recovery_policy_reports_bounded_roi_scale():
+    tracker = PoseTracker(
+        _identity_calib(),
+        HomographyTransform(np.eye(3)),
+        recovery_policy="fast_recovery",
+    )
+
+    first_pose, _ = tracker.track_with_diagnostics(
+        _place_tag(center=(260, 210)), t_pc_ns=1000,
+    )
+    second_pose, diagnostics = tracker.track_with_diagnostics(
+        _place_tag(center=(275, 215)), t_pc_ns=2000,
+    )
+
+    assert first_pose is not None
+    assert second_pose is not None
+    assert diagnostics["recovery_policy"] == "fast_recovery"
+    assert diagnostics["attempted_scales"] == [1.0]
 
 
 def test_tracker_falls_back_to_full_frame_when_tag_leaves_roi():

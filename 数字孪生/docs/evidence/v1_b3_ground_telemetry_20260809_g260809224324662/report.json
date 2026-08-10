@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "type": "V1B3GroundTelemetryOfflineAnalysis",
+  "analysis_source": "REAL_GROUND_SHAKEDOWN_ARTIFACTS",
+  "run_id": "g260809224324662",
+  "run_kind": "ground",
+  "requested_duration_s": 3.0,
+  "source_artifacts": {
+    "shakedown_report": "simulation/digital_twin/logs/v1_ground_shakedown_260809224324662/shakedown_report.json",
+    "raw_io": "simulation/digital_twin/logs/v1_ground_shakedown_260809224324662/raw_io.json",
+    "camera_ffmpeg_log": "simulation/digital_twin/logs/v1_ground_shakedown_260809224324662/camera_ffmpeg.log",
+    "camera_video": "simulation/digital_twin/logs/v1_ground_shakedown_260809224324662/camera.mkv"
+  },
+  "control_lifecycle": {
+    "shakedown_verdict": "SHAKEDOWN_PASS",
+    "control_verdict": "PASS",
+    "firmware_build_id": 3,
+    "firmware_schema_version": 1,
+    "parameter_ack_count": 5,
+    "parameter_ack_outcomes": [
+      "APPLIED",
+      "APPLIED",
+      "APPLIED",
+      "APPLIED",
+      "APPLIED"
+    ],
+    "start_confirmed": true,
+    "running_state_observed": true,
+    "stop_confirmed": true,
+    "stopped_state_observed": true,
+    "rollback_requested": true,
+    "quiescence_proven": true,
+    "primary_failure": null,
+    "parse_errors": [],
+    "protocol_anomalies": [],
+    "cleanup_errors": {}
+  },
+  "transport_and_telemetry": {
+    "decoded_telemetry_frames": 89,
+    "raw_rx_events": 37,
+    "raw_rx_bytes": 3623,
+    "raw_tx_events": 20,
+    "raw_tx_bytes": 781,
+    "latest_health_counters": {
+      "telemetry_tx_failed": 0,
+      "cipsend_error": 0,
+      "uart_ore_events": 0,
+      "uart_rx_overflow": 0,
+      "uart_tx_overflow": 0,
+      "health_dropped": 828
+    },
+    "interpretation": "Transport and decoded telemetry delivery are verified for this bounded run; health_dropped is retained as a diagnostic counter and is not treated as a motion or performance result."
+  },
+  "camera": {
+    "device": "EMEET SmartCam C960",
+    "source_codec": "MJPG",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30.0,
+    "container_codec_tag": "[0][0][0][0]",
+    "container_codec_tag_interpretation": "CONTAINER_UNSPECIFIED",
+    "counted_video_frames": 137,
+    "camera_verdict": "PASS"
+  },
+  "imu": {
+    "init_status_values": [0],
+    "validity_values": [15, 31],
+    "init_status_verdict": "VERIFIED",
+    "validity_verdict": "FAIL",
+    "continuous_full_validity": false,
+    "interpretation": "MPU6050 initialization was observed as successful in this run, but the full validity mask was not continuous."
+  },
+  "motion_evidence": {
+    "sampled_video_frame_change": "VERIFIED_VISUAL_ONLY",
+    "observation": "Three sampled frames from the retained video show a changed image position of the vehicle on the track.",
+    "measured_wheel_speed": false,
+    "measured_displacement": false,
+    "physical_motion_claim": "INFERENCE",
+    "limitation": "The run has no encoder or independent wheel-speed instrument; m1..m4 remain control-command telemetry."
+  },
+  "evidence_boundary": {
+    "VERIFIED": [
+      "The bounded control lifecycle completed with matching START/RUNNING and STOP/STOPPED states.",
+      "Five parameter updates were acknowledged as APPLIED.",
+      "The source camera evidence is 1920x1080 at 30 fps with MJPG input evidence.",
+      "89 decoded telemetry frames and the recorded raw I/O counts are present.",
+      "MPU6050 init_status=0 was present in all known telemetry records.",
+      "The retained video contains sampled visual frame changes consistent with vehicle movement."
+    ],
+    "INFERENCE": [
+      "The vehicle physically moved during the ground run, supported by the sampled fixed-view video but not measured by an encoder or tachometer."
+    ],
+    "INSUFFICIENT_EVIDENCE": [
+      "No measured wheel speed, RPM, or metric displacement exists.",
+      "This shakedown does not prove AprilTag continuous observation, B3 synchronization, 1080p ground homography, or an A/B algorithm improvement.",
+      "This shakedown result is not a B3 completion result."
+    ]
+  },
+  "b3_completion_claim": "INSUFFICIENT_EVIDENCE"
+}

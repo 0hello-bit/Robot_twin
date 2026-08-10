@@ -447,6 +447,145 @@ def test_capture_preserves_current_imu_telemetry_fields(tracker):
     assert telemetry[0].imu_init_status_known is True
 
 
+def test_capture_writes_each_frame_and_releases_video_writer(tracker):
+    class ImageCamera(FakeCamera):
+        def read(self):
+            self.read_calls += 1
+            return True, np.full((1080, 1920, 3), 127, dtype=np.uint8)
+
+    class RecordingVideoWriter:
+        def __init__(self):
+            self.frames = []
+            self.release_calls = 0
+
+        def write(self, frame):
+            self.frames.append(tuple(frame.shape))
+
+        def release(self):
+            self.release_calls += 1
+
+    writer = RecordingVideoWriter()
+    frame_index = []
+    video_evidence = {}
+    _telemetry, _poses, _actions, outcome = (
+        capture_sync_run.run_sync_capture_session(
+            FakeSocket(recv_data=_encode_telemetry_frame(tick_ms=100)),
+            ImageCamera(),
+            tracker,
+            "run-video-writer",
+            0.01,
+            0.5,
+            frame_index=frame_index,
+            video_writer=writer,
+            video_evidence=video_evidence,
+            expected_frame_size=(1920, 1080),
+        )
+    )
+
+    assert outcome == "ok"
+    assert len(writer.frames) == len(frame_index)
+    assert all(shape == (1080, 1920, 3) for shape in writer.frames)
+    assert writer.release_calls == 1
+    assert video_evidence["frames_written"] == len(frame_index)
+    assert video_evidence["write_errors"] == []
+    assert video_evidence["released"] is True
+
+
+def test_capture_video_writer_failure_stops_and_releases_everything(tracker):
+    class ImageCamera(FakeCamera):
+        def read(self):
+            self.read_calls += 1
+            return True, np.full((1080, 1920, 3), 127, dtype=np.uint8)
+
+    class FailingVideoWriter:
+        def __init__(self):
+            self.release_calls = 0
+
+        def write(self, _frame):
+            raise OSError("video disk full")
+
+        def release(self):
+            self.release_calls += 1
+
+    writer = FailingVideoWriter()
+    video_evidence = {}
+    sock = FakeSocket(recv_data=_encode_telemetry_frame(tick_ms=100))
+    cap = ImageCamera()
+    _telemetry, _poses, actions, outcome = (
+        capture_sync_run.run_sync_capture_session(
+            sock,
+            cap,
+            tracker,
+            "run-vwf",
+            0.01,
+            0.5,
+            video_writer=writer,
+            video_evidence=video_evidence,
+            expected_frame_size=(1920, 1080),
+        )
+    )
+
+    assert outcome == "video_write_failed"
+    assert video_evidence["frames_written"] == 0
+    assert len(video_evidence["write_errors"]) == 1
+    assert writer.release_calls == 1
+    assert video_evidence["released"] is True
+    assert actions["start_sent"] is True
+    assert actions["stop_sent"] is True
+    assert actions["socket_closed"] is True
+    assert actions["camera_released"] is True
+
+
+def test_open_capture_video_writer_uses_validated_mjpg_mode(tmp_path, monkeypatch):
+    calls = []
+
+    class OpenWriter:
+        def isOpened(self):
+            return True
+
+        def release(self):
+            pass
+
+    def fake_video_writer(path, fourcc, fps, size, is_color=True):
+        calls.append((path, fourcc, fps, size, is_color))
+        return OpenWriter()
+
+    monkeypatch.setattr(capture_sync_run.cv2, "VideoWriter", fake_video_writer)
+    path = tmp_path / "camera.avi"
+    writer = capture_sync_run.open_capture_video_writer(
+        path,
+        {"width": 1920, "height": 1080, "fps": 30.0, "fourcc": "MJPG"},
+    )
+
+    assert isinstance(writer, OpenWriter)
+    assert calls == [
+        (str(path), capture_sync_run.cv2.VideoWriter_fourcc(*"MJPG"),
+         30.0, (1920, 1080), True)
+    ]
+
+
+def test_open_capture_video_writer_fails_closed_when_backend_cannot_open(
+        tmp_path, monkeypatch):
+    class ClosedWriter:
+        def isOpened(self):
+            return False
+
+        def release(self):
+            pass
+
+    monkeypatch.setattr(
+        capture_sync_run.cv2,
+        "VideoWriter",
+        lambda *_args, **_kwargs: ClosedWriter(),
+    )
+
+    with pytest.raises(RuntimeError, match="unable to open capture video"):
+        capture_sync_run.open_capture_video_writer(
+            tmp_path / "camera.avi",
+            {"width": 1920, "height": 1080, "fps": 30.0, "fourcc": "MJPG"},
+        )
+
+
 def test_capture_waits_for_reader_to_quiesce_before_return(tracker):
     telemetry_frame = _encode_telemetry_frame(tick_ms=100)
 
@@ -563,6 +702,15 @@ def test_sync_report_preserves_camera_mode_and_cleanup_evidence():
         n_telemetry=18,
         clock={"a": 1.0, "b": 2.0, "n_samples": 18},
         residuals={"rms_ns": 3.0, "max_ns": 4.0},
+        diagnostics={
+            "video_evidence": {
+                "enabled": True,
+                "path": "camera.avi",
+                "frames_written": 12,
+                "write_errors": [],
+                "released": True,
+            },
+        },
         sync={
             "coverage": 1.0,
             "p95_time_diff_ns": 5,
@@ -592,6 +740,7 @@ def test_sync_report_preserves_camera_mode_and_cleanup_evidence():
     assert report["actions"]["reader_joined"] is True
     assert report["session_outcome"] == "ok"
     assert report["telemetry_yaw_unit"] == "radian"
+    assert report["video_evidence"]["frames_written"] == 12
 
 
 def test_overall_gate_rejects_unconfirmed_stop_even_when_sync_passes():
@@ -798,6 +947,118 @@ def test_main_connect_failure_releases_open_camera_and_publishes_report(
     assert report["verdict"] == "FAIL"
 
 
+def test_main_video_writer_failure_happens_before_start(tmp_path, monkeypatch):
+    class FullHdCamera(FakeCamera):
+        def get(self, prop):
+            return 1920 if prop == 3 else 1080
+
+    cap = FullHdCamera()
+    sock = FakeSocket()
+    monkeypatch.setattr(capture_sync_run, "make_run_id", lambda: "sync-vwf")
+    monkeypatch.setattr(
+        capture_sync_run,
+        "open_capture_camera",
+        lambda _index: (cap, 1920, 1080),
+    )
+    monkeypatch.setattr(
+        capture_sync_run,
+        "read_camera_mode",
+        lambda *_args: {
+            "index": 1,
+            "width": 1920,
+            "height": 1080,
+            "fps": 30.0,
+            "fourcc": "MJPG",
+        },
+    )
+    monkeypatch.setattr(
+        capture_sync_run,
+        "_load_calibration",
+        lambda _manifest: (
+            SimpleNamespace(image_size=(1920, 1080)), object(), {}
+        ),
+    )
+    monkeypatch.setattr(
+        capture_sync_run,
+        "connect_car",
+        lambda *_args, **_kwargs: sock,
+    )
+    monkeypatch.setattr(
+        capture_sync_run,
+        "open_capture_video_writer",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("offline writer open failure")
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "capture_sync_run.py",
+            "--duration",
+            "0.5",
+            "--calibration-manifest",
+            str(tmp_path / "manifest.json"),
+            "--out",
+            str(tmp_path),
+            "--record-video",
+        ],
+    )
+
+    assert capture_sync_run.main() == 1
+    assert sock.sent == []
+    assert sock.close_calls == 1
+    assert cap.release_calls == 1
+    report = json.loads(
+        (tmp_path / "sync-vwf" / "sync_report.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert report["session_outcome"] == "video_setup_failed"
+    assert report["actions"]["start_sent"] is False
+    assert report["video_evidence"]["open_error"]
+
+
+def test_main_does_not_open_video_writer_without_opt_in(tmp_path, monkeypatch):
+    monkeypatch.setattr(capture_sync_run, "make_run_id", lambda: "sync-no-video")
+    monkeypatch.setattr(
+        capture_sync_run,
+        "_load_calibration",
+        lambda _manifest: (
+            SimpleNamespace(image_size=(1920, 1080)), object(), {}
+        ),
+    )
+    monkeypatch.setattr(
+        capture_sync_run,
+        "open_capture_video_writer",
+        lambda *_args, **_kwargs: pytest.fail(
+            "default capture must not open a video writer"
+        ),
+    )
+    monkeypatch.setattr(
+        capture_sync_run,
+        "open_capture_camera",
+        lambda _index: (_ for _ in ()).throw(
+            RuntimeError("camera unavailable")
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "capture_sync_run.py",
+            "--duration",
+            "0.5",
+            "--calibration-manifest",
+            str(tmp_path / "manifest.json"),
+            "--out",
+            str(tmp_path),
+        ],
+    )
+
+    assert capture_sync_run.main() == 1
+
+
 def test_write_capture_artifacts_publishes_b3_jsonl_and_legacy_json(tmp_path):
     out_dir = tmp_path / "sync-run"
     out_dir.mkdir()
@@ -870,6 +1131,27 @@ def test_failure_frame_thumbnail_writes_jpeg_under_unicode_path(tmp_path):
     assert cv2.imdecode(
         np.fromfile(str(image_path), dtype=np.uint8), cv2.IMREAD_COLOR
     ) is not None
+
+
+def test_failure_frame_encode_error_identifies_encoder(monkeypatch, tmp_path):
+    frame = np.full((24, 32, 3), 127, np.uint8)
+
+    monkeypatch.setattr(
+        capture_sync_run.cv2,
+        "imencode",
+        lambda *args, **kwargs: (False, None),
+    )
+
+    relative_path, error = capture_sync_run._save_failure_frame_thumbnail(
+        frame,
+        frame_index=7,
+        reason="candidates_rejected",
+        failure_frame_dir=tmp_path / "failed_frames",
+    )
+
+    assert relative_path is None
+    assert error.startswith("cv2.imencode returned false")
+    assert "shape=(24, 32, 3)" in error
 
 
 def _fusion_pose(t_pc_ns=100):

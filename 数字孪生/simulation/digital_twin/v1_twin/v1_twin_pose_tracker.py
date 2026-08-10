@@ -32,6 +32,13 @@ MIN_GOOD_SIDE_PX = 30.0   # 该尺寸以上 confidence=1.0
 MIN_DETECT_SIDE_PX = 15.0  # 该尺寸以下 confidence 下限
 
 
+_ROI_PREPROCESS_MODES = (
+    "blue_clahe",
+    "blue_unsharp",
+    "gray_clahe",
+)
+
+
 class PoseTrackerError(RuntimeError):
     """PoseTracker 配置/运行错误。"""
 
@@ -50,6 +57,11 @@ class PoseTracker:
         roi_padding_px: float = 32.0,
         full_frame_fallback_scales: Sequence[float] = (2.0,),
         roi_preprocess_scales: Sequence[float] = (2.0,),
+        detector_parameters: Optional[Any] = None,
+        roi_detect_scales: Optional[Sequence[float]] = None,
+        recovery_preprocess_modes: Sequence[str] = _ROI_PREPROCESS_MODES,
+        cache_preprocessors: bool = False,
+        recovery_policy: str = "production",
     ) -> None:
         """初始化。
 
@@ -76,6 +88,29 @@ class PoseTracker:
         self._roi_preprocess_scales = tuple(
             float(s) for s in roi_preprocess_scales
         )
+        self._roi_detect_scales = (
+            self._scales
+            if roi_detect_scales is None
+            else tuple(float(s) for s in roi_detect_scales)
+        )
+        if not self._roi_detect_scales:
+            raise PoseTrackerError("ROI detect scales must not be empty")
+        self._recovery_preprocess_modes = tuple(
+            str(mode) for mode in recovery_preprocess_modes
+        )
+        unsupported_modes = tuple(
+            mode
+            for mode in self._recovery_preprocess_modes
+            if mode not in _ROI_PREPROCESS_MODES
+        )
+        if unsupported_modes:
+            raise PoseTrackerError(
+                "unsupported ROI preprocess mode(s): {}".format(
+                    ", ".join(unsupported_modes)
+                )
+            )
+        self._cache_preprocessors = bool(cache_preprocessors)
+        self._recovery_policy = str(recovery_policy)
         if not self._fallback_scales:
             raise PoseTrackerError("full-frame fallback scales must not be empty")
         if not self._roi_preprocess_scales:
@@ -86,8 +121,15 @@ class PoseTracker:
         self._dictionary = cv2.aruco.getPredefinedDictionary(
             cv2.aruco.DICT_APRILTAG_36h11
         )
+        if detector_parameters is None:
+            detector_parameters = cv2.aruco.DetectorParameters()
         self._detector = cv2.aruco.ArucoDetector(
-            self._dictionary, cv2.aruco.DetectorParameters()
+            self._dictionary, detector_parameters
+        )
+        self._cached_clahe = (
+            cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4))
+            if self._cache_preprocessors
+            else None
         )
 
     # ------------------------------------------------------------
@@ -125,6 +167,7 @@ class PoseTracker:
                 y0,
                 attempted_scales,
                 rejected_candidate_counts,
+                scales=self._roi_detect_scales,
             )
             saw_markers = saw_markers or roi_saw_markers
             if roi_detection is not None:
@@ -147,6 +190,7 @@ class PoseTracker:
                     "preprocess_mode": None,
                     "preprocess_modes_attempted": [],
                     "preprocess_border_px": None,
+                    "recovery_policy": self._recovery_policy,
                 }
             if frame.ndim == 3:
                 for (
@@ -198,6 +242,7 @@ class PoseTracker:
                             "preprocess_border_px": int(
                                 max(16, round(self._roi_padding_px))
                             ),
+                            "recovery_policy": self._recovery_policy,
                         }
         attempted_regions.append("full_frame")
         # The first frame keeps the full multi-scale probe; ROI misses use the
@@ -233,6 +278,7 @@ class PoseTracker:
                 side = float(np.linalg.norm(pts_u[0] - pts_u[1]))
                 detection = {
                     "corners": pts_u,
+                    "raw_corners": pts.copy(),
                     "center_px": center,
                     "forward_px": fwd,
                     "side_px": side,
@@ -264,6 +310,7 @@ class PoseTracker:
                         preprocess_modes_attempted
                     ),
                     "preprocess_border_px": None,
+                    "recovery_policy": self._recovery_policy,
                 }
         return None, {
             "attempted_scales": attempted_scales,
@@ -292,6 +339,7 @@ class PoseTracker:
             "preprocess_mode": None,
             "preprocess_modes_attempted": list(preprocess_modes_attempted),
             "preprocess_border_px": None,
+            "recovery_policy": self._recovery_policy,
         }
 
     def _roi_bounds(self, gray: np.ndarray) -> Optional[tuple[int, int, int, int]]:
@@ -333,22 +381,38 @@ class PoseTracker:
             cv2.BORDER_CONSTANT,
             value=(255, 255, 255),
         )
-        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-        blue = roi[:, :, 0]
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4))
-        blue_blur = cv2.GaussianBlur(blue, (0, 0), 1.0)
         offset_x = x0 - border
         offset_y = y0 - border
-        return (
-            ("blue_clahe", clahe.apply(blue), offset_x, offset_y),
-            (
-                "blue_unsharp",
-                cv2.addWeighted(blue, 2.0, blue_blur, -1.0, 0),
-                offset_x,
-                offset_y,
-            ),
-            ("gray_clahe", clahe.apply(gray), offset_x, offset_y),
-        )
+        blue = None
+        gray = None
+        blue_blur = None
+        clahe = self._cached_clahe
+        prepared = []
+        for mode in self._recovery_preprocess_modes:
+            if mode == "blue_clahe":
+                if blue is None:
+                    blue = roi[:, :, 0]
+                if clahe is None:
+                    clahe = cv2.createCLAHE(
+                        clipLimit=2.0, tileGridSize=(4, 4)
+                    )
+                image = clahe.apply(blue)
+            elif mode == "blue_unsharp":
+                if blue is None:
+                    blue = roi[:, :, 0]
+                if blue_blur is None:
+                    blue_blur = cv2.GaussianBlur(blue, (0, 0), 1.0)
+                image = cv2.addWeighted(blue, 2.0, blue_blur, -1.0, 0)
+            else:  # gray_clahe
+                if gray is None:
+                    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+                if clahe is None:
+                    clahe = cv2.createCLAHE(
+                        clipLimit=2.0, tileGridSize=(4, 4)
+                    )
+                image = clahe.apply(gray)
+            prepared.append((mode, image, offset_x, offset_y))
+        return tuple(prepared)
 
     def _detect_region(
         self,
@@ -396,6 +460,7 @@ class PoseTracker:
                 side = float(np.linalg.norm(pts_u[0] - pts_u[1]))
                 return {
                     "corners": pts_u,
+                    "raw_corners": pts.copy(),
                     "center_px": center,
                     "forward_px": fwd,
                     "side_px": side,
@@ -426,6 +491,16 @@ class PoseTracker:
             return None, diagnostics
         return self._pose_from_detection(det, t_pc_ns), diagnostics
 
+    def track_with_diagnostics_and_geometry(
+        self, frame: Any, t_pc_ns: Optional[int] = None
+    ) -> tuple[Optional[V1Pose], dict, Optional[np.ndarray]]:
+        """Return the decoded pose plus raw tag corners for offline observers."""
+        det, diagnostics = self._detect_with_diagnostics(frame)
+        if det is None:
+            return None, diagnostics, None
+        raw_corners = np.asarray(det["raw_corners"], dtype=float).copy()
+        return self._pose_from_detection(det, t_pc_ns), diagnostics, raw_corners
+
     def _pose_from_detection(
         self, det: Dict[str, Any], t_pc_ns: Optional[int]
     ) -> V1Pose:
@@ -444,6 +519,27 @@ class PoseTracker:
             x_mm=x_mm, y_mm=y_mm, yaw_rad=yaw,
             confidence=conf, t_pc_ns=int(t_pc_ns), source="camera",
         )
+
+    def project_raw_corners(self, raw_corners: Any) -> Dict[str, float]:
+        """Project tracked raw pixel corners without claiming an AprilTag decode."""
+        pts = np.asarray(raw_corners, dtype=float)
+        if pts.shape != (4, 2) or not np.isfinite(pts).all():
+            raise ValueError("raw_corners must be a finite (4, 2) array")
+        pts_u = self._undistort(pts)
+        center = pts_u.mean(axis=0)
+        x_mm, y_mm = self._hom.pixel_to_mm(float(center[0]), float(center[1]))
+        fwd = pts_u[0] - pts_u[3]
+        x2, y2 = self._hom.pixel_to_mm(
+            float(center[0] + fwd[0]), float(center[1] + fwd[1])
+        )
+        yaw = math.atan2(y2 - y_mm, x2 - x_mm) + self._offset
+        side = float(np.linalg.norm(pts_u[0] - pts_u[1]))
+        return {
+            "x_mm": float(x_mm),
+            "y_mm": float(y_mm),
+            "yaw_rad": float(yaw),
+            "confidence": float(self._confidence(side)),
+        }
 
     # ------------------------------------------------------------
     # 内部

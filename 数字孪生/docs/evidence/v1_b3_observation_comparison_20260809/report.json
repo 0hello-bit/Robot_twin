@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "type": "V1B3ObservationComparison",
+  "source": "REAL_SYNC",
+  "replay_entrypoint": "tools/camera_toolchain/analyze_b3_observation.py",
+  "replay_verification": {
+    "c260809100608075": {
+      "stored_report": "docs/evidence/v1_b3_observation_gate_20260809_1080p_c260809100608075/report.json",
+      "replay_report": "docs/evidence/v1_b3_observation_gate_20260809_1080p_c260809100608075/replay_report.json",
+      "all_compared_metrics_match": true
+    },
+    "c260809101540981": {
+      "stored_report": "docs/evidence/v1_b3_observation_gate_20260809_1080p_c260809101540981/report.json",
+      "replay_report": "docs/evidence/v1_b3_observation_gate_20260809_1080p_c260809101540981/replay_report.json",
+      "all_compared_metrics_match": true
+    },
+    "c260809102554685": {
+      "stored_report": "docs/evidence/v1_b3_observation_gate_20260809_1080p_c260809102554685/report.json",
+      "replay_report": "docs/evidence/v1_b3_observation_gate_20260809_1080p_c260809102554685/replay_report.json",
+      "all_compared_metrics_match": true
+    }
+  },
+  "runs": [
+    {
+      "run_id": "c260809100608075",
+      "camera_frame_count": 166,
+      "pose_frame_count": 90,
+      "detection_ratio": 0.5421686746987951,
+      "failure_reason": "candidates_rejected",
+      "rejected_frames": 76,
+      "max_pose_gap_frames": 34.946622,
+      "processing_p95_ns": 75541850,
+      "processing_p95_ms": 75.54185,
+      "sync_gate_verdict": "PASS",
+      "observation_verdict": "FAIL",
+      "evidence_status": "VERIFIED",
+      "failure_frame_evidence": {
+        "observed": 76,
+        "saved": 0,
+        "save_errors": 3,
+        "edge_clipped_roi_failures": 15,
+        "all_used_full_frame_fallback": true,
+        "all_used_roi_preprocessing": true,
+        "failure_detect_mean_ms": 66.259,
+        "failure_detect_max_ms": 83.24
+      }
+    },
+    {
+      "run_id": "c260809101540981",
+      "camera_frame_count": 140,
+      "pose_frame_count": 68,
+      "detection_ratio": 0.4857142857142857,
+      "failure_reason": "candidates_rejected",
+      "rejected_frames": 72,
+      "max_pose_gap_frames": 14.522472,
+      "processing_p95_ns": 91179740,
+      "processing_p95_ms": 91.17974,
+      "sync_gate_verdict": "PASS",
+      "observation_verdict": "FAIL",
+      "evidence_status": "VERIFIED",
+      "failure_frame_evidence": {
+        "observed": 72,
+        "saved": 3,
+        "save_errors": 0,
+        "edge_clipped_roi_failures": 10,
+        "all_used_full_frame_fallback": true,
+        "all_used_roi_preprocessing": true,
+        "failure_detect_mean_ms": 80.02,
+        "failure_detect_max_ms": 100.835
+      }
+    },
+    {
+      "run_id": "c260809102554685",
+      "camera_frame_count": 223,
+      "pose_frame_count": 205,
+      "detection_ratio": 0.9192825112107623,
+      "failure_reason": "candidates_rejected",
+      "rejected_frames": 18,
+      "max_pose_gap_frames": 7.537272000000001,
+      "processing_p95_ns": 67960160,
+      "processing_p95_ms": 67.96016,
+      "sync_gate_verdict": "FAIL",
+      "observation_verdict": "INSUFFICIENT_EVIDENCE",
+      "evidence_status": "INSUFFICIENT_EVIDENCE",
+      "failure_frame_evidence": {
+        "observed": 18,
+        "saved": 1,
+        "save_errors": 0,
+        "edge_clipped_roi_failures": 3,
+        "all_used_full_frame_fallback": true,
+        "all_used_roi_preprocessing": true,
+        "failure_detect_mean_ms": 69.531,
+        "failure_detect_max_ms": 80.44
+      }
+    }
+  ],
+  "findings": {
+    "VERIFIED": [
+      "The offline observation analyzer reproduces every stored ratio, failure count, longest gap, processing p95, sync verdict, evidence status, and overall verdict for all three retained sessions.",
+      "Every retained observation failure is classified as candidates_rejected rather than read failure or no_markers.",
+      "Every failure frame entered the expensive ROI miss, preprocessing, and full-frame fallback path.",
+      "The first session observed 76 rejected frames but saved zero representative frames because three cv2.imencode calls returned false.",
+      "The current capture source labels that encode failure as cv2.imwrite returned false even though the implementation calls cv2.imencode at tools/camera_toolchain/capture_sync_run.py:365-371."
+    ],
+    "INFERENCE": [
+      "The observation bottleneck is likely a combination of view-dependent target quality and the expensive fallback path; the saved thumbnails show the vehicle and printed tag, but they do not prove that the target quadrilateral was valid enough for the detector.",
+      "The 1080p detector workload is a real contributor to processing latency on rejected frames, but latency alone is not proven to be the primary cause of candidate rejection."
+    ],
+    "INSUFFICIENT_EVIDENCE": [
+      "The exact candidate rejection cause is not recoverable for the first session because its representative failure thumbnails were not saved.",
+      "The retained diagnostics do not expose per-candidate rejection reasons or corner geometry, so detector thresholds cannot be justified for change from these artifacts alone.",
+      "No observation-gate pass, continuous AprilTag track, validated 1080p ground homography, or real algorithm improvement is established."
+    ]
+  },
+  "decision": {
+    "detector_algorithm_change": "NOT_JUSTIFIED",
+    "hardware_action": "NOT_AUTHORIZED",
+    "code_change_performed": false,
+    "next_offline_action": "Harden and instrument failure-frame encoding diagnostics before requesting a matched real rerun; keep detector thresholds, calibration, firmware, and control unchanged."
+  }
+}

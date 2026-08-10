@@ -1,0 +1,151 @@
+{
+  "calibration": {
+    "calibration_id": "c960_r3_1080p_raw_global_exploratory_20260809",
+    "camera_model": "EMEET SmartCam C960",
+    "image_size": [
+      1920,
+      1080
+    ],
+    "intrinsics_path": "simulation/digital_twin/data/product/capture_manifests/c960_r3_1080p_exploratory_20260809/intrinsics_c960_1080p.json",
+    "intrinsics_sha256": "7e4e0f88dfb889ebd53437fe1973e70ba8763067a20bc74431f06d03a03090e8",
+    "manifest_path": "simulation/digital_twin/data/product/capture_manifests/c960_r3_1080p_exploratory_20260809/manifest.json",
+    "manifest_sha256": "b1fd4b6f3f012fb49fe80d6f65c6825d8c8573105f6e54cd2c2046516bf7f350",
+    "profile_path": "simulation/digital_twin/data/product/capture_manifests/c960_r3_1080p_exploratory_20260809/relative_plane_profile.json",
+    "profile_sha256": "c752f539525694728df16b4984093db7c74e6b23e3c27dcc2a4de3b98accbf2d",
+    "quality": "EXPLORATORY_RELATIVE_ONLY"
+  },
+  "candidates": [
+    {
+      "detector_backend": "opencv_aruco",
+      "name": "production",
+      "observation_profile": "production",
+      "parameter_variant": "default",
+      "recovery_policy": "production",
+      "temporal_observation": "none",
+      "trace_path": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\docs\\evidence\\v1_b3_real_sync_replay_20260810\\production_d415b66c8ab7.jsonl"
+    },
+    {
+      "detector_backend": "opencv_aruco",
+      "name": "fast_recovery_wide",
+      "observation_profile": "production",
+      "parameter_variant": "fast_recovery_wide",
+      "recovery_policy": "fast_recovery_wide",
+      "selection": {
+        "checks": {
+          "candidate_has_no_errors": true,
+          "candidate_replay_complete": true,
+          "detection_ratio_improvement": true,
+          "detection_ratio_meets_b3": true,
+          "gap_not_worse": true,
+          "gap_or_missed_strictly_better": true,
+          "max_detection_interval_meets_b3": true,
+          "missed_frames_not_worse": true,
+          "processing_p95_within_baseline_factor": true,
+          "processing_p95_within_frame_budget": true
+        },
+        "reason": "all offline candidate thresholds met",
+        "verdict": "QUALIFIED_FOR_ONE_REAL_AB"
+      },
+      "temporal_observation": "none",
+      "trace_path": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\docs\\evidence\\v1_b3_real_sync_replay_20260810\\fast_recovery_wide_d415b66c8ab7.jsonl"
+    }
+  ],
+  "comparison_valid": true,
+  "evidence_status": "INSUFFICIENT_EVIDENCE",
+  "schema_version": 1,
+  "selection": {
+    "candidate": "fast_recovery_wide",
+    "qualified_candidates": [
+      "fast_recovery_wide"
+    ],
+    "reason": "one or more candidates met all offline thresholds",
+    "verdict": "QUALIFIED_FOR_ONE_REAL_AB"
+  },
+  "source": "1080P_VIDEO_REPLAY",
+  "summaries": [
+    {
+      "decoded_frame_count": 139,
+      "detected_count": 80,
+      "detection_ratio": 0.5755395683453237,
+      "detector_backend": "opencv_aruco",
+      "errors": [],
+      "failure_reason_counts": {
+        "candidates_rejected": 59
+      },
+      "flow_mean_error_p95_px": null,
+      "flow_scale_ratio_max": null,
+      "flow_scale_ratio_min": null,
+      "flow_valid_count": 0,
+      "max_consecutive_missed_frames": 7,
+      "max_consecutive_pose_output_missed_frames": 7,
+      "max_detection_interval_frames": 8.0,
+      "max_pose_output_interval_frames": 8.0,
+      "max_prediction_gap_frames": 0,
+      "name": "production",
+      "observation_profile": "production",
+      "parameter_variant": "default",
+      "pose_output_count": 80,
+      "pose_output_ratio": 0.5755395683453237,
+      "predicted_pose_count": 0,
+      "processing_p95_ms": 89.81045,
+      "reacquisition_correction_count": 0,
+      "reacquisition_position_correction_p95_mm": null,
+      "reacquisition_yaw_correction_p95_rad": null,
+      "recovery_policy": "production",
+      "rejected_candidate_total": 7244,
+      "replay_complete": true,
+      "tag_decode_count": 80,
+      "tag_decode_ratio": 0.5755395683453237,
+      "temporal_observation": "none"
+    },
+    {
+      "decoded_frame_count": 139,
+      "detected_count": 139,
+      "detection_ratio": 1.0,
+      "detector_backend": "opencv_aruco",
+      "errors": [],
+      "failure_reason_counts": {},
+      "flow_mean_error_p95_px": null,
+      "flow_scale_ratio_max": null,
+      "flow_scale_ratio_min": null,
+      "flow_valid_count": 0,
+      "max_consecutive_missed_frames": 0,
+      "max_consecutive_pose_output_missed_frames": 0,
+      "max_detection_interval_frames": 1.0,
+      "max_pose_output_interval_frames": 1.0,
+      "max_prediction_gap_frames": 0,
+      "name": "fast_recovery_wide",
+      "observation_profile": "production",
+      "parameter_variant": "fast_recovery_wide",
+      "pose_output_count": 139,
+      "pose_output_ratio": 1.0,
+      "predicted_pose_count": 0,
+      "processing_p95_ms": 31.23715,
+      "reacquisition_correction_count": 0,
+      "reacquisition_position_correction_p95_mm": null,
+      "reacquisition_yaw_correction_p95_rad": null,
+      "recovery_policy": "fast_recovery_wide",
+      "rejected_candidate_total": 4533,
+      "replay_complete": true,
+      "tag_decode_count": 139,
+      "tag_decode_ratio": 1.0,
+      "temporal_observation": "none"
+    }
+  ],
+  "timebase": "DERIVED_FROM_VIDEO_FPS",
+  "type": "V1B3AprilTagVideoReplay",
+  "videos": [
+    {
+      "decoded_frame_count": 139,
+      "file_size_bytes": 21777230,
+      "fourcc": "MJPG",
+      "fps": 30.0,
+      "frame_count_matches_reported": true,
+      "height": 1080,
+      "path": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\simulation\\digital_twin\\logs\\v1_b3_real_sync_20260810\\c260810121905472\\camera.avi",
+      "reported_frame_count": 139,
+      "sha256": "d415b66c8ab716f5b74d1bf69be679492dd74de580e5f1fc8768a821c5cfbf10",
+      "width": 1920
+    }
+  ]
+}

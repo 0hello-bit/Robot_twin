@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "type": "V1B3AprilTagROIParameterCandidateDecision",
+  "generated_on": "2026-08-10",
+  "source_report": {
+    "path": "docs/evidence/v1_b3_roi_parameter_candidate_screening_20260810/report.json",
+    "sha256": "C348E7666D744A2FE940EB544150190E25FF64C005B1ABBE8A1FD399D2A30A24"
+  },
+  "dataset": {
+    "static_images": 100,
+    "dynamic_failure_thumbnails": 6,
+    "total_images": 106,
+    "roi_source": "retained production frame-index bounds for dynamic thumbnails; fixed bounds seeded from the first successful static frame",
+    "evidence_status": "INSUFFICIENT_EVIDENCE_FOR_B3"
+  },
+  "offline_contract": {
+    "detection_ratio_min": 0.95,
+    "maximum_pose_gap_frames_max": 2.0,
+    "processing_p95_ms_max": 33.333333
+  },
+  "candidate_results": {
+    "default_opencv_gray_1x": {
+      "dynamic_detected": 0,
+      "dynamic_total": 6,
+      "dynamic_ratio": 0.0,
+      "dynamic_p95_ms": 6.528,
+      "static_detected": 99,
+      "static_total": 100,
+      "static_ratio": 0.99,
+      "static_p95_ms": 6.457
+    },
+    "default_opencv_blue_2x": {
+      "dynamic_detected": 1,
+      "dynamic_total": 6,
+      "dynamic_ratio": 0.1666666667,
+      "dynamic_p95_ms": 6.816,
+      "static_detected": 92,
+      "static_total": 100,
+      "static_ratio": 0.92,
+      "static_p95_ms": 8.005
+    },
+    "adaptive_wide_opencv_gray_1x": {
+      "dynamic_detected": 0,
+      "dynamic_total": 6,
+      "dynamic_ratio": 0.0,
+      "dynamic_p95_ms": 10.502,
+      "static_detected": 99,
+      "static_total": 100,
+      "static_ratio": 0.99,
+      "static_p95_ms": 10.169
+    },
+    "adaptive_wide_opencv_blue_2x": {
+      "dynamic_detected": 4,
+      "dynamic_total": 6,
+      "dynamic_ratio": 0.6666666667,
+      "dynamic_p95_ms": 12.686,
+      "static_detected": 100,
+      "static_total": 100,
+      "static_ratio": 1.0,
+      "static_p95_ms": 15.063
+    }
+  },
+  "findings": {
+    "VERIFIED": [
+      "The offline ROI matrix processed the same 106 retained images across two fresh parameter variants and two preprocessing branches without camera, TCP, firmware, or hardware access.",
+      "On the six retained dynamic failure thumbnails, adaptive_wide plus blue_2x detected 4/6, while the gray_1x control detected 0/6; default blue_2x detected 1/6.",
+      "The adaptive_wide plus blue_2x candidate had a dynamic processing p95 of 12.686 ms and a static processing p95 of 15.063 ms, both below the 33.333333 ms offline budget.",
+      "The candidate retained 100/100 detections on the static ROI sample; this is a static regression result, not a dynamic continuity result."
+    ],
+    "INFERENCE": [
+      "Restricting the candidate to the retained ROI appears to remove most of the full-frame adaptive processing cost, making this composite candidate feasible for one matched real rerun.",
+      "The recovery cannot be attributed to adaptive threshold widening alone: the candidate also uses the blue channel, and the six-thumbnail sample cannot establish the interaction or causal mechanism."
+    ],
+    "INSUFFICIENT_EVIDENCE": [
+      "Six failure thumbnails are not a continuous run and cannot establish detection ratio, maximum pose gap, or real-time behavior on a fresh run.",
+      "The ROI was supplied from prior production diagnostics, so this benchmark tests detector recovery inside a known ROI; it does not prove that the production tracker will maintain that ROI.",
+      "No candidate has been deployed to the production PoseTracker, and no real-car improvement or B3 pass is established."
+    ]
+  },
+  "decision": {
+    "production_change": "NOT_JUSTIFIED",
+    "candidate_status": "CANDIDATE_FOR_ONE_MATCHED_REAL_RERUN",
+    "next_action": "After explicit hardware authorization, run one matched 1080p capture comparing the unchanged production path against this bounded ROI candidate; retain full frame index, failure frames, and independent observation gates.",
+    "hardware_action": "WAIT_FOR_EXPLICIT_AUTHORIZATION",
+    "b3_status": "FAIL"
+  }
+}

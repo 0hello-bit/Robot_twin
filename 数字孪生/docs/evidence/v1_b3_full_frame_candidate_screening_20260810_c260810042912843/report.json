@@ -1,0 +1,387 @@
+{
+  "branches": [
+    "opencv_gray_1x",
+    "opencv_blue_2x"
+  ],
+  "evidence_status": "INSUFFICIENT_EVIDENCE",
+  "images": [
+    {
+      "contiguous": true,
+      "dtype": "uint8",
+      "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260810042912843\\failed_frames\\frame_000001_candidates_rejected.jpg",
+      "sha256": "2a95630416a7c6c9b87a2ea86092daba72442053c3db131bedf21356d34c0f12",
+      "shape": [
+        1080,
+        1920,
+        3
+      ]
+    },
+    {
+      "contiguous": true,
+      "dtype": "uint8",
+      "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260810042912843\\failed_frames\\frame_000030_candidates_rejected.jpg",
+      "sha256": "446dd8cc23b63b1f362cef67bb48808306e76c5fa924b3c40f7462dabfeb177e",
+      "shape": [
+        1080,
+        1920,
+        3
+      ]
+    },
+    {
+      "contiguous": true,
+      "dtype": "uint8",
+      "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260810042912843\\failed_frames\\frame_000060_candidates_rejected.jpg",
+      "sha256": "afb86237e37349a76ef00f406334942466ed2f5a7309b6efb76676f41becf133",
+      "shape": [
+        1080,
+        1920,
+        3
+      ]
+    },
+    {
+      "contiguous": true,
+      "dtype": "uint8",
+      "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260810042912843\\failed_frames\\frame_000100_candidates_rejected.jpg",
+      "sha256": "224f0bd236c16e907da6b9bcb0445d47a1b7349dffe3b6003996ba6640a5b457",
+      "shape": [
+        1080,
+        1920,
+        3
+      ]
+    }
+  ],
+  "opencv_version": "5.0.0",
+  "parameter_variants": [
+    "default",
+    "adaptive_wide"
+  ],
+  "records": [
+    {
+      "branch": "opencv_gray_1x",
+      "elapsed_ns": 18142100,
+      "error": null,
+      "ids": [],
+      "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260810042912843\\failed_frames\\frame_000001_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "parameter_variant": "default",
+      "rejected_count": 5,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_gray_1x",
+      "elapsed_ns": 22980200,
+      "error": null,
+      "ids": [],
+      "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260810042912843\\failed_frames\\frame_000030_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "parameter_variant": "default",
+      "rejected_count": 5,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_gray_1x",
+      "elapsed_ns": 21977400,
+      "error": null,
+      "ids": [
+        0
+      ],
+      "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260810042912843\\failed_frames\\frame_000060_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "parameter_variant": "default",
+      "rejected_count": 4,
+      "target_detected": true,
+      "target_id": 0,
+      "target_side_px": 58.137767414994535
+    },
+    {
+      "branch": "opencv_gray_1x",
+      "elapsed_ns": 27244000,
+      "error": null,
+      "ids": [
+        0
+      ],
+      "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260810042912843\\failed_frames\\frame_000100_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "parameter_variant": "default",
+      "rejected_count": 4,
+      "target_detected": true,
+      "target_id": 0,
+      "target_side_px": 56.43580423808985
+    },
+    {
+      "branch": "opencv_blue_2x",
+      "elapsed_ns": 35635300,
+      "error": null,
+      "ids": [],
+      "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260810042912843\\failed_frames\\frame_000001_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "parameter_variant": "default",
+      "rejected_count": 4,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_blue_2x",
+      "elapsed_ns": 45404400,
+      "error": null,
+      "ids": [],
+      "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260810042912843\\failed_frames\\frame_000030_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "parameter_variant": "default",
+      "rejected_count": 6,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_blue_2x",
+      "elapsed_ns": 44293100,
+      "error": null,
+      "ids": [],
+      "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260810042912843\\failed_frames\\frame_000060_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "parameter_variant": "default",
+      "rejected_count": 4,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_blue_2x",
+      "elapsed_ns": 45549800,
+      "error": null,
+      "ids": [],
+      "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260810042912843\\failed_frames\\frame_000100_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "parameter_variant": "default",
+      "rejected_count": 5,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_gray_1x",
+      "elapsed_ns": 20450000,
+      "error": null,
+      "ids": [],
+      "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260810042912843\\failed_frames\\frame_000001_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "parameter_variant": "adaptive_wide",
+      "rejected_count": 5,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_gray_1x",
+      "elapsed_ns": 28874500,
+      "error": null,
+      "ids": [],
+      "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260810042912843\\failed_frames\\frame_000030_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "parameter_variant": "adaptive_wide",
+      "rejected_count": 7,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_gray_1x",
+      "elapsed_ns": 28430900,
+      "error": null,
+      "ids": [
+        0
+      ],
+      "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260810042912843\\failed_frames\\frame_000060_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "parameter_variant": "adaptive_wide",
+      "rejected_count": 5,
+      "target_detected": true,
+      "target_id": 0,
+      "target_side_px": 58.137767414994535
+    },
+    {
+      "branch": "opencv_gray_1x",
+      "elapsed_ns": 30593000,
+      "error": null,
+      "ids": [
+        0
+      ],
+      "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260810042912843\\failed_frames\\frame_000100_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "parameter_variant": "adaptive_wide",
+      "rejected_count": 5,
+      "target_detected": true,
+      "target_id": 0,
+      "target_side_px": 56.43580423808985
+    },
+    {
+      "branch": "opencv_blue_2x",
+      "elapsed_ns": 62976700,
+      "error": null,
+      "ids": [],
+      "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260810042912843\\failed_frames\\frame_000001_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "parameter_variant": "adaptive_wide",
+      "rejected_count": 4,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_blue_2x",
+      "elapsed_ns": 86626900,
+      "error": null,
+      "ids": [],
+      "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260810042912843\\failed_frames\\frame_000030_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "parameter_variant": "adaptive_wide",
+      "rejected_count": 8,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_blue_2x",
+      "elapsed_ns": 76742400,
+      "error": null,
+      "ids": [
+        0
+      ],
+      "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260810042912843\\failed_frames\\frame_000060_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "parameter_variant": "adaptive_wide",
+      "rejected_count": 4,
+      "target_detected": true,
+      "target_id": 0,
+      "target_side_px": 58.1936422644261
+    },
+    {
+      "branch": "opencv_blue_2x",
+      "elapsed_ns": 74171900,
+      "error": null,
+      "ids": [
+        0
+      ],
+      "image": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260810042912843\\failed_frames\\frame_000100_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "parameter_variant": "adaptive_wide",
+      "rejected_count": 6,
+      "target_detected": true,
+      "target_id": 0,
+      "target_side_px": 57.36941693969009
+    }
+  ],
+  "schema_version": 1,
+  "screening_only": true,
+  "source": "RETAINED_PARAMETER_SCREENING",
+  "summaries": {
+    "adaptive_wide": {
+      "opencv_blue_2x": {
+        "branch": "opencv_blue_2x",
+        "detected_count": 2,
+        "detection_ratio": 0.5,
+        "image_count": 4,
+        "processing_p95_ns": 85144225,
+        "rejected_candidate_total": 22
+      },
+      "opencv_gray_1x": {
+        "branch": "opencv_gray_1x",
+        "detected_count": 2,
+        "detection_ratio": 0.5,
+        "image_count": 4,
+        "processing_p95_ns": 30335225,
+        "rejected_candidate_total": 22
+      }
+    },
+    "default": {
+      "opencv_blue_2x": {
+        "branch": "opencv_blue_2x",
+        "detected_count": 0,
+        "detection_ratio": 0.0,
+        "image_count": 4,
+        "processing_p95_ns": 45527990,
+        "rejected_candidate_total": 19
+      },
+      "opencv_gray_1x": {
+        "branch": "opencv_gray_1x",
+        "detected_count": 2,
+        "detection_ratio": 0.5,
+        "image_count": 4,
+        "processing_p95_ns": 26604430,
+        "rejected_candidate_total": 18
+      }
+    }
+  },
+  "target_id": 0,
+  "type": "V1B3AprilTagParameterMatrix"
+}

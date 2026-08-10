@@ -1,0 +1,946 @@
+{
+  "branches": [
+    "opencv_gray_1x",
+    "opencv_gray_2x",
+    "opencv_gray_3x",
+    "opencv_blue_2x",
+    "opencv_green_2x",
+    "opencv_red_2x",
+    "opencv_blue_clahe_2x",
+    "opencv_blue_unsharp_2x",
+    "opencv_gray_clahe_2x",
+    "opencv_adaptive_2x",
+    "pupil_gray_1x",
+    "pupil_gray_2x"
+  ],
+  "images": [
+    {
+      "contiguous": true,
+      "dtype": "uint8",
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000001_candidates_rejected.jpg",
+      "sha256": "586a4540c8388f82d3c18b3cf2930b1d83da9ebbda73ccadb564bd78c365c075",
+      "shape": [
+        1080,
+        1920,
+        3
+      ]
+    },
+    {
+      "contiguous": true,
+      "dtype": "uint8",
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000062_candidates_rejected.jpg",
+      "sha256": "75976dd978fb71c4d768782ae062adfe6ea03f51debb6bf7af4885104015da8f",
+      "shape": [
+        1080,
+        1920,
+        3
+      ]
+    },
+    {
+      "contiguous": true,
+      "dtype": "uint8",
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000119_candidates_rejected.jpg",
+      "sha256": "a5957fa968451d7ee70f6c8e73a8ba54b2789b7c22a0af16a11f541b386be8ae",
+      "shape": [
+        1080,
+        1920,
+        3
+      ]
+    },
+    {
+      "contiguous": true,
+      "dtype": "uint8",
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809102554685\\failed_frames\\frame_000010_candidates_rejected.jpg",
+      "sha256": "bade4d6bdd1e5426f91d7c20aa92a92da9fa7a4df080b32e6e1e696f38fdffe5",
+      "shape": [
+        1080,
+        1920,
+        3
+      ]
+    }
+  ],
+  "opencv_version": "5.0.0",
+  "pupil_apriltags_available": true,
+  "records": [
+    {
+      "branch": "opencv_gray_1x",
+      "elapsed_ns": 22707400,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000001_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 6,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_gray_2x",
+      "elapsed_ns": 42964100,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000001_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 6,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_gray_3x",
+      "elapsed_ns": 72284700,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000001_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 5,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_blue_2x",
+      "elapsed_ns": 41409500,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000001_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 5,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_green_2x",
+      "elapsed_ns": 37419000,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000001_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 5,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_red_2x",
+      "elapsed_ns": 46302700,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000001_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 6,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_blue_clahe_2x",
+      "elapsed_ns": 56498200,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000001_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 6,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_blue_unsharp_2x",
+      "elapsed_ns": 48197700,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000001_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 4,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_gray_clahe_2x",
+      "elapsed_ns": 37408500,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000001_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 6,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_adaptive_2x",
+      "elapsed_ns": 75986000,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000001_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 4,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "pupil_gray_1x",
+      "elapsed_ns": 121756900,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000001_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 0,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "pupil_gray_2x",
+      "elapsed_ns": 358872600,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000001_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 0,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_gray_1x",
+      "elapsed_ns": 20081000,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000062_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 4,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_gray_2x",
+      "elapsed_ns": 35888500,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000062_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 4,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_gray_3x",
+      "elapsed_ns": 74575100,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000062_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 5,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_blue_2x",
+      "elapsed_ns": 38423000,
+      "error": null,
+      "ids": [
+        0
+      ],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000062_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 4,
+      "target_detected": true,
+      "target_id": 0,
+      "target_side_px": 60.83584469702052
+    },
+    {
+      "branch": "opencv_green_2x",
+      "elapsed_ns": 39159400,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000062_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 4,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_red_2x",
+      "elapsed_ns": 42596500,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000062_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 5,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_blue_clahe_2x",
+      "elapsed_ns": 49369600,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000062_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 9,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_blue_unsharp_2x",
+      "elapsed_ns": 46013800,
+      "error": null,
+      "ids": [
+        0
+      ],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000062_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 5,
+      "target_detected": true,
+      "target_id": 0,
+      "target_side_px": 61.05120801425636
+    },
+    {
+      "branch": "opencv_gray_clahe_2x",
+      "elapsed_ns": 32296600,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000062_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 4,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_adaptive_2x",
+      "elapsed_ns": 69277400,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000062_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 7,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "pupil_gray_1x",
+      "elapsed_ns": 142252100,
+      "error": null,
+      "ids": [
+        0
+      ],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000062_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 0,
+      "target_detected": true,
+      "target_id": 0,
+      "target_side_px": 59.49471412573349
+    },
+    {
+      "branch": "pupil_gray_2x",
+      "elapsed_ns": 424039200,
+      "error": null,
+      "ids": [
+        0
+      ],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000062_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 0,
+      "target_detected": true,
+      "target_id": 0,
+      "target_side_px": 61.53249001503703
+    },
+    {
+      "branch": "opencv_gray_1x",
+      "elapsed_ns": 21522700,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000119_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 7,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_gray_2x",
+      "elapsed_ns": 32851700,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000119_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 5,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_gray_3x",
+      "elapsed_ns": 63885600,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000119_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 6,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_blue_2x",
+      "elapsed_ns": 35577600,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000119_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 7,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_green_2x",
+      "elapsed_ns": 33886600,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000119_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 6,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_red_2x",
+      "elapsed_ns": 32685100,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000119_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 5,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_blue_clahe_2x",
+      "elapsed_ns": 45305200,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000119_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 7,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_blue_unsharp_2x",
+      "elapsed_ns": 43042400,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000119_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 5,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_gray_clahe_2x",
+      "elapsed_ns": 31355300,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000119_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 5,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_adaptive_2x",
+      "elapsed_ns": 69338400,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000119_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 6,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "pupil_gray_1x",
+      "elapsed_ns": 133485300,
+      "error": null,
+      "ids": [
+        0
+      ],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000119_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 0,
+      "target_detected": true,
+      "target_id": 0,
+      "target_side_px": 62.620526814986675
+    },
+    {
+      "branch": "pupil_gray_2x",
+      "elapsed_ns": 408797700,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809101540981\\failed_frames\\frame_000119_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 0,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_gray_1x",
+      "elapsed_ns": 18165100,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809102554685\\failed_frames\\frame_000010_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 6,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_gray_2x",
+      "elapsed_ns": 40658700,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809102554685\\failed_frames\\frame_000010_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 4,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_gray_3x",
+      "elapsed_ns": 61834400,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809102554685\\failed_frames\\frame_000010_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 4,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_blue_2x",
+      "elapsed_ns": 33081800,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809102554685\\failed_frames\\frame_000010_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 5,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_green_2x",
+      "elapsed_ns": 31993700,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809102554685\\failed_frames\\frame_000010_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 5,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_red_2x",
+      "elapsed_ns": 31438800,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809102554685\\failed_frames\\frame_000010_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 4,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_blue_clahe_2x",
+      "elapsed_ns": 50094400,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809102554685\\failed_frames\\frame_000010_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 5,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_blue_unsharp_2x",
+      "elapsed_ns": 42347300,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809102554685\\failed_frames\\frame_000010_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 5,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_gray_clahe_2x",
+      "elapsed_ns": 32209000,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809102554685\\failed_frames\\frame_000010_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 4,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "opencv_adaptive_2x",
+      "elapsed_ns": 56767700,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809102554685\\failed_frames\\frame_000010_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 5,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "pupil_gray_1x",
+      "elapsed_ns": 118792400,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809102554685\\failed_frames\\frame_000010_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 0,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    },
+    {
+      "branch": "pupil_gray_2x",
+      "elapsed_ns": 386193100,
+      "error": null,
+      "ids": [],
+      "image": "simulation\\digital_twin\\data\\product\\sessions\\v1_b\\c260809102554685\\failed_frames\\frame_000010_candidates_rejected.jpg",
+      "image_shape": [
+        1080,
+        1920,
+        3
+      ],
+      "rejected_count": 0,
+      "target_detected": false,
+      "target_id": 0,
+      "target_side_px": null
+    }
+  ],
+  "schema_version": 1,
+  "source": "RETAINED_FAILURE_FRAMES",
+  "summaries": {
+    "opencv_adaptive_2x": {
+      "branch": "opencv_adaptive_2x",
+      "detected_count": 0,
+      "detection_ratio": 0.0,
+      "image_count": 4,
+      "processing_p95_ns": 74988860,
+      "rejected_candidate_total": 22
+    },
+    "opencv_blue_2x": {
+      "branch": "opencv_blue_2x",
+      "detected_count": 1,
+      "detection_ratio": 0.25,
+      "image_count": 4,
+      "processing_p95_ns": 40961525,
+      "rejected_candidate_total": 21
+    },
+    "opencv_blue_clahe_2x": {
+      "branch": "opencv_blue_clahe_2x",
+      "detected_count": 0,
+      "detection_ratio": 0.0,
+      "image_count": 4,
+      "processing_p95_ns": 55537630,
+      "rejected_candidate_total": 27
+    },
+    "opencv_blue_unsharp_2x": {
+      "branch": "opencv_blue_unsharp_2x",
+      "detected_count": 1,
+      "detection_ratio": 0.25,
+      "image_count": 4,
+      "processing_p95_ns": 47870115,
+      "rejected_candidate_total": 19
+    },
+    "opencv_gray_1x": {
+      "branch": "opencv_gray_1x",
+      "detected_count": 0,
+      "detection_ratio": 0.0,
+      "image_count": 4,
+      "processing_p95_ns": 22529695,
+      "rejected_candidate_total": 23
+    },
+    "opencv_gray_2x": {
+      "branch": "opencv_gray_2x",
+      "detected_count": 0,
+      "detection_ratio": 0.0,
+      "image_count": 4,
+      "processing_p95_ns": 42618290,
+      "rejected_candidate_total": 19
+    },
+    "opencv_gray_3x": {
+      "branch": "opencv_gray_3x",
+      "detected_count": 0,
+      "detection_ratio": 0.0,
+      "image_count": 4,
+      "processing_p95_ns": 74231540,
+      "rejected_candidate_total": 20
+    },
+    "opencv_gray_clahe_2x": {
+      "branch": "opencv_gray_clahe_2x",
+      "detected_count": 0,
+      "detection_ratio": 0.0,
+      "image_count": 4,
+      "processing_p95_ns": 36641715,
+      "rejected_candidate_total": 19
+    },
+    "opencv_green_2x": {
+      "branch": "opencv_green_2x",
+      "detected_count": 0,
+      "detection_ratio": 0.0,
+      "image_count": 4,
+      "processing_p95_ns": 38898340,
+      "rejected_candidate_total": 20
+    },
+    "opencv_red_2x": {
+      "branch": "opencv_red_2x",
+      "detected_count": 0,
+      "detection_ratio": 0.0,
+      "image_count": 4,
+      "processing_p95_ns": 45746770,
+      "rejected_candidate_total": 20
+    },
+    "pupil_gray_1x": {
+      "branch": "pupil_gray_1x",
+      "detected_count": 2,
+      "detection_ratio": 0.5,
+      "image_count": 4,
+      "processing_p95_ns": 140937080,
+      "rejected_candidate_total": 0
+    },
+    "pupil_gray_2x": {
+      "branch": "pupil_gray_2x",
+      "detected_count": 1,
+      "detection_ratio": 0.25,
+      "image_count": 4,
+      "processing_p95_ns": 421752975,
+      "rejected_candidate_total": 0
+    }
+  },
+  "target_id": 0,
+  "type": "V1B3AprilTagOfflineDetectorMatrix"
+}

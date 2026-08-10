@@ -37,6 +37,7 @@ import socket
 import sys
 import threading
 import time
+from types import MappingProxyType
 
 import numpy as np
 
@@ -87,6 +88,143 @@ STOP_CONFIRM_TIMEOUT_S = 1.0
 READER_JOIN_TIMEOUT_S = 1.0
 
 
+OBSERVATION_PROFILES = MappingProxyType({
+    "production": MappingProxyType({
+        "name": "production",
+        "full_frame_fallback_scales": (2.0,),
+    }),
+    "r1_gray1x": MappingProxyType({
+        "name": "r1_gray1x",
+        "full_frame_fallback_scales": (1.0,),
+    }),
+})
+
+
+RECOVERY_POLICIES = MappingProxyType({
+    "production": MappingProxyType({
+        "name": "production",
+        "roi_detect_scales": (1.0, 2.0, 3.0),
+        "recovery_preprocess_modes": (
+            "blue_clahe", "blue_unsharp", "gray_clahe",
+        ),
+        "roi_preprocess_scales": (2.0,),
+        "cache_preprocessors": False,
+        "full_frame_fallback_scales": None,
+        "roi_padding_px": 32.0,
+        "offline_only": False,
+    }),
+    "fast_recovery": MappingProxyType({
+        "name": "fast_recovery",
+        "roi_detect_scales": (1.0,),
+        "recovery_preprocess_modes": ("blue_clahe",),
+        "roi_preprocess_scales": (1.0,),
+        "cache_preprocessors": True,
+        "full_frame_fallback_scales": (1.0,),
+        "roi_padding_px": 32.0,
+        "offline_only": True,
+    }),
+    "fast_recovery_wide": MappingProxyType({
+        "name": "fast_recovery_wide",
+        "roi_detect_scales": (1.0,),
+        "recovery_preprocess_modes": ("blue_clahe",),
+        "roi_preprocess_scales": (1.0,),
+        "cache_preprocessors": True,
+        "full_frame_fallback_scales": (1.0,),
+        "roi_padding_px": 96.0,
+        "offline_only": True,
+    }),
+})
+
+
+def resolve_observation_profile(name="production"):
+    """Return the immutable profile selected by name."""
+    profile_name = str(name).strip()
+    try:
+        return OBSERVATION_PROFILES[profile_name]
+    except KeyError:
+        raise ValueError(
+            "unsupported observation profile: {}".format(name)
+        )
+
+
+def resolve_recovery_policy(name="production"):
+    """Return the immutable recovery policy selected by name."""
+    policy_name = str(name).strip()
+    try:
+        return RECOVERY_POLICIES[policy_name]
+    except KeyError:
+        raise ValueError(
+            "unsupported recovery policy: {}".format(name)
+        )
+
+
+def _build_recovery_detector_parameters(policy_name):
+    """Build the detector parameters paired with a recovery policy."""
+    policy = resolve_recovery_policy(policy_name)
+    parameters = cv2.aruco.DetectorParameters()
+    if policy["name"] == "fast_recovery_wide":
+        parameters.adaptiveThreshWinSizeMax = 53
+        parameters.adaptiveThreshWinSizeStep = 5
+        parameters.adaptiveThreshConstant = 3.0
+    return parameters
+
+
+def create_pose_tracker(
+    calib,
+    homography,
+    observation_profile="production",
+    detector_parameters=None,
+    tag_id=0,
+    recovery_policy="production",
+    *,
+    offline=False,
+    allow_experimental=False,
+):
+    """Create the canonical tracker with one explicit fallback variation."""
+    profile = resolve_observation_profile(observation_profile)
+    policy = resolve_recovery_policy(recovery_policy)
+    if policy["offline_only"] and not (offline or allow_experimental):
+        raise ValueError(
+            "recovery policy {0} is offline-only unless explicitly enabled"
+            .format(policy["name"])
+        )
+    fallback_scales = policy["full_frame_fallback_scales"]
+    if fallback_scales is None:
+        fallback_scales = profile["full_frame_fallback_scales"]
+    if detector_parameters is None:
+        detector_parameters = _build_recovery_detector_parameters(
+            policy["name"]
+        )
+    return PoseTracker(
+        calib,
+        homography,
+        tag_id=tag_id,
+        detect_scales=(1.0, 2.0, 3.0),
+        roi_detect_scales=policy["roi_detect_scales"],
+        recovery_preprocess_modes=policy["recovery_preprocess_modes"],
+        roi_preprocess_scales=policy["roi_preprocess_scales"],
+        cache_preprocessors=policy["cache_preprocessors"],
+        recovery_policy=policy["name"],
+        roi_padding_px=policy["roi_padding_px"],
+        full_frame_fallback_scales=fallback_scales,
+        detector_parameters=detector_parameters,
+    )
+
+
+def _observation_profile_evidence(observation_profile=None):
+    """Convert a selected profile to a JSON-serializable evidence record."""
+    if isinstance(observation_profile, str) or observation_profile is None:
+        profile = resolve_observation_profile(observation_profile or "production")
+    else:
+        profile = resolve_observation_profile(observation_profile["name"])
+    return {
+        "name": profile["name"],
+        "full_frame_fallback_scales": [
+            float(scale) for scale in profile["full_frame_fallback_scales"]
+        ],
+    }
+
+
 # Windows monotonic_ns may be backed by a coarse GetTickCount64 clock.
 _capture_pc_clock_lock = threading.Lock()
 _last_capture_pc_clock_ns = None
@@ -106,6 +244,8 @@ def capture_pc_clock_ns():
         return now_ns
 
 OUTPUT_FILENAMES = (
+    "camera.avi",
+    "video_evidence.json",
     "pose.jsonl",
     "telemetry.jsonl",
     "frame_index.jsonl",
@@ -175,6 +315,80 @@ def read_camera_mode(cap, index, width, height):
         "fps": float(cap.get(cv2.CAP_PROP_FPS)),
         "fourcc": fourcc,
     }
+
+
+def _new_video_evidence(path=None, camera_mode=None, *, enabled=False):
+    mode = dict(camera_mode or {})
+    return {
+        "enabled": bool(enabled),
+        "path": (
+            str(Path(path).resolve())
+            if path is not None
+            else None
+        ),
+        "width": int(mode["width"]) if "width" in mode else None,
+        "height": int(mode["height"]) if "height" in mode else None,
+        "fps": float(mode["fps"]) if "fps" in mode else None,
+        "fourcc": str(mode["fourcc"]) if "fourcc" in mode else None,
+        "opened": bool(enabled),
+        "frames_written": 0,
+        "write_errors": [],
+        "released": not bool(enabled),
+        "open_error": None,
+        "release_error": None,
+        "file_exists": None,
+        "file_size_bytes": None,
+        "sha256": None,
+    }
+
+
+def _finalize_video_evidence(video_evidence):
+    path_value = video_evidence.get("path")
+    if not path_value:
+        return
+    path = Path(path_value)
+    video_evidence["file_exists"] = path.is_file()
+    if not path.is_file():
+        return
+    video_evidence["file_size_bytes"] = int(path.stat().st_size)
+    video_evidence["sha256"] = _sha256_file(path)
+
+
+def open_capture_video_writer(path, camera_mode):
+    """Open the validated per-run MJPG writer before START is sent."""
+    mode = dict(camera_mode)
+    width = int(mode.get("width", 0))
+    height = int(mode.get("height", 0))
+    fps = float(mode.get("fps", float("nan")))
+    fourcc_name = str(mode.get("fourcc", ""))
+    if (
+        (width, height) != (CAMERA_WIDTH, CAMERA_HEIGHT)
+        or not math.isfinite(fps)
+        or abs(fps - CAMERA_FPS) > 0.5
+        or fourcc_name != "MJPG"
+    ):
+        raise ValueError(
+            "capture video requires 1920x1080 MJPG/30fps, got {0}".format(
+                mode
+            )
+        )
+    output_path = Path(path).resolve()
+    writer = cv2.VideoWriter(
+        str(output_path),
+        cv2.VideoWriter_fourcc(*"MJPG"),
+        fps,
+        (width, height),
+        True,
+    )
+    if not writer.isOpened():
+        try:
+            writer.release()
+        except BaseException:
+            pass
+        raise RuntimeError(
+            "unable to open capture video writer: {0}".format(output_path)
+        )
+    return writer
 
 
 def make_run_id() -> str:
@@ -368,7 +582,14 @@ def _save_failure_frame_thumbnail(frame, frame_index, reason, failure_frame_dir)
             [cv2.IMWRITE_JPEG_QUALITY, FAILURE_FRAME_JPEG_QUALITY],
         )
         if not encoded:
-            return None, "cv2.imwrite returned false"
+            return None, (
+                "cv2.imencode returned false (shape={}, dtype={}, "
+                "contiguous={})".format(
+                    tuple(int(dim) for dim in image.shape),
+                    str(image.dtype),
+                    bool(image.flags.c_contiguous),
+                )
+            )
         with path.open("wb") as handle:
             handle.write(buffer.tobytes())
         return "{}/{}".format(output_dir.name, filename), None
@@ -518,6 +739,15 @@ def write_capture_artifacts(out_dir, poses, telemetry, frame_index=None,
             "saved_by_reason": {},
             "save_errors": [],
         }), f, indent=2, ensure_ascii=False)
+    with open(os.path.join(out_dir, "video_evidence.json"),
+              "w", encoding="utf-8") as f:
+        json.dump(diagnostics.get("video_evidence", {
+            "enabled": False,
+            "path": None,
+            "frames_written": 0,
+            "write_errors": [],
+            "released": True,
+        }), f, indent=2, ensure_ascii=False)
 
 
 def _status_to_dict(status):
@@ -530,7 +760,7 @@ def _status_to_dict(status):
     }
 
 
-def evaluate_capture_gate(sync_verdict, actions, outcome):
+def evaluate_capture_gate(sync_verdict, actions, outcome, video_evidence=None):
     """Combine the numerical sync gate with the safety/cleanup gate."""
     if sync_verdict != "PASS":
         return sync_verdict, "sync gate verdict: {}".format(sync_verdict)
@@ -550,6 +780,14 @@ def evaluate_capture_gate(sync_verdict, actions, outcome):
         )
     if actions.get("reader_error"):
         return "FAIL", "reader error: {}".format(actions["reader_error"])
+    video = video_evidence or {}
+    if video.get("enabled"):
+        if video.get("write_errors"):
+            return "FAIL", "video writer errors were recorded"
+        if not video.get("released", False):
+            return "FAIL", "video writer was not released"
+        if video.get("path") and video.get("file_exists") is False:
+            return "FAIL", "video evidence file is missing"
     return "PASS", "sync and safety/cleanup gates passed"
 
 
@@ -630,7 +868,9 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                              frame_index=None, diagnostics=None,
                              failure_frame_dir=None,
                              max_failure_frame_thumbnails=MAX_FAILURE_FRAME_THUMBNAILS,
-                             expected_frame_size=None):
+                             expected_frame_size=None,
+                             video_writer=None,
+                             video_evidence=None):
     """START → 等待首帧遥测 → 采集 的生命周期，附带统一幂等清理。
 
     *sock* / *cap* / *tracker* 由调用方注入（真硬件或离线 fake）。
@@ -647,6 +887,27 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
     telemetry = []
     poses = []
     diagnostics = diagnostics if diagnostics is not None else {}
+    if video_evidence is None:
+        video_evidence = _new_video_evidence(
+            enabled=video_writer is not None
+        )
+    else:
+        video_evidence.setdefault("enabled", video_writer is not None)
+        video_evidence.setdefault("path", None)
+        video_evidence.setdefault("width", None)
+        video_evidence.setdefault("height", None)
+        video_evidence.setdefault("fps", None)
+        video_evidence.setdefault("fourcc", None)
+        video_evidence.setdefault("opened", video_writer is not None)
+        video_evidence.setdefault("frames_written", 0)
+        video_evidence.setdefault("write_errors", [])
+        video_evidence.setdefault("released", video_writer is None)
+        video_evidence.setdefault("open_error", None)
+        video_evidence.setdefault("release_error", None)
+        video_evidence.setdefault("file_exists", None)
+        video_evidence.setdefault("file_size_bytes", None)
+        video_evidence.setdefault("sha256", None)
+    diagnostics["video_evidence"] = video_evidence
     failure_frame_summary = _new_failure_frame_summary(
         failure_frame_dir, max_failure_frame_thumbnails
     )
@@ -888,6 +1149,23 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                         # Task 4B-4 fix: 帧读取成功立即打时间戳，显式传入 track()，
                         # 不在检测结束后才打采集时间（PoseTracker 默认时间戳在
                         # 检测结束生成）。
+                        if video_writer is not None:
+                            try:
+                                video_writer.write(frame)
+                            except BaseException as exc:  # noqa: BLE001
+                                video_evidence["write_errors"].append({
+                                    "frame_index": int(
+                                        frame_record["frame_index"]
+                                    ),
+                                    "error": repr(exc),
+                                })
+                                frame_record["failure_reason"] = (
+                                    "video_write_failed"
+                                )
+                                actions["collect_error"] = repr(exc)
+                                outcome = "video_write_failed"
+                                return telemetry, poses, actions, outcome
+                            video_evidence["frames_written"] += 1
                         t_pc_ns = capture_pc_clock_ns()
                         frame_record["t_pc_ns"] = t_pc_ns
                         track_with_diagnostics = getattr(
@@ -921,6 +1199,27 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
             outcome = "collect_error"
             return telemetry, poses, actions, outcome
     finally:
+        if video_writer is not None and not video_evidence.get("released"):
+            try:
+                video_writer.release()
+                video_evidence["released"] = True
+            except BaseException as exc:  # noqa: BLE001 - cleanup continues
+                video_evidence["release_error"] = repr(exc)
+                video_evidence["write_errors"].append({
+                    "stage": "release",
+                    "error": repr(exc),
+                })
+                if outcome == "ok":
+                    outcome = "video_release_failed"
+        try:
+            _finalize_video_evidence(video_evidence)
+        except BaseException as exc:  # noqa: BLE001 - retain cleanup evidence
+            video_evidence["write_errors"].append({
+                "stage": "finalize",
+                "error": repr(exc),
+            })
+            if outcome == "ok":
+                outcome = "video_finalize_failed"
         boundary.close_window("collection_end_or_cleanup")
         def status_cursor():
             with status_cv:
@@ -965,15 +1264,22 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
 
 def build_sync_report(*, host, duration_s, run_id, camera_mode, actions,
                       outcome, n_poses, n_telemetry, clock, residuals, sync,
-                      calibration_evidence=None, diagnostics=None):
+                      calibration_evidence=None, diagnostics=None,
+                      observation_profile=None):
     """Build the auditable 4B-4 report without touching hardware or files."""
     actual_camera = dict(camera_mode)
+    video_evidence = dict(
+        (diagnostics or {}).get("video_evidence", _new_video_evidence())
+    )
     report = {
         "schema_version": 1,
         "task": "4B-4",
         "host": host,
         "duration_s": float(duration_s),
         "run_id": run_id,
+        "recovery_policy": str(
+            (diagnostics or {}).get("recovery_policy", "production")
+        ),
         "camera": {
             "requested": {
                 "width": CAMERA_WIDTH,
@@ -989,6 +1295,10 @@ def build_sync_report(*, host, duration_s, run_id, camera_mode, actions,
         "n_poses": int(n_poses),
         "n_telemetry": int(n_telemetry),
         "calibration": dict(calibration_evidence or {}),
+        "video_evidence": video_evidence,
+        "observation_profile": _observation_profile_evidence(
+            observation_profile
+        ),
         "diagnostics": {
             "health": dict((diagnostics or {}).get("health", {})),
             "raw_health_file": "raw_health.json",
@@ -1021,7 +1331,7 @@ def build_sync_report(*, host, duration_s, run_id, camera_mode, actions,
         report[key] = sync[key]
     sync_gate_verdict = sync["verdict"]
     final_verdict, final_reason = evaluate_capture_gate(
-        sync_gate_verdict, actions, outcome)
+        sync_gate_verdict, actions, outcome, video_evidence=video_evidence)
     report["sync_gate_verdict"] = sync_gate_verdict
     report["verdict"] = final_verdict
     report["gate_reason"] = final_reason
@@ -1030,7 +1340,8 @@ def build_sync_report(*, host, duration_s, run_id, camera_mode, actions,
 
 def build_session_failure_report(*, host, duration_s, run_id, camera_mode,
                                  actions, outcome, reason, n_poses,
-                                 n_telemetry):
+                                 n_telemetry, observation_profile=None,
+                                 video_evidence=None):
     """Build a non-passing report for failures before clock fitting."""
     return {
         "schema_version": 1,
@@ -1054,13 +1365,21 @@ def build_session_failure_report(*, host, duration_s, run_id, camera_mode,
         "telemetry_yaw_unit": "radian",
         "n_poses": int(n_poses),
         "n_telemetry": int(n_telemetry),
+        "video_evidence": dict(
+            video_evidence or _new_video_evidence()
+        ),
+        "observation_profile": _observation_profile_evidence(
+            observation_profile
+        ),
         "missing_artifacts": list(B3_RAW_FILENAMES),
     }
 
 
 def write_session_failure_report(out_dir, *, host, duration_s, run_id,
                                  camera_mode, actions, outcome, reason,
-                                 n_poses, n_telemetry):
+                                 n_poses, n_telemetry,
+                                 observation_profile=None,
+                                 video_evidence=None):
     report = build_session_failure_report(
         host=host,
         duration_s=duration_s,
@@ -1071,6 +1390,8 @@ def write_session_failure_report(out_dir, *, host, duration_s, run_id,
         reason=reason,
         n_poses=n_poses,
         n_telemetry=n_telemetry,
+        observation_profile=observation_profile,
+        video_evidence=video_evidence,
     )
     with open(os.path.join(out_dir, "sync_report.json"), "w",
               encoding="utf-8") as f:
@@ -1188,7 +1509,46 @@ def main():
     ap.add_argument("--wait-timeout", type=float, default=30.0)
     ap.add_argument("--calibration-manifest", required=True)
     ap.add_argument("--out", default=".")
+    ap.add_argument(
+        "--observation-profile",
+        default="production",
+        help="observation profile: production or r1_gray1x",
+    )
+    ap.add_argument(
+        "--record-video",
+        action="store_true",
+        help="explicitly retain camera.avi for a later offline replay",
+    )
+    ap.add_argument(
+        "--recovery-policy",
+        default="production",
+        help="tracker policy; experimental policies require the explicit opt-in",
+    )
+    ap.add_argument(
+        "--allow-experimental-recovery",
+        action="store_true",
+        help="allow one bounded real run with an offline-qualified recovery policy",
+    )
     args = ap.parse_args()
+
+    try:
+        observation_profile = resolve_observation_profile(
+            args.observation_profile
+        )
+    except (TypeError, ValueError) as exc:
+        print("ERROR: observation profile failed: {}".format(exc))
+        return 2
+
+    try:
+        recovery_policy = resolve_recovery_policy(args.recovery_policy)
+        if recovery_policy["offline_only"] and not args.allow_experimental_recovery:
+            raise ValueError(
+                "recovery policy {0} requires --allow-experimental-recovery"
+                .format(recovery_policy["name"])
+            )
+    except (TypeError, ValueError) as exc:
+        print("ERROR: recovery policy failed: {}".format(exc))
+        return 2
 
     run_id = make_run_id()
     out_dir = resolve_run_output_dir(args.out, run_id, OUTPUT_FILENAMES)
@@ -1211,10 +1571,17 @@ def main():
             reason=repr(exc),
             n_poses=0,
             n_telemetry=0,
+            observation_profile=observation_profile,
         )
         print("ERROR: calibration setup failed: {}".format(exc))
         return 1
-    tracker = PoseTracker(calib, hom, tag_id=0, detect_scales=(1.0, 2.0, 3.0))
+    tracker = create_pose_tracker(
+        calib,
+        hom,
+        observation_profile["name"],
+        recovery_policy=recovery_policy["name"],
+        allow_experimental=args.allow_experimental_recovery,
+    )
 
     try:
         src = resolve_camera_source(args.camera)
@@ -1236,6 +1603,7 @@ def main():
             reason=repr(exc),
             n_poses=0,
             n_telemetry=0,
+            observation_profile=observation_profile,
         )
         print("ERROR: camera setup failed: {}".format(exc))
         return 1
@@ -1263,6 +1631,7 @@ def main():
             reason=repr(exc),
             n_poses=0,
             n_telemetry=0,
+            observation_profile=observation_profile,
         )
         print("ERROR: camera probe failed: {}".format(exc))
         return 1
@@ -1288,6 +1657,7 @@ def main():
             reason=repr(exc),
             n_poses=0,
             n_telemetry=0,
+            observation_profile=observation_profile,
         )
         print("ERROR: {0}".format(exc))
         return 1
@@ -1313,6 +1683,7 @@ def main():
             reason="actual camera mode does not match 1920x1080 MJPG/30fps",
             n_poses=0,
             n_telemetry=0,
+            observation_profile=observation_profile,
         )
         print("ERROR: camera mode mismatch: {}".format(camera_mode))
         return 1
@@ -1338,18 +1709,69 @@ def main():
             reason=repr(exc),
             n_poses=0,
             n_telemetry=0,
+            observation_profile=observation_profile,
         )
         print("ERROR: car connection failed: {}".format(exc))
         return 1
 
+    video_writer = None
+    if args.record_video:
+        video_path = Path(out_dir) / "camera.avi"
+        video_evidence = _new_video_evidence(
+            video_path, camera_mode, enabled=True
+        )
+        try:
+            video_writer = open_capture_video_writer(video_path, camera_mode)
+            video_evidence["opened"] = True
+        except BaseException as exc:  # noqa: BLE001 - START must not be sent
+            video_evidence["open_error"] = repr(exc)
+            video_evidence["released"] = True
+            _finalize_video_evidence(video_evidence)
+            actions = _new_action_state()
+            try:
+                sock.close()
+                actions["socket_closed"] = True
+            except BaseException as cleanup_exc:  # noqa: BLE001
+                actions["close_error"] = repr(cleanup_exc)
+            try:
+                cap.release()
+                actions["camera_released"] = True
+            except BaseException as cleanup_exc:  # noqa: BLE001
+                actions["release_error"] = repr(cleanup_exc)
+            write_capture_artifacts(
+                out_dir, [], [], [], {"video_evidence": video_evidence}
+            )
+            write_session_failure_report(
+                out_dir,
+                host=args.host,
+                duration_s=args.duration,
+                run_id=run_id,
+                camera_mode=camera_mode,
+                actions=actions,
+                outcome="video_setup_failed",
+                reason=repr(exc),
+                n_poses=0,
+                n_telemetry=0,
+                observation_profile=observation_profile,
+                video_evidence=video_evidence,
+            )
+            print("ERROR: capture video setup failed: {}".format(exc))
+            return 1
+    else:
+        video_evidence = _new_video_evidence(
+            camera_mode=camera_mode, enabled=False
+        )
+
     # 采集生命周期（START→等待→采集→统一清理）由 session 函数负责。
     frame_index = []
-    diagnostics = {}
+    diagnostics = {"recovery_policy": recovery_policy["name"]}
     telemetry, poses, actions, outcome = run_sync_capture_session(
         sock, cap, tracker, run_id, args.duration, args.wait_timeout,
         frame_index=frame_index, diagnostics=diagnostics,
         failure_frame_dir=Path(out_dir) / FAILURE_FRAME_DIRNAME,
-        expected_frame_size=(CAMERA_WIDTH, CAMERA_HEIGHT))
+        expected_frame_size=(CAMERA_WIDTH, CAMERA_HEIGHT),
+        video_writer=video_writer,
+        video_evidence=video_evidence)
 
     # 动作状态报告：START 失败时不假称已 STOP。
     print("cleanup actions:", {k: v for k, v in actions.items()})
@@ -1357,6 +1779,7 @@ def main():
     if outcome in (
         "start_failed", "heartbeat_failed", "no_telemetry_timeout",
         "collect_error", "camera_frame_dimensions_mismatch",
+        "video_write_failed", "video_release_failed", "video_finalize_failed",
     ):
         write_capture_artifacts(out_dir, poses, telemetry, frame_index,
                                 diagnostics)
@@ -1373,6 +1796,8 @@ def main():
             reason=reason,
             n_poses=len(poses),
             n_telemetry=len(telemetry),
+            observation_profile=observation_profile,
+            video_evidence=video_evidence,
         )
         print("ERROR: session outcome={0}: {1}".format(outcome, reason))
         return 1
@@ -1393,6 +1818,8 @@ def main():
             reason=reason,
             n_poses=len(poses),
             n_telemetry=len(telemetry),
+            observation_profile=observation_profile,
+            video_evidence=video_evidence,
         )
         print("ERROR: 数据不足")
         return 1
@@ -1419,6 +1846,8 @@ def main():
             reason=repr(exc),
             n_poses=len(poses),
             n_telemetry=len(telemetry),
+            observation_profile=observation_profile,
+            video_evidence=video_evidence,
         )
         print("ERROR: ClockSync failed: {}".format(exc))
         return 1
@@ -1445,6 +1874,7 @@ def main():
             reason=repr(exc),
             n_poses=len(poses),
             n_telemetry=len(telemetry),
+            video_evidence=video_evidence,
         )
         print("ERROR: synchronized dataset failed: {}".format(exc))
         return 1
@@ -1494,6 +1924,7 @@ def main():
         },
         calibration_evidence=calibration_evidence,
         diagnostics=diagnostics,
+        observation_profile=observation_profile,
     )
     with open(os.path.join(out_dir, "sync_report.json"), "w",
               encoding="utf-8") as f:

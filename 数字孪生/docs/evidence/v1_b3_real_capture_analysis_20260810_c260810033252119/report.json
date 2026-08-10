@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "type": "V1B3RealCaptureAnalysis",
+  "generated_on": "2026-08-10",
+  "run_id": "c260810033252119",
+  "hardware_action": "AUTHORIZED_SINGLE_CAPTURE",
+  "camera": {
+    "model": "EMEET SmartCam C960",
+    "resolution": [1920, 1080],
+    "fps": 30.00003000003,
+    "fourcc": "MJPG"
+  },
+  "lifecycle": {
+    "duration_s": 8.0,
+    "start_running_confirmed": true,
+    "stop_stopped_confirmed": true,
+    "socket_closed": true,
+    "camera_released": true,
+    "reader_joined": true,
+    "cleaned_up": true
+  },
+  "gate_results": {
+    "sync_gate": "PASS",
+    "sync_coverage": 1.0,
+    "sync_p95_time_diff_ms": 14.7073304296875,
+    "sync_telemetry_interval_p95_ms": 32.969318859375,
+    "observation_gate": "FAIL",
+    "observation_evidence_status": "VERIFIED",
+    "camera_frame_count": 199,
+    "pose_frame_count": 150,
+    "detection_ratio": 0.7537688442211056,
+    "max_pose_gap_frames": 7.312086,
+    "processing_p95_ms": 74.57561,
+    "processing_budget_ms": 33.333333,
+    "failure_reasons": [
+      "detection_ratio_below_threshold",
+      "max_pose_gap_exceeded",
+      "detector_processing_over_budget"
+    ]
+  },
+  "failure_diagnostics": {
+    "rejected_frames": 49,
+    "save_attempted_frames": 2,
+    "saved_frames": 2,
+    "save_errors": 0,
+    "roi_edge_clipped_failures": 6,
+    "failure_runs": 34,
+    "max_consecutive_failures": 3,
+    "rejected_candidate_count_min": 35,
+    "rejected_candidate_count_mean": 88.9591836734694,
+    "rejected_candidate_count_max": 124,
+    "failure_path": "roi -> ROI preprocessing -> full-frame fallback",
+    "saved_failure_frames": [
+      "failed_frames/frame_000001_candidates_rejected.jpg",
+      "failed_frames/frame_000148_candidates_rejected.jpg"
+    ]
+  },
+  "failure_thumbnail_matrix": {
+    "image_count": 2,
+    "opencv_gray_1x": {"detected": 0, "ratio": 0.0, "p95_ms": 20.8754},
+    "opencv_blue_clahe_2x": {"detected": 1, "ratio": 0.5, "p95_ms": 44.44151},
+    "pupil_gray_1x": {"detected": 2, "ratio": 1.0, "p95_ms": 120.86131},
+    "pupil_gray_2x": {"detected": 1, "ratio": 0.5, "p95_ms": 349.698335}
+  },
+  "combined_dynamic_failure_matrix": {
+    "image_count": 6,
+    "source": "docs/evidence/v1_b3_dynamic_failure_detector_matrix_20260810_all6/report.json",
+    "sha256": "C8C4729CC3B28011C2002111D283934BEA5CA87B097A8E6E66B3B6AA8B3A7AEC",
+    "opencv_gray_1x": {"detected": 0, "ratio": 0.0, "p95_ms": 21.90595},
+    "opencv_blue_clahe_2x": {"detected": 1, "ratio": 0.16666666666666666, "p95_ms": 59.4581},
+    "pupil_gray_1x": {"detected": 4, "ratio": 0.6666666666666666, "p95_ms": 142.1171},
+    "pupil_gray_2x": {"detected": 2, "ratio": 0.3333333333333333, "p95_ms": 419.542425}
+  },
+  "imu_observation": {
+    "evidence_status": "VERIFIED_AS_OBSERVED",
+    "record_count": 141,
+    "used_imu_count": 125,
+    "imu_coverage": 0.8865248226950354,
+    "camera_imu_delta_p95_rad": 0.062096298398483026,
+    "max_imu_gap_ms": 255.761989,
+    "controller_use": "NONE"
+  },
+  "input_artifacts": {
+    "sync_report": {
+      "path": "simulation/digital_twin/data/product/sessions/v1_b/c260810033252119/sync_report.json",
+      "sha256": "BAAE965CBF280E492FADDBE479245470A3A17F65F18A80EAEE5CCCF06A3A34F7"
+    },
+    "frame_index": {
+      "path": "simulation/digital_twin/data/product/sessions/v1_b/c260810033252119/frame_index.jsonl",
+      "sha256": "BC837A624E0C3D6B2BDF81FF5FE3374EBC867C9E4816E2EA2508A4D6B0EA5DA3"
+    },
+    "failure_frame_summary": {
+      "path": "simulation/digital_twin/data/product/sessions/v1_b/c260810033252119/failure_frame_summary.json",
+      "sha256": "C6AC8A827677FE9FFF3ECDD27358AAFF0FD25211906091FAD0432EC51FF0A152"
+    },
+    "observation_replay": {
+      "path": "docs/evidence/v1_b3_observation_gate_20260810_1080p_c260810033252119/replay_report.json",
+      "sha256": "CB34D21E577EAFCCA83A1FE21572AEFBF1A35CFDE5420E4D4242F4E641C22C12"
+    },
+    "failure_detector_matrix": {
+      "path": "docs/evidence/v1_b3_dynamic_failure_detector_matrix_20260810_c260810033252119/report.json",
+      "sha256": "C9CA7FC4DB4930E13648BE1CE0C07C5B3AB198C6FE74096754D18284C880F8EC"
+    }
+  },
+  "findings": {
+    "VERIFIED": [
+      "The authorized real run used 1920x1080 MJPG at approximately 30 fps and completed START/RUNNING, STOP/STOPPED, socket cleanup, camera release, and reader join.",
+      "The synchronization gate passed independently of the observation gate: coverage was 100% and p95 timestamp difference was 14.7 ms.",
+      "The observation gate failed on all three fixed criteria: 75.38% detection ratio, 7.31-frame maximum pose gap, and 74.58 ms detector p95.",
+      "The failure-frame instrumentation worked in this run: 49 rejected frames were observed, 2 thumbnails were saved, and 0 save errors occurred.",
+      "On the two retained failure thumbnails, Pupil gray 1x detected 2/2 but exceeded the frame budget, while OpenCV blue CLAHE 2x detected 1/2 and also exceeded the budget."
+    ],
+    "INFERENCE": [
+      "The failures are not explained solely by ROI clipping because only 6 of 49 failed frames touched a 1920x1080 image boundary.",
+      "The dynamic failure pattern is consistent with a detector/target-quality problem under changing pose or view, but the two saved frames are not sufficient to identify the causal parameter or algorithm change."
+    ],
+    "INSUFFICIENT_EVIDENCE": [
+      "No tested alternative branch currently satisfies both dynamic recovery and the 33.33 ms frame budget.",
+      "The current run does not establish B3 observation readiness, calibrated digital-twin accuracy, or an AI-generated algorithm improvement.",
+      "The IMU is observed and time-associated, but no claim is made that it improves control or resolves camera detection loss."
+    ]
+  },
+  "decision": {
+    "production_detector_change": "NOT_JUSTIFIED",
+    "threshold_change": "NOT_JUSTIFIED",
+    "b3_observation_status": "FAIL",
+    "next_offline_action": "Design and benchmark a constrained detector/ROI candidate against a larger retained dynamic failure set before any production change.",
+    "next_hardware_action": "NONE_PENDING_WITHOUT_NEW_AUTHORIZATION",
+    "encoder_motor": "DEFERRED"
+  }
+}

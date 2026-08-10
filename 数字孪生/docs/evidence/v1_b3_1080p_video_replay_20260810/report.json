@@ -1,0 +1,244 @@
+{
+  "calibration": {
+    "calibration_id": "c960_r3_1080p_raw_global_exploratory_20260809",
+    "camera_model": "EMEET SmartCam C960",
+    "image_size": [
+      1920,
+      1080
+    ],
+    "intrinsics_path": "simulation/digital_twin/data/product/capture_manifests/c960_r3_1080p_exploratory_20260809/intrinsics_c960_1080p.json",
+    "intrinsics_sha256": "7e4e0f88dfb889ebd53437fe1973e70ba8763067a20bc74431f06d03a03090e8",
+    "manifest_path": "simulation/digital_twin/data/product/capture_manifests/c960_r3_1080p_exploratory_20260809/manifest.json",
+    "manifest_sha256": "b1fd4b6f3f012fb49fe80d6f65c6825d8c8573105f6e54cd2c2046516bf7f350",
+    "profile_path": "simulation/digital_twin/data/product/capture_manifests/c960_r3_1080p_exploratory_20260809/relative_plane_profile.json",
+    "profile_sha256": "c752f539525694728df16b4984093db7c74e6b23e3c27dcc2a4de3b98accbf2d",
+    "quality": "EXPLORATORY_RELATIVE_ONLY"
+  },
+  "candidates": [
+    {
+      "name": "production",
+      "observation_profile": "production",
+      "parameter_variant": "default",
+      "trace_path": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\docs\\evidence\\v1_b3_1080p_video_replay_20260810\\production_a6d422d8dc86.jsonl"
+    },
+    {
+      "name": "subpix",
+      "observation_profile": "production",
+      "parameter_variant": "subpix",
+      "selection": {
+        "checks": {
+          "candidate_has_no_errors": true,
+          "detection_ratio_improvement": false,
+          "gap_not_worse": true,
+          "gap_or_missed_strictly_better": true,
+          "missed_frames_not_worse": true,
+          "processing_p95_within_baseline_factor": true,
+          "processing_p95_within_frame_budget": false
+        },
+        "reason": "candidate did not meet every offline threshold",
+        "verdict": "NOT_JUSTIFIED"
+      },
+      "trace_path": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\docs\\evidence\\v1_b3_1080p_video_replay_20260810\\subpix_a6d422d8dc86.jsonl"
+    },
+    {
+      "name": "contour",
+      "observation_profile": "production",
+      "parameter_variant": "contour",
+      "selection": {
+        "checks": {
+          "candidate_has_no_errors": true,
+          "detection_ratio_improvement": false,
+          "gap_not_worse": true,
+          "gap_or_missed_strictly_better": true,
+          "missed_frames_not_worse": true,
+          "processing_p95_within_baseline_factor": true,
+          "processing_p95_within_frame_budget": false
+        },
+        "reason": "candidate did not meet every offline threshold",
+        "verdict": "NOT_JUSTIFIED"
+      },
+      "trace_path": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\docs\\evidence\\v1_b3_1080p_video_replay_20260810\\contour_a6d422d8dc86.jsonl"
+    },
+    {
+      "name": "adaptive_wide",
+      "observation_profile": "production",
+      "parameter_variant": "adaptive_wide",
+      "selection": {
+        "checks": {
+          "candidate_has_no_errors": true,
+          "detection_ratio_improvement": true,
+          "gap_not_worse": true,
+          "gap_or_missed_strictly_better": true,
+          "missed_frames_not_worse": true,
+          "processing_p95_within_baseline_factor": false,
+          "processing_p95_within_frame_budget": false
+        },
+        "reason": "candidate did not meet every offline threshold",
+        "verdict": "NOT_JUSTIFIED"
+      },
+      "trace_path": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\docs\\evidence\\v1_b3_1080p_video_replay_20260810\\adaptive_wide_a6d422d8dc86.jsonl"
+    },
+    {
+      "name": "perimeter_relaxed",
+      "observation_profile": "production",
+      "parameter_variant": "perimeter_relaxed",
+      "selection": {
+        "checks": {
+          "candidate_has_no_errors": true,
+          "detection_ratio_improvement": false,
+          "gap_not_worse": true,
+          "gap_or_missed_strictly_better": false,
+          "missed_frames_not_worse": true,
+          "processing_p95_within_baseline_factor": false,
+          "processing_p95_within_frame_budget": false
+        },
+        "reason": "candidate did not meet every offline threshold",
+        "verdict": "NOT_JUSTIFIED"
+      },
+      "trace_path": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\docs\\evidence\\v1_b3_1080p_video_replay_20260810\\perimeter_relaxed_a6d422d8dc86.jsonl"
+    },
+    {
+      "name": "r1_gray1x",
+      "observation_profile": "r1_gray1x",
+      "parameter_variant": "default",
+      "selection": {
+        "checks": {
+          "candidate_has_no_errors": true,
+          "detection_ratio_improvement": false,
+          "gap_not_worse": true,
+          "gap_or_missed_strictly_better": true,
+          "missed_frames_not_worse": true,
+          "processing_p95_within_baseline_factor": true,
+          "processing_p95_within_frame_budget": false
+        },
+        "reason": "candidate did not meet every offline threshold",
+        "verdict": "NOT_JUSTIFIED"
+      },
+      "trace_path": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\docs\\evidence\\v1_b3_1080p_video_replay_20260810\\r1_gray1x_a6d422d8dc86.jsonl"
+    }
+  ],
+  "comparison_valid": true,
+  "evidence_status": "INSUFFICIENT_EVIDENCE",
+  "schema_version": 1,
+  "selection": {
+    "candidate": null,
+    "qualified_candidates": [],
+    "reason": "candidate did not meet the offline thresholds",
+    "verdict": "NOT_JUSTIFIED"
+  },
+  "source": "1080P_VIDEO_REPLAY",
+  "summaries": [
+    {
+      "decoded_frame_count": 655,
+      "detected_count": 451,
+      "detection_ratio": 0.6885496183206107,
+      "errors": [],
+      "failure_reason_counts": {
+        "candidates_rejected": 204
+      },
+      "max_consecutive_missed_frames": 60,
+      "max_detection_interval_frames": 61.0,
+      "name": "production",
+      "observation_profile": "production",
+      "parameter_variant": "default",
+      "processing_p95_ms": 95.61501,
+      "rejected_candidate_total": 25165
+    },
+    {
+      "decoded_frame_count": 655,
+      "detected_count": 453,
+      "detection_ratio": 0.6916030534351145,
+      "errors": [],
+      "failure_reason_counts": {
+        "candidates_rejected": 202
+      },
+      "max_consecutive_missed_frames": 58,
+      "max_detection_interval_frames": 59.0,
+      "name": "subpix",
+      "observation_profile": "production",
+      "parameter_variant": "subpix",
+      "processing_p95_ms": 96.36474,
+      "rejected_candidate_total": 25200
+    },
+    {
+      "decoded_frame_count": 655,
+      "detected_count": 457,
+      "detection_ratio": 0.6977099236641221,
+      "errors": [],
+      "failure_reason_counts": {
+        "candidates_rejected": 198
+      },
+      "max_consecutive_missed_frames": 55,
+      "max_detection_interval_frames": 56.0,
+      "name": "contour",
+      "observation_profile": "production",
+      "parameter_variant": "contour",
+      "processing_p95_ms": 95.8633,
+      "rejected_candidate_total": 25102
+    },
+    {
+      "decoded_frame_count": 655,
+      "detected_count": 557,
+      "detection_ratio": 0.850381679389313,
+      "errors": [],
+      "failure_reason_counts": {
+        "candidates_rejected": 98
+      },
+      "max_consecutive_missed_frames": 54,
+      "max_detection_interval_frames": 55.0,
+      "name": "adaptive_wide",
+      "observation_profile": "production",
+      "parameter_variant": "adaptive_wide",
+      "processing_p95_ms": 139.2423,
+      "rejected_candidate_total": 29201
+    },
+    {
+      "decoded_frame_count": 655,
+      "detected_count": 451,
+      "detection_ratio": 0.6885496183206107,
+      "errors": [],
+      "failure_reason_counts": {
+        "candidates_rejected": 204
+      },
+      "max_consecutive_missed_frames": 60,
+      "max_detection_interval_frames": 61.0,
+      "name": "perimeter_relaxed",
+      "observation_profile": "production",
+      "parameter_variant": "perimeter_relaxed",
+      "processing_p95_ms": 206.42775,
+      "rejected_candidate_total": 168640
+    },
+    {
+      "decoded_frame_count": 655,
+      "detected_count": 458,
+      "detection_ratio": 0.6992366412213741,
+      "errors": [],
+      "failure_reason_counts": {
+        "candidates_rejected": 197
+      },
+      "max_consecutive_missed_frames": 56,
+      "max_detection_interval_frames": 57.0,
+      "name": "r1_gray1x",
+      "observation_profile": "r1_gray1x",
+      "parameter_variant": "default",
+      "processing_p95_ms": 71.13137,
+      "rejected_candidate_total": 25082
+    }
+  ],
+  "timebase": "DERIVED_FROM_VIDEO_FPS",
+  "type": "V1B3AprilTagVideoReplay",
+  "videos": [
+    {
+      "decoded_frame_count": 655,
+      "file_size_bytes": 103914821,
+      "fourcc": "MJPG",
+      "fps": 30.0,
+      "frame_count_matches_reported": true,
+      "height": 1080,
+      "path": "C:\\Users\\24668\\Desktop\\stm32小车\\数字孪生\\simulation\\digital_twin\\logs\\v1_ground_shakedown_260810143237802\\camera.mkv",
+      "reported_frame_count": 655,
+      "sha256": "a6d422d8dc8685673e0b6b490a14a05e544f2e9ceaf79f4e06d8affeddaec140",
+      "width": 1920
+    }
+  ]
+}

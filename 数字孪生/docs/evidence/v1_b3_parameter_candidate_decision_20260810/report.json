@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "type": "V1B3AprilTagParameterCandidateDecision",
+  "generated_on": "2026-08-10",
+  "source_report": {
+    "path": "docs/evidence/v1_b3_parameter_candidate_screening_20260810/report.json",
+    "sha256": "A0AC2FF71AA323430D9E680CD7E00E8D62AB5D868C7FE77B4606CEC496895E43"
+  },
+  "dataset": {
+    "static_images": 100,
+    "dynamic_failure_thumbnails": 6,
+    "total_images": 106,
+    "evidence_status": "INSUFFICIENT_EVIDENCE_FOR_B3"
+  },
+  "candidate_results": {
+    "default_opencv_gray_1x": {
+      "dynamic_detected": 0,
+      "dynamic_total": 6,
+      "dynamic_ratio": 0.0,
+      "dynamic_p95_ms": 23.99,
+      "static_detected": 99,
+      "static_total": 100,
+      "static_ratio": 0.99,
+      "static_p95_ms": 27.48
+    },
+    "adaptive_wide_opencv_blue_2x": {
+      "dynamic_detected": 4,
+      "dynamic_total": 6,
+      "dynamic_ratio": 0.6666666666666666,
+      "dynamic_p95_ms": 62.18,
+      "static_detected": 100,
+      "static_total": 100,
+      "static_ratio": 1.0,
+      "static_p95_ms": 85.51
+    },
+    "adaptive_wide_opencv_gray_2x": {
+      "dynamic_detected": 2,
+      "dynamic_total": 6,
+      "dynamic_ratio": 0.3333333333333333,
+      "dynamic_p95_ms": 57.27,
+      "static_detected": 100,
+      "static_total": 100,
+      "static_ratio": 1.0,
+      "static_p95_ms": 77.91
+    },
+    "subpix_opencv_gray_1x": {
+      "dynamic_detected": 0,
+      "dynamic_total": 6,
+      "dynamic_ratio": 0.0,
+      "dynamic_p95_ms": 21.88,
+      "static_detected": 99,
+      "static_total": 100,
+      "static_ratio": 0.99,
+      "static_p95_ms": 27.39
+    },
+    "contour_opencv_gray_1x": {
+      "dynamic_detected": 0,
+      "dynamic_total": 6,
+      "dynamic_ratio": 0.0,
+      "dynamic_p95_ms": 21.77,
+      "static_detected": 99,
+      "static_total": 100,
+      "static_ratio": 0.99,
+      "static_p95_ms": 28.01
+    },
+    "perimeter_relaxed_opencv_gray_1x": {
+      "dynamic_detected": 0,
+      "dynamic_total": 6,
+      "dynamic_ratio": 0.0,
+      "dynamic_p95_ms": 30.76,
+      "static_detected": 99,
+      "static_total": 100,
+      "static_ratio": 0.99,
+      "static_p95_ms": 29.43
+    }
+  },
+  "findings": {
+    "VERIFIED": [
+      "The parameter matrix processed 106 retained images across five fresh OpenCV parameter objects and four preprocessing branches without camera or TCP access.",
+      "Widening the adaptive threshold window was the only tested parameter family that materially recovered dynamic failure thumbnails: blue 2x detected 4/6 versus 0/6 for the default gray 1x control.",
+      "The same adaptive-wide candidate exceeded the 33.333333 ms budget on both dynamic and static samples.",
+      "Subpixel refinement, contour refinement, and relaxed perimeter did not recover the six dynamic failure thumbnails on the gray 1x branch."
+    ],
+    "INFERENCE": [
+      "Adaptive threshold coverage is a plausible contributor to the OpenCV candidate rejection pattern, but the evidence does not establish that it is the only cause.",
+      "Applying adaptive-wide only inside the existing ROI may preserve some of its recovery benefit at lower cost than a full-frame adaptive pass; this is a new offline hypothesis, not a verified fix."
+    ],
+    "INSUFFICIENT_EVIDENCE": [
+      "Six dynamic failure thumbnails are not enough to claim a production detection improvement or B3 readiness.",
+      "No candidate in this matrix satisfies detection continuity and the 33.333333 ms p95 budget simultaneously.",
+      "No production PoseTracker, firmware, calibration, or hardware behavior was changed by this experiment."
+    ]
+  },
+  "decision": {
+    "production_change": "NOT_JUSTIFIED",
+    "candidate_status": "ADAPTIVE_WIDE_IS_A_SCREENED_HYPOTHESIS_ONLY",
+    "next_offline_action": "Benchmark an adaptive-wide preprocessing pass constrained to the existing ROI, with the current gray ROI path as control and an explicit per-frame time budget.",
+    "hardware_action": "NONE",
+    "b3_status": "FAIL"
+  }
+}

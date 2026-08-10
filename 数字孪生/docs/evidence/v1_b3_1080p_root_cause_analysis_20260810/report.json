@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "type": "V1B3AprilTagRootCauseAnalysis",
+  "source": "1080P_VIDEO_OFFLINE_ANALYSIS",
+  "evidence_status": "INSUFFICIENT_EVIDENCE",
+  "hardware_accessed": false,
+  "video": {
+    "path": "simulation/digital_twin/logs/v1_ground_shakedown_260810143237802/camera.mkv",
+    "sha256": "a6d422d8dc8685673e0b6b490a14a05e544f2e9ceaf79f4e06d8affeddaec140",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30.0,
+    "decoded_frames": 655
+  },
+  "verified": {
+    "production_failure": {
+      "detected": 451,
+      "total": 655,
+      "detection_ratio": 0.6885496183,
+      "max_consecutive_missed_frames": 60,
+      "max_detection_interval_frames": 61.0,
+      "failure_reason": "candidates_rejected",
+      "failure_search_mode": "roi_then_full",
+      "failed_frames_with_roi": 204
+    },
+    "stale_roi_examples": [
+      {
+        "frame": 177,
+        "production_roi": [1184, 598, 1421, 836],
+        "stateless_default_1x_target_center": [1437.2, 676.0],
+        "interpretation": "target center is outside the retained ROI"
+      },
+      {
+        "frame": 566,
+        "production_roi": [376, 178, 614, 416],
+        "stateless_default_1x_target_center": [268.25, 515.75],
+        "default_2x_rejected_quad_center": [265.5, 517.1],
+        "default_2x_rejected_quad_rectangularity": 0.962,
+        "default_2x_rejected_quad_side_ratio": 1.076,
+        "interpretation": "target is outside the retained ROI; full-frame 2x sees a square-like candidate but does not decode it"
+      }
+    ],
+    "stateless_full_frame": {
+      "default_1x": {
+        "detected": 368,
+        "total": 655,
+        "detection_ratio": 0.5618320611,
+        "max_consecutive_missed_frames": 56,
+        "max_detection_interval_frames": 57
+      },
+      "default_2x": {
+        "detected": 269,
+        "total": 655,
+        "detection_ratio": 0.4106870229,
+        "max_consecutive_missed_frames": 66,
+        "max_detection_interval_frames": 67
+      },
+      "adaptive_2x": {
+        "detected": 425,
+        "total": 655,
+        "detection_ratio": 0.6488549618,
+        "max_consecutive_missed_frames": 56,
+        "max_detection_interval_frames": 57
+      }
+    },
+    "bounded_memory_candidates": {
+      "fallback_1x_2x": {
+        "detected": 458,
+        "total": 655,
+        "detection_ratio": 0.6992366412,
+        "max_consecutive_missed_frames": 56,
+        "max_detection_interval_frames": 57.0,
+        "processing_p95_ms": 99.54359
+      },
+      "fallback_1x_2x_3x": {
+        "detected": 458,
+        "total": 655,
+        "detection_ratio": 0.6992366412,
+        "max_consecutive_missed_frames": 56,
+        "max_detection_interval_frames": 57.0,
+        "processing_p95_ms": 175.43244
+      },
+      "predicted_roi_default": {
+        "detected": 460,
+        "total": 655,
+        "detection_ratio": 0.7022900763,
+        "max_consecutive_missed_frames": 56,
+        "max_detection_interval_frames": 57.0,
+        "processing_p95_ms": 86.5213,
+        "implementation": "in_memory_only"
+      }
+    },
+    "sampled_branch_matrix": {
+      "sampled_frame_indices": [500, 510, 520, 530, 540, 550, 560, 565],
+      "best_branches": [
+        {
+          "branch": "pupil_gray_1x",
+          "detected": 2,
+          "total": 8,
+          "processing_p95_ms": 164.46
+        },
+        {
+          "branch": "pupil_gray_2x",
+          "detected": 2,
+          "total": 8,
+          "processing_p95_ms": 494.35
+        },
+        {
+          "branch": "opencv_blue_2x",
+          "detected": 1,
+          "total": 8,
+          "processing_p95_ms": 50.96
+        }
+      ],
+      "frames_520_to_565_detected_by_tested_branches": 0
+    }
+  },
+  "inference": [
+    "The stateful ROI can turn a single missed observation into a long reacquisition delay because the ROI is updated only after a successful decode.",
+    "The long 510-565 gap is not explained by stale ROI alone: predicted ROI and stateless full-frame branches still fail across most of the interval.",
+    "The 2x full-frame fallback is a poor reacquisition scale for this sequence; 1x or adaptive processing can recover selected frames, but neither is sufficient for continuity."
+  ],
+  "insufficient_evidence": [
+    "The exact contribution of motion blur, rolling shutter, tag print/quiet-zone quality, lighting, and camera exposure is not isolated.",
+    "No detector candidate meets the fixed B3 thresholds of detection ratio >= 0.95, maximum gap <= 2.0 frames, and p95 <= 33.333333 ms.",
+    "No production code, firmware, calibration, or hardware change is justified by this analysis."
+  ],
+  "decision": {
+    "production_change": "NOT_JUSTIFIED",
+    "real_ab_eligibility": "NOT_ELIGIBLE",
+    "next_offline_step": "separate image-quality/temporal-tracking experiment with retained per-frame diagnostics"
+  }
+}

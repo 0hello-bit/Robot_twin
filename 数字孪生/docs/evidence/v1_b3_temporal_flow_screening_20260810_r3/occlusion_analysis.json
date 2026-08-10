@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "type": "V1B3TemporalObservationOcclusionAnalysis",
+  "source": "1080P_VIDEO_OFFLINE",
+  "evidence_status": "INSUFFICIENT_EVIDENCE",
+  "hardware_accessed": false,
+  "video": {
+    "path": "simulation/digital_twin/logs/v1_ground_shakedown_260810143237802/camera.mkv",
+    "sha256": "a6d422d8dc8685673e0b6b490a14a05e544f2e9ceaf79f4e06d8affeddaec140",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30.0,
+    "decoded_frames": 655
+  },
+  "visual_observation": {
+    "status": "VERIFIED_OBSERVATION",
+    "frames": [500, 520, 550, 565],
+    "retained_crops": [
+      "../v1_b3_temporal_flow_screening_20260810/quality_frames/tag_crop_0500.png",
+      "../v1_b3_temporal_flow_screening_20260810/quality_frames/tag_crop_0520.png",
+      "../v1_b3_temporal_flow_screening_20260810/quality_frames/tag_crop_0550.png",
+      "../v1_b3_temporal_flow_screening_20260810/quality_frames/tag_crop_0565.png"
+    ],
+    "observation": "A dark rigid vehicle component overlaps the upper edge and code area of the roof AprilTag in the retained crops, especially frames 520, 550, and 565."
+  },
+  "verified": [
+    "The full-frame brightness and Laplacian-variance measurements do not show a global camera blackout or a sharpness collapse across frames 500-565.",
+    "The retained tag crops visibly contain a dark component crossing the tag area during the long detector gap.",
+    "The production replay has a 56-frame missed interval across frames 510-565, and the tested full-frame controls also fail through most of that interval.",
+    "flow_short2 supplies 99 short predictions but does not increase tag_decode_ratio."
+  ],
+  "inference": [
+    "Physical overlap of the component with the tag is a plausible contributor to the long rejection interval.",
+    "The current evidence does not isolate physical overlap from tag print quality, perspective, exposure, or rolling-shutter effects."
+  ],
+  "insufficient_evidence": [
+    "No matched run has tested the same motion after moving or replacing the tag mount.",
+    "No production detector or firmware change is justified.",
+    "No B3 observation pass or real A/B eligibility is established."
+  ],
+  "decision": {
+    "production_change": "NOT_JUSTIFIED",
+    "real_ab_eligibility": "NOT_ELIGIBLE",
+    "offline_blocker": "The recorded input contains a likely physical visibility/occlusion problem that code-only replay cannot recover reliably.",
+    "next_interface": "Correct tag visibility or mounting, then retain a matched 1080p motion run before requesting another hardware test."
+  }
+}

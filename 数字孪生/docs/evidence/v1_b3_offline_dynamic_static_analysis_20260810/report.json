@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "type": "V1B3OfflineDynamicStaticAnalysis",
+  "generated_on": "2026-08-10",
+  "scope": "Offline-only analysis of retained 1080p B3 sessions and retained failure thumbnails",
+  "hardware_action": "NOT_AUTHORIZED",
+  "input_artifacts": {
+    "observation_comparison": {
+      "path": "docs/evidence/v1_b3_observation_comparison_20260809/report.json",
+      "sha256": "032810C6C22464850F9C10997A0ADF09CECCD4546656E185919B5E46A02FC56D"
+    },
+    "dynamic_failure_matrix": {
+      "path": "docs/evidence/v1_b3_dynamic_failure_detector_matrix_20260810/report.json",
+      "sha256": "3FCA3250FCF5382741031B010CF8C05BCBF80F9DA817EA3CBB24119218390FAB"
+    },
+    "static_detector_matrix": {
+      "path": "docs/evidence/v1_b3_offline_detector_matrix_20260810_r2/report.json",
+      "sha256": "9A114B260A3F8E026394172840A2A499A60251879FF8DF885AB85A34967D5F75"
+    },
+    "frame_index_sha256": {
+      "c260809100608075": "1AE2CF697F19C9F90E9B4FDC73C34242246D28B0BB53F43F160DFB4B08C6C304",
+      "c260809101540981": "EB775035088EF5C8C9D82E2A452823E58814D6D5003FC130EFDC540F8356A951",
+      "c260809102554685": "6F87D455B52B9F46ED01A1BBC11FD5830DBA26C97B1327887F4A257C9922D420"
+    }
+  },
+  "dynamic_sessions": [
+    {
+      "run_id": "c260809100608075",
+      "camera_frames": 166,
+      "pose_frames": 90,
+      "detection_ratio": 0.5421686746987951,
+      "rejected_frames": 76,
+      "max_pose_gap_frames": 34.946622,
+      "processing_p95_ms": 75.54185,
+      "sync_gate": "PASS",
+      "observation_gate": "FAIL",
+      "failure_frame_summary": {
+        "observed": 76,
+        "saved": 0,
+        "save_errors": 3,
+        "failure_path": "roi_then_full -> ROI preprocessing -> full-frame fallback"
+      }
+    },
+    {
+      "run_id": "c260809101540981",
+      "camera_frames": 140,
+      "pose_frames": 68,
+      "detection_ratio": 0.4857142857142857,
+      "rejected_frames": 72,
+      "max_pose_gap_frames": 14.522472,
+      "processing_p95_ms": 91.17974,
+      "sync_gate": "PASS",
+      "observation_gate": "FAIL",
+      "failure_frame_summary": {
+        "observed": 72,
+        "saved": 3,
+        "save_errors": 0,
+        "failure_path": "roi_then_full -> ROI preprocessing -> full-frame fallback"
+      }
+    },
+    {
+      "run_id": "c260809102554685",
+      "camera_frames": 223,
+      "pose_frames": 205,
+      "detection_ratio": 0.9192825112107623,
+      "rejected_frames": 18,
+      "max_pose_gap_frames": 7.537272,
+      "processing_p95_ms": 67.96016,
+      "sync_gate": "FAIL",
+      "observation_gate": "INSUFFICIENT_EVIDENCE",
+      "failure_frame_summary": {
+        "observed": 18,
+        "saved": 1,
+        "save_errors": 0,
+        "failure_path": "roi_then_full -> ROI preprocessing -> full-frame fallback"
+      }
+    }
+  ],
+  "dynamic_failure_thumbnail_matrix": {
+    "image_count": 4,
+    "source": "retained failure_frames only; not a representative run sample",
+    "branches": {
+      "opencv_gray_1x": {"detected": 0, "total": 4, "ratio": 0.0, "p95_ms": 22.529695},
+      "opencv_blue_2x": {"detected": 1, "total": 4, "ratio": 0.25, "p95_ms": 40.961525},
+      "opencv_blue_clahe_2x": {"detected": 0, "total": 4, "ratio": 0.0, "p95_ms": 55.53763},
+      "opencv_blue_unsharp_2x": {"detected": 1, "total": 4, "ratio": 0.25, "p95_ms": 47.870115},
+      "pupil_gray_1x": {"detected": 2, "total": 4, "ratio": 0.5, "p95_ms": 140.93708},
+      "pupil_gray_2x": {"detected": 1, "total": 4, "ratio": 0.25, "p95_ms": 421.752975}
+    }
+  },
+  "static_1080p_reference": {
+    "image_count": 100,
+    "opencv_blue_clahe_2x": {"detected": 100, "ratio": 1.0, "p95_ms": 71.269975},
+    "opencv_gray_1x": {"detected": 99, "ratio": 0.99, "p95_ms": 27.350925},
+    "opencv_gray_2x": {"detected": 95, "ratio": 0.95, "p95_ms": 51.446065},
+    "pupil_gray_1x": {"detected": 54, "ratio": 0.54, "p95_ms": 167.703145}
+  },
+  "findings": {
+    "VERIFIED": [
+      "The three retained observation reports replay with matching arithmetic; the first two have sync PASS but observation FAIL, while the third has a sync FAIL and cannot be used as a B3 pass.",
+      "All 166 rejected frames across the three sessions are readable frames classified as candidates_rejected; the retained frame records show the same expensive ROI/preprocessing/full-frame fallback path.",
+      "Static 1080p and dynamic failure thumbnails behave differently: the static matrix reaches 100/100 on blue CLAHE 2x, but the four retained dynamic failure thumbnails reach at most 2/4 on any tested branch.",
+      "The current offline capture diagnostic test set passes 47 tests, Python compileall passes, and git diff --check reports no whitespace error.",
+      "The capture diagnostic change now reports the actual cv2.imencode failure with frame shape, dtype, and contiguity instead of labeling it cv2.imwrite."
+    ],
+    "INFERENCE": [
+      "The dynamic bottleneck is consistent with view-dependent target quality, motion/pose change, or ROI reacquisition cost, but the retained artifacts do not isolate which one is causal.",
+      "The high static detection ratio does not transfer to a moving run; this is evidence that static detector ranking cannot select a production branch by itself."
+    ],
+    "INSUFFICIENT_EVIDENCE": [
+      "The exact AprilTag candidate rejection reason and candidate corner geometry are not retained per detector candidate.",
+      "The first session has 76 rejected frames but no saved thumbnail because three encoding attempts failed; the new diagnostics can explain a future failure but cannot recover this lost evidence.",
+      "No tested branch has a representative dynamic sample that simultaneously demonstrates the required detection continuity and the 30 fps processing budget.",
+      "No B3 observation pass, calibrated digital-twin accuracy, or real A/B improvement is established by this offline analysis."
+    ]
+  },
+  "decision": {
+    "production_detector_change": "NOT_JUSTIFIED",
+    "threshold_change": "NOT_JUSTIFIED",
+    "capture_instrumentation": "OFFLINE_VERIFIED_READY_FOR_MATCHED_RERUN",
+    "next_action": "Request one matched 1080p real capture with the diagnostic build, preserve failure thumbnails and per-frame diagnostics, then rerun the same offline comparison.",
+    "encoder_motor": "DEFERRED"
+  }
+}

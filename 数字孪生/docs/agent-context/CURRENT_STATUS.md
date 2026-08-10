@@ -1503,3 +1503,41 @@ the exact byte image used by the earlier flash because the AXF was rebuilt
 afterward, is
 `firmware/stm32_line_follower/Objects/Project.axf` with SHA-256
 `1161FA2EEE9C86A3D2409120125AD0BC6D7A7BE237144849564C8A868130E379`.
+
+### LATEST B3 OFFLINE TEMPORAL STATE BRIDGE (2026-08-10)
+
+Status: `OFFLINE_STATE_CANDIDATE_VERIFIED; B3_OBSERVATION_NOT_PASSED`
+
+- The replay entrypoint now exposes the explicit offline-only `flow_long60`
+  profile. It allows at most 60 optical-flow prediction frames, keeps
+  `flow_short2` at two frames, leaves `none` as the default, and never counts
+  predicted poses as AprilTag decodes.
+- On the retained 1920x1080/30 FPS/655-frame video, `flow_long60` produced
+  `tag_decode_ratio=88.70%`, `pose_output_ratio=100.00%`, `max_pose_gap=1`
+  frame, 74 predictions, and p95 `92.79 ms`. The fixed B3 observation gate
+  therefore remains `NOT_JUSTIFIED`.
+- On an existing 1080p holdout, pose output also reached 100.00% while true
+  tag decoding remained 94.89%. This supports a state-layer candidate, not a
+  continuous AprilTag observation pass.
+- The primary missing interval remains associated with a retained visual
+  observation of a dark vehicle component crossing the roof tag. This is an
+  inference about the dominant cause, not proof that all other image factors
+  are irrelevant.
+
+#### EVIDENCE BOUNDARY
+
+- `VERIFIED`: the temporal profile is explicit, bounded, tested, and improves
+  offline pose-output continuity on two existing 1080p videos.
+- `VERIFIED`: predictions and true decodes remain separate; no hardware or
+  camera access occurred in this iteration.
+- `INSUFFICIENT EVIDENCE`: real-time state-layer performance, physical pose
+  accuracy, IMU/flow fusion accuracy, and B3 observation readiness.
+
+#### NEXT INTERFACE
+
+- Continue offline replay after any algorithm failure and do not recollect a
+  replacement video merely to pass the gate. Do not flash or deploy
+  `flow_long60`.
+- The fixed B3 observation gate cannot be passed by relabelling predictions as
+  AprilTag decodes. A new capture is only meaningful after an intentional
+  external change makes the tag visible; it must then be a matched experiment.
