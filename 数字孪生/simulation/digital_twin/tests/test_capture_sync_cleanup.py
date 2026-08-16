@@ -235,6 +235,170 @@ class DummyTracker:
         return None
 
 
+def test_analysis_worker_drops_only_analysis_work_when_queue_is_full():
+    started = threading.Event()
+    released = threading.Event()
+
+    class BlockingTracker:
+        def track(self, frame, t_pc_ns=None):
+            started.set()
+            assert released.wait(0.5)
+            return None
+
+    worker = capture_sync_run._AnalysisWorker(
+        BlockingTracker(), queue_size=1
+    )
+    worker.start()
+    try:
+        assert worker.submit("frame-1", 7, 123456789)
+        assert started.wait(0.5)
+        assert worker.submit("frame-2", 8, 123456790)
+        assert not worker.submit("frame-3", 9, 123456791)
+        released.set()
+
+        deadline = time.monotonic() + 0.5
+        results = []
+        while time.monotonic() < deadline and not results:
+            results.extend(worker.drain_results())
+            if not results:
+                time.sleep(0.005)
+    finally:
+        released.set()
+        worker.stop(timeout_s=0.5)
+
+    assert worker.summary["submitted_frames"] == 2
+    assert worker.summary["dropped_frames"] == 1
+    assert results
+    assert results[0]["frame_index"] == 7
+    assert results[0]["t_pc_ns"] == 123456789
+
+
+def test_analysis_worker_records_tracker_errors_without_raising():
+    class ErrorTracker:
+        def track(self, frame, t_pc_ns=None):
+            raise RuntimeError("detector failed")
+
+    worker = capture_sync_run._AnalysisWorker(ErrorTracker(), queue_size=1)
+    worker.start()
+    try:
+        assert worker.submit("frame", 3, 222)
+        deadline = time.monotonic() + 0.5
+        results = []
+        while time.monotonic() < deadline and not results:
+            results.extend(worker.drain_results())
+            if not results:
+                time.sleep(0.005)
+    finally:
+        worker.stop(timeout_s=0.5)
+
+    assert results[0]["analysis_status"] == "error"
+    assert "detector failed" in results[0]["analysis_error"]
+    assert worker.summary["worker_errors"][0]["frame_index"] == 3
+
+
+def test_analysis_worker_marks_blocked_work_incomplete_at_join_deadline():
+    started = threading.Event()
+    released = threading.Event()
+
+    class BlockingTracker:
+        def track(self, frame, t_pc_ns=None):
+            started.set()
+            released.wait(1.0)
+            return None
+
+    worker = capture_sync_run._AnalysisWorker(
+        BlockingTracker(), queue_size=1
+    )
+    worker.start()
+    assert worker.submit("frame", 4, 333)
+    assert started.wait(0.5)
+    try:
+        worker.stop(timeout_s=0.01)
+        assert worker.summary["incomplete_frames"] == 1
+        assert worker.summary["worker_alive"] is True
+    finally:
+        released.set()
+        worker.stop(timeout_s=0.5)
+
+
+def test_capture_writes_frames_while_analysis_is_slow():
+    class SlowTracker:
+        def __init__(self):
+            self.started = threading.Event()
+            self.released = threading.Event()
+
+        def track_with_diagnostics(self, frame, t_pc_ns=None):
+            self.started.set()
+            assert self.released.wait(1.0)
+            return None, {
+                "failure_reason": "no_markers",
+                "detect_elapsed_ns": 10_000_000,
+            }
+
+    tracker = SlowTracker()
+
+    class FastImageCamera(FakeCamera):
+        def read(self):
+            self.read_calls += 1
+            if self.read_calls == 2:
+                assert tracker.started.wait(1.0)
+            if self.read_calls >= capture_sync_run.ANALYSIS_QUEUE_SIZE + 3:
+                tracker.released.set()
+            return True, np.zeros((2, 2, 3), dtype=np.uint8)
+
+    class RecordingVideoWriter:
+        def __init__(self):
+            self.frames = []
+            self.release_calls = 0
+
+        def write(self, frame):
+            self.frames.append(frame)
+
+        def release(self):
+            self.release_calls += 1
+
+    writer = RecordingVideoWriter()
+    frame_index = []
+    diagnostics = {}
+    video_evidence = {}
+    _telemetry, _poses, _actions, outcome = (
+        capture_sync_run.run_sync_capture_session(
+            FakeSocket(recv_data=_encode_telemetry_frame(tick_ms=100)),
+            FastImageCamera(),
+            tracker,
+            "slow-analysis",
+            0.05,
+            0.5,
+            frame_index=frame_index,
+            diagnostics=diagnostics,
+            video_writer=writer,
+            video_evidence=video_evidence,
+        )
+    )
+
+    assert outcome == "ok"
+    assert video_evidence["frames_written"] == len(frame_index)
+    assert diagnostics["analysis"]["captured_frames"] == len(frame_index)
+    assert diagnostics["analysis"]["dropped_frames"] >= 1
+    summary = diagnostics["analysis"]
+    assert summary["analysis_eligible_frames"] == len(frame_index)
+    assert summary["analysis_skipped_frames"] == 0
+    assert summary["captured_frames"] == (
+        summary["submitted_frames"]
+        + summary["dropped_frames"]
+        + summary["analysis_skipped_frames"]
+    )
+    assert summary["analysis_complete"] is False
+    assert summary["dropped_frames_do_not_advance_tracker"] is True
+    assert all(
+        record["analysis_status"] in {
+            "processed", "dropped", "incomplete", "error"
+        }
+        for record in frame_index
+    )
+    assert writer.release_calls == 1
+
+
 def test_capture_pc_clock_uses_high_resolution_perf_counter(monkeypatch):
     sentinel = 1_691_234_567_890_123
     monkeypatch.setattr(

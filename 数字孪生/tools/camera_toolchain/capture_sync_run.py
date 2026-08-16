@@ -33,6 +33,7 @@ import json
 import math
 import os
 from pathlib import Path
+import queue
 import socket
 import sys
 import threading
@@ -95,6 +96,8 @@ CLOCK_POSTFLIGHT_EXCHANGES = 8
 CLOCK_QUIET_PROBE_TIMEOUT_S = 1.0
 STOP_CONFIRM_TIMEOUT_S = 1.0
 READER_JOIN_TIMEOUT_S = 1.0
+ANALYSIS_QUEUE_SIZE = 8
+ANALYSIS_JOIN_TIMEOUT_S = 1.0
 
 
 OBSERVATION_PROFILES = MappingProxyType({
@@ -742,6 +745,135 @@ def _maybe_save_failure_frame(
     frame_record["failure_frame_path"] = relative_path
 
 
+class _AnalysisWorker:
+    """Run pose analysis away from the camera/control thread."""
+
+    def __init__(self, tracker, queue_size=ANALYSIS_QUEUE_SIZE):
+        queue_size = int(queue_size)
+        if queue_size < 1:
+            raise ValueError("analysis queue size must be positive")
+        self._tracker = tracker
+        self._work_queue = queue.Queue(maxsize=queue_size)
+        self._result_queue = queue.Queue()
+        self._stop_event = threading.Event()
+        self._thread = None
+        self._lock = threading.Lock()
+        self._pending = {}
+        self._summary = {
+            "submitted_frames": 0,
+            "processed_frames": 0,
+            "dropped_frames": 0,
+            "incomplete_frames": 0,
+            "worker_errors": [],
+            "worker_alive": False,
+        }
+
+    def start(self):
+        if self._thread is not None:
+            return
+        self._thread = threading.Thread(
+            target=self._run,
+            name="capture-analysis-worker",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def submit(self, frame, frame_index, t_pc_ns):
+        item = (frame, int(frame_index), t_pc_ns)
+        with self._lock:
+            try:
+                self._work_queue.put_nowait(item)
+            except queue.Full:
+                self._summary["dropped_frames"] += 1
+                return False
+            self._pending[item[1]] = item
+            self._summary["submitted_frames"] += 1
+        return True
+
+    def drain_results(self):
+        results = []
+        while True:
+            try:
+                results.append(self._result_queue.get_nowait())
+            except queue.Empty:
+                return results
+
+    @property
+    def summary(self):
+        with self._lock:
+            summary = dict(self._summary)
+            summary["worker_errors"] = list(self._summary["worker_errors"])
+            if self._thread is not None:
+                summary["worker_alive"] = self._thread.is_alive()
+            return summary
+
+    def stop(self, timeout_s=ANALYSIS_JOIN_TIMEOUT_S):
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join(timeout=max(0.0, float(timeout_s)))
+        with self._lock:
+            self._summary["incomplete_frames"] = len(self._pending)
+            self._summary["worker_alive"] = bool(
+                self._thread is not None and self._thread.is_alive()
+            )
+
+    def _run(self):
+        with self._lock:
+            self._summary["worker_alive"] = True
+        try:
+            while True:
+                if self._stop_event.is_set() and self._work_queue.empty():
+                    break
+                try:
+                    frame, frame_index, t_pc_ns = self._work_queue.get(
+                        timeout=0.05
+                    )
+                except queue.Empty:
+                    continue
+                result = {
+                    "frame_index": frame_index,
+                    "t_pc_ns": t_pc_ns,
+                    "pose": None,
+                    "diagnostics": {},
+                    "frame": frame,
+                    "analysis_status": "processed",
+                }
+                try:
+                    track_with_diagnostics = getattr(
+                        self._tracker, "track_with_diagnostics", None
+                    )
+                    if track_with_diagnostics is not None:
+                        pose, detector_diagnostics = track_with_diagnostics(
+                            frame, t_pc_ns=t_pc_ns
+                        )
+                        result["diagnostics"] = dict(
+                            detector_diagnostics or {}
+                        )
+                    else:
+                        pose = self._tracker.track(
+                            frame, t_pc_ns=t_pc_ns
+                        )
+                    result["pose"] = pose
+                except BaseException as exc:  # noqa: BLE001
+                    error = repr(exc)
+                    result["analysis_status"] = "error"
+                    result["analysis_error"] = error
+                    with self._lock:
+                        self._summary["worker_errors"].append({
+                            "frame_index": int(frame_index),
+                            "error": error,
+                        })
+                finally:
+                    with self._lock:
+                        self._pending.pop(frame_index, None)
+                        self._summary["processed_frames"] += 1
+                    self._result_queue.put(result)
+                    self._work_queue.task_done()
+        finally:
+            with self._lock:
+                self._summary["worker_alive"] = False
+
+
 def build_fusion_records(sync_frames, clock_sync=None):
     """Generate fusion evidence from unique synchronized telemetry samples.
 
@@ -1014,6 +1146,7 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
     actions = _new_action_state()
     telemetry = []
     poses = []
+    pose_entries = []
     diagnostics = diagnostics if diagnostics is not None else {}
     if video_evidence is None:
         video_evidence = _new_video_evidence(
@@ -1055,6 +1188,12 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
     clock_sync_parse_errors = []
     diagnostics["clock_sync_parse_errors"] = clock_sync_parse_errors
     reader_error = []
+    analysis_worker = _AnalysisWorker(tracker)
+    analysis_records = {}
+    analysis_result_buffer = {}
+    analysis_captured_frames = 0
+    analysis_eligible_frames = 0
+    analysis_skipped_frames = 0
     heartbeat_cmd = HeartbeatCommand("sync", run_id).encode().encode("ascii")
     next_heartbeat = None
     next_clock_probe = None
@@ -1148,6 +1287,79 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                 })
                 return False
         return len(clock_exchanges.records()) >= initial_count + target
+
+    def apply_analysis_result(result):
+        frame_number = int(result["frame_index"])
+        frame_record = analysis_records.get(frame_number)
+        if frame_record is None:
+            analysis_result_buffer[frame_number] = result
+            return
+        status = str(result.get("analysis_status", "processed"))
+        frame_record["analysis_status"] = status
+        frame_record["analysis_dropped"] = False
+        if result.get("analysis_error") is not None:
+            frame_record["analysis_error"] = str(
+                result["analysis_error"]
+            )
+        detector_diagnostics = result.get("diagnostics") or {}
+        frame_record.update(detector_diagnostics)
+        # The capture boundary timestamp is authoritative even if a tracker
+        # returns similarly named diagnostic data.
+        frame_record["t_pc_ns"] = result["t_pc_ns"]
+        pose = result.get("pose")
+        if pose is not None:
+            frame_record["pose_detected"] = True
+            pose_entries.append((
+                int(result["t_pc_ns"]),
+                frame_number,
+                pose,
+            ))
+        else:
+            _maybe_save_failure_frame(
+                result.get("frame"),
+                frame_number,
+                frame_record,
+                failure_frame_dir,
+                failure_frame_summary,
+            )
+
+    def drain_analysis_results():
+        for result in analysis_worker.drain_results():
+            apply_analysis_result(result)
+
+    def finalize_analysis():
+        analysis_worker.stop(timeout_s=ANALYSIS_JOIN_TIMEOUT_S)
+        drain_analysis_results()
+        for frame_record in analysis_records.values():
+            if frame_record.get("analysis_status") == "queued":
+                frame_record["analysis_status"] = "incomplete"
+                frame_record["analysis_incomplete"] = True
+        summary = analysis_worker.summary
+        summary["captured_frames"] = int(analysis_captured_frames)
+        summary["analysis_eligible_frames"] = int(
+            analysis_eligible_frames
+        )
+        summary["analysis_skipped_frames"] = int(
+            analysis_skipped_frames
+        )
+        status_counts = {}
+        for frame_record in analysis_records.values():
+            status = frame_record.get("analysis_status")
+            if status is not None:
+                status_counts[status] = status_counts.get(status, 0) + 1
+        summary["frame_status_counts"] = status_counts
+        summary["analysis_stop_timed_out"] = bool(
+            summary.get("worker_alive", False)
+        )
+        summary["analysis_complete"] = bool(
+            not summary["analysis_stop_timed_out"]
+            and summary["dropped_frames"] == 0
+            and summary["incomplete_frames"] == 0
+            and not summary["worker_errors"]
+        )
+        summary["analysis_sequence"] = "capture_order_with_queue_drops"
+        summary["dropped_frames_do_not_advance_tracker"] = True
+        diagnostics["analysis"] = summary
 
     def on_telemetry(payload):
         d = decode_telemetry(payload)
@@ -1258,6 +1470,7 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                     status_cv.notify_all()
                 break
 
+    analysis_worker.start()
     reader = threading.Thread(target=reader_thread, daemon=True)
     reader.start()
 
@@ -1312,21 +1525,28 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                     outcome = "heartbeat_failed"
                     return telemetry, poses, actions, outcome
                 ok, frame = cap.read()
+                t_pc_ns = capture_pc_clock_ns() if ok else None
                 frame_record = {
                     "frame_index": camera_frame_number,
                     "read_ok": bool(ok),
-                    "t_pc_ns": None,
+                    "t_pc_ns": t_pc_ns,
                     "pose_detected": False,
                 }
                 camera_frame_number += 1
                 try:
                     if ok:
+                        analysis_captured_frames += 1
                         shape = getattr(frame, "shape", ())
                         if len(shape) < 2:
                             if expected_frame_size is None:
                                 shape = (0, 0)
                             else:
                                 frame_record["failure_reason"] = (
+                                    "camera_frame_shape_unavailable"
+                                )
+                                analysis_skipped_frames += 1
+                                frame_record["analysis_skipped"] = True
+                                frame_record["analysis_skip_reason"] = (
                                     "camera_frame_shape_unavailable"
                                 )
                                 actions["collect_error"] = (
@@ -1366,6 +1586,11 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                                 frame_record["expected_frame_height"] = int(
                                     expected_frame_size[1]
                                 )
+                                analysis_skipped_frames += 1
+                                frame_record["analysis_skipped"] = True
+                                frame_record["analysis_skip_reason"] = (
+                                    "camera_frame_shape_mismatch"
+                                )
                                 actions["collect_error"] = repr(exc)
                                 outcome = "camera_frame_dimensions_mismatch"
                                 _maybe_save_failure_frame(
@@ -1392,38 +1617,35 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                                 frame_record["failure_reason"] = (
                                     "video_write_failed"
                                 )
+                                analysis_skipped_frames += 1
+                                frame_record["analysis_skipped"] = True
+                                frame_record["analysis_skip_reason"] = (
+                                    "video_write_failed"
+                                )
                                 actions["collect_error"] = repr(exc)
                                 outcome = "video_write_failed"
                                 return telemetry, poses, actions, outcome
                             video_evidence["frames_written"] += 1
-                        t_pc_ns = capture_pc_clock_ns()
-                        frame_record["t_pc_ns"] = t_pc_ns
-                        track_with_diagnostics = getattr(
-                            tracker, "track_with_diagnostics", None
-                        )
-                        if track_with_diagnostics is not None:
-                            pose, detector_diagnostics = track_with_diagnostics(
-                                frame, t_pc_ns=t_pc_ns
-                            )
-                            frame_record.update(detector_diagnostics)
-                        else:
-                            pose = tracker.track(frame, t_pc_ns=t_pc_ns)
-                        if pose is not None:
-                            frame_record["pose_detected"] = True
-                            poses.append(pose)
-                        else:
-                            _maybe_save_failure_frame(
-                                frame,
-                                frame_record["frame_index"],
-                                frame_record,
-                                failure_frame_dir,
-                                failure_frame_summary,
-                            )
+                        analysis_eligible_frames += 1
+                        frame_record["analysis_status"] = "queued"
+                        frame_record["analysis_dropped"] = False
+                        frame_number = frame_record["frame_index"]
+                        analysis_records[frame_number] = frame_record
+                        if not analysis_worker.submit(
+                            frame, frame_number, t_pc_ns
+                        ):
+                            frame_record["analysis_status"] = "dropped"
+                            frame_record["analysis_dropped"] = True
+                        drain_analysis_results()
                     else:
                         frame_record["failure_reason"] = "frame_read_failed"
                 finally:
+                    analysis_records.setdefault(
+                        frame_record["frame_index"], frame_record
+                    )
                     if frame_index is not None:
                         frame_index.append(frame_record)
+                    drain_analysis_results()
         except Exception as exc:   # noqa: BLE001 - 采集异常也要走清理
             actions["collect_error"] = repr(exc)
             outcome = "collect_error"
@@ -1498,6 +1720,9 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
             actions["status_parse_errors"] = list(status_parse_errors)
             if reader_error:
                 actions["reader_error"] = reader_error[-1]
+        finalize_analysis()
+        pose_entries.sort(key=lambda entry: (entry[0], entry[1]))
+        poses[:] = [entry[2] for entry in pose_entries]
         diagnostics["health_frames"] = list(health_frames)
         diagnostics["health"] = compute_health_summary(health_frames)
         diagnostics["telemetry_boundary"] = boundary.to_dict()
@@ -1507,6 +1732,10 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
         diagnostics["raw_io"] = raw_io.write()
 
     return telemetry, poses, actions, outcome
+
+
+def _analysis_report_diagnostics(diagnostics=None):
+    return dict((diagnostics or {}).get("analysis", {}))
 
 
 def build_sync_report(*, host, duration_s, run_id, camera_mode, actions,
@@ -1551,6 +1780,7 @@ def build_sync_report(*, host, duration_s, run_id, camera_mode, actions,
             observation_profile
         ),
         "diagnostics": {
+            "analysis": _analysis_report_diagnostics(diagnostics),
             "health": dict((diagnostics or {}).get("health", {})),
             "raw_health_file": "raw_health.json",
             "raw_io_file": "raw_io.json",
@@ -1606,7 +1836,7 @@ def build_sync_report(*, host, duration_s, run_id, camera_mode, actions,
 def build_session_failure_report(*, host, duration_s, run_id, camera_mode,
                                  actions, outcome, reason, n_poses,
                                  n_telemetry, observation_profile=None,
-                                 video_evidence=None):
+                                 video_evidence=None, diagnostics=None):
     """Build a non-passing report for failures before clock fitting."""
     return {
         "schema_version": 1,
@@ -1633,6 +1863,9 @@ def build_session_failure_report(*, host, duration_s, run_id, camera_mode,
         "video_evidence": dict(
             video_evidence or _new_video_evidence()
         ),
+        "diagnostics": {
+            "analysis": _analysis_report_diagnostics(diagnostics),
+        },
         "causal_sync": build_causal_sync_report([]),
         "causal_sync_verdict": "INSUFFICIENT EVIDENCE",
         "observation_profile": _observation_profile_evidence(
@@ -1646,7 +1879,7 @@ def write_session_failure_report(out_dir, *, host, duration_s, run_id,
                                  camera_mode, actions, outcome, reason,
                                  n_poses, n_telemetry,
                                  observation_profile=None,
-                                 video_evidence=None):
+                                 video_evidence=None, diagnostics=None):
     report = build_session_failure_report(
         host=host,
         duration_s=duration_s,
@@ -1659,6 +1892,7 @@ def write_session_failure_report(out_dir, *, host, duration_s, run_id,
         n_telemetry=n_telemetry,
         observation_profile=observation_profile,
         video_evidence=video_evidence,
+        diagnostics=diagnostics,
     )
     with open(os.path.join(out_dir, "sync_report.json"), "w",
               encoding="utf-8") as f:
@@ -2065,6 +2299,7 @@ def main():
             n_telemetry=len(telemetry),
             observation_profile=observation_profile,
             video_evidence=video_evidence,
+            diagnostics=diagnostics,
         )
         print("ERROR: session outcome={0}: {1}".format(outcome, reason))
         return 1
@@ -2087,6 +2322,7 @@ def main():
             n_telemetry=len(telemetry),
             observation_profile=observation_profile,
             video_evidence=video_evidence,
+            diagnostics=diagnostics,
         )
         print("ERROR: 数据不足")
         return 1
@@ -2115,6 +2351,7 @@ def main():
             n_telemetry=len(telemetry),
             observation_profile=observation_profile,
             video_evidence=video_evidence,
+            diagnostics=diagnostics,
         )
         print("ERROR: ClockSync failed: {}".format(exc))
         return 1
@@ -2147,6 +2384,7 @@ def main():
             n_poses=len(poses),
             n_telemetry=len(telemetry),
             video_evidence=video_evidence,
+            diagnostics=diagnostics,
         )
         print("ERROR: synchronized dataset failed: {}".format(exc))
         return 1

@@ -16,7 +16,7 @@ import capture_sync_run
 from v1_twin.v1_twin_causal_sync import build_causal_sync_report
 
 
-def _build_report(causal_sync=None):
+def _build_report(causal_sync=None, diagnostics=None):
     return capture_sync_run.build_sync_report(
         host="127.0.0.1",
         duration_s=1.0,
@@ -50,9 +50,46 @@ def _build_report(causal_sync=None):
             "verdict": "PASS",
             "gate_reason": "alignment passes",
         },
-        diagnostics={"video_evidence": {"enabled": False}},
+        diagnostics=(
+            diagnostics
+            if diagnostics is not None
+            else {"video_evidence": {"enabled": False}}
+        ),
         causal_sync=causal_sync,
     )
+
+
+def test_reports_expose_analysis_diagnostics_for_normal_and_failure_runs():
+    analysis = {
+        "captured_frames": 600,
+        "submitted_frames": 8,
+        "processed_frames": 8,
+        "dropped_frames": 592,
+        "incomplete_frames": 0,
+        "worker_errors": [],
+    }
+    normal = _build_report(
+        build_causal_sync_report([]),
+        diagnostics={
+            "video_evidence": {"enabled": False},
+            "analysis": analysis,
+        },
+    )
+    failure = capture_sync_run.build_session_failure_report(
+        host="127.0.0.1",
+        duration_s=1.0,
+        run_id="run-analysis-fail",
+        camera_mode=None,
+        actions={},
+        outcome="collect_error",
+        reason="synthetic capture failure",
+        n_poses=0,
+        n_telemetry=0,
+        diagnostics={"analysis": analysis},
+    )
+
+    assert normal["diagnostics"]["analysis"] == analysis
+    assert failure["diagnostics"]["analysis"] == analysis
 
 
 def test_report_marks_missing_clock_exchanges_insufficient_evidence():
