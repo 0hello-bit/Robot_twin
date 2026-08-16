@@ -20,9 +20,7 @@
    Build 2 is the offline telemetry-throughput remediation image and must be
    distinguishable from the previously flashed Build 1 image. */
 /* Build 3: IMU identity-diagnostic image. */
-/* Build 4: stage-timing diagnostic image. */
-/* Build 5: timing-diagnostic CIPSEND priority repair. */
-#define FW_BUILD_ID 5U
+#define FW_BUILD_ID 3U
 
 /* motion_state 枚举（设计 §5.5）。 */
 #define HEALTH_MOTION_STATE_INIT      0U
