@@ -1,0 +1,15 @@
+{
+  "n_send": 1,
+  "n_recv": 0,
+  "events": [
+    {
+      "dir": "TX",
+      "pc_ns": 283726082857200,
+      "pc_clock_source": "perf_counter_ns",
+      "wall_time_ns": 1786524022290376200,
+      "n_bytes": 7,
+      "bytes_hex": "512c312c34430a",
+      "sequence": 1
+    }
+  ]
+}

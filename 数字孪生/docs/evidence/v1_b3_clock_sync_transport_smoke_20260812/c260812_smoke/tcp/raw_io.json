@@ -1,0 +1,31 @@
+{
+  "n_send": 1,
+  "n_recv": 2,
+  "events": [
+    {
+      "dir": "TX",
+      "pc_ns": 282150519155900,
+      "pc_clock_source": "perf_counter_ns",
+      "wall_time_ns": 1786522446726502200,
+      "n_bytes": 7,
+      "bytes_hex": "512c312c34430a",
+      "sequence": 1
+    },
+    {
+      "dir": "RX",
+      "pc_ns": 282150579564700,
+      "pc_clock_source": "perf_counter_ns",
+      "wall_time_ns": 1786522446786883700,
+      "n_bytes": 33,
+      "bytes_hex": "532c6e6f6e652c6e6f6e652c53544f505045442c54494d454f55542c302c35440a"
+    },
+    {
+      "dir": "RX",
+      "pc_ns": 282150673628200,
+      "pc_clock_source": "perf_counter_ns",
+      "wall_time_ns": 1786522446881305500,
+      "n_bytes": 38,
+      "bytes_hex": "542c303030303030303030312c303030313737303433302c303030313737303535332c37440a"
+    }
+  ]
+}

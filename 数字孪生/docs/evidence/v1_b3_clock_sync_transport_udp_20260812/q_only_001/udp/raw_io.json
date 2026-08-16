@@ -1,0 +1,150 @@
+{
+  "n_send": 16,
+  "n_recv": 0,
+  "events": [
+    {
+      "dir": "TX",
+      "pc_ns": 2359784028800,
+      "pc_clock_source": "perf_counter_ns",
+      "wall_time_ns": 1786541786584907800,
+      "n_bytes": 7,
+      "bytes_hex": "512c312c34430a",
+      "sequence": 1
+    },
+    {
+      "dir": "TX",
+      "pc_ns": 2360793456800,
+      "pc_clock_source": "perf_counter_ns",
+      "wall_time_ns": 1786541787595194700,
+      "n_bytes": 7,
+      "bytes_hex": "512c322c34460a",
+      "sequence": 2
+    },
+    {
+      "dir": "TX",
+      "pc_ns": 2361798677700,
+      "pc_clock_source": "perf_counter_ns",
+      "wall_time_ns": 1786541788600567900,
+      "n_bytes": 7,
+      "bytes_hex": "512c332c34450a",
+      "sequence": 3
+    },
+    {
+      "dir": "TX",
+      "pc_ns": 2362805396400,
+      "pc_clock_source": "perf_counter_ns",
+      "wall_time_ns": 1786541789606919200,
+      "n_bytes": 7,
+      "bytes_hex": "512c342c34390a",
+      "sequence": 4
+    },
+    {
+      "dir": "TX",
+      "pc_ns": 2363817990000,
+      "pc_clock_source": "perf_counter_ns",
+      "wall_time_ns": 1786541790619905500,
+      "n_bytes": 7,
+      "bytes_hex": "512c352c34380a",
+      "sequence": 5
+    },
+    {
+      "dir": "TX",
+      "pc_ns": 2364830296400,
+      "pc_clock_source": "perf_counter_ns",
+      "wall_time_ns": 1786541791632238400,
+      "n_bytes": 7,
+      "bytes_hex": "512c362c34420a",
+      "sequence": 6
+    },
+    {
+      "dir": "TX",
+      "pc_ns": 2365840765100,
+      "pc_clock_source": "perf_counter_ns",
+      "wall_time_ns": 1786541792642458100,
+      "n_bytes": 7,
+      "bytes_hex": "512c372c34410a",
+      "sequence": 7
+    },
+    {
+      "dir": "TX",
+      "pc_ns": 2366841670700,
+      "pc_clock_source": "perf_counter_ns",
+      "wall_time_ns": 1786541793643265800,
+      "n_bytes": 7,
+      "bytes_hex": "512c382c34350a",
+      "sequence": 8
+    },
+    {
+      "dir": "TX",
+      "pc_ns": 2367843229400,
+      "pc_clock_source": "perf_counter_ns",
+      "wall_time_ns": 1786541794644836200,
+      "n_bytes": 7,
+      "bytes_hex": "512c392c34340a",
+      "sequence": 9
+    },
+    {
+      "dir": "TX",
+      "pc_ns": 2368855183600,
+      "pc_clock_source": "perf_counter_ns",
+      "wall_time_ns": 1786541795656711900,
+      "n_bytes": 8,
+      "bytes_hex": "512c31302c37430a",
+      "sequence": 10
+    },
+    {
+      "dir": "TX",
+      "pc_ns": 2369867588500,
+      "pc_clock_source": "perf_counter_ns",
+      "wall_time_ns": 1786541796669241600,
+      "n_bytes": 8,
+      "bytes_hex": "512c31312c37440a",
+      "sequence": 11
+    },
+    {
+      "dir": "TX",
+      "pc_ns": 2370877634600,
+      "pc_clock_source": "perf_counter_ns",
+      "wall_time_ns": 1786541797679205200,
+      "n_bytes": 8,
+      "bytes_hex": "512c31322c37450a",
+      "sequence": 12
+    },
+    {
+      "dir": "TX",
+      "pc_ns": 2371885235800,
+      "pc_clock_source": "perf_counter_ns",
+      "wall_time_ns": 1786541798687310600,
+      "n_bytes": 8,
+      "bytes_hex": "512c31332c37460a",
+      "sequence": 13
+    },
+    {
+      "dir": "TX",
+      "pc_ns": 2372885698100,
+      "pc_clock_source": "perf_counter_ns",
+      "wall_time_ns": 1786541799687264500,
+      "n_bytes": 8,
+      "bytes_hex": "512c31342c37380a",
+      "sequence": 14
+    },
+    {
+      "dir": "TX",
+      "pc_ns": 2373890300200,
+      "pc_clock_source": "perf_counter_ns",
+      "wall_time_ns": 1786541800691765000,
+      "n_bytes": 8,
+      "bytes_hex": "512c31352c37390a",
+      "sequence": 15
+    },
+    {
+      "dir": "TX",
+      "pc_ns": 2374899848300,
+      "pc_clock_source": "perf_counter_ns",
+      "wall_time_ns": 1786541801701818300,
+      "n_bytes": 8,
+      "bytes_hex": "512c31362c37410a",
+      "sequence": 16
+    }
+  ]
+}

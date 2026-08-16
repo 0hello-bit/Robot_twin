@@ -28,6 +28,22 @@ static void feed_str(const char *s)
     for (; *s; ++s) esp_transport_process_byte((uint8_t)*s);
 }
 
+static void feed_clock_probe(uint32_t sequence)
+{
+    char body[32];
+    char frame[64];
+    uint8_t checksum = 0U;
+    size_t i;
+
+    sprintf(body, "Q,%lu", (unsigned long)sequence);
+    for (i = 0U; i < strlen(body); ++i) {
+        checksum ^= (uint8_t)body[i];
+    }
+    sprintf(frame, "+IPD,0,%zu:%s,%02X\n",
+            strlen(body) + 4U, body, (unsigned)checksum);
+    feed_str(frame);
+}
+
 static void queue_ack(void)
 {
     TwinControlResult result;
@@ -183,6 +199,59 @@ static int test_old_frames_not_available_after_reconnect(void)
 }
 
 /* ===================================================================
+ * Q event and firmware quiet-window contract
+ * =================================================================== */
+
+static int test_clock_sync_event_is_one_shot_and_reconnect_safe(void)
+{
+    TwinControlClockSync clock_sync;
+
+    s_connected = 0U;
+    s_client_id = 0xFFU;
+    esp_transport_init(&s_connected, &s_client_id);
+    feed_str("0,CONNECT\r\n");
+
+    feed_clock_probe(7U);
+    CHECK(esp_transport_has_pending_clock_sync() == 1U);
+    CHECK(esp_transport_take_clock_sync_event() == 1U);
+    CHECK(esp_transport_take_clock_sync_event() == 0U);
+    CHECK(esp_transport_peek_pending_clock_sync(&clock_sync) == 1U);
+    CHECK(clock_sync.sequence == 7U);
+
+    /* A second Q cannot replace the outstanding response or re-arm the
+       one-shot event. */
+    feed_clock_probe(8U);
+    CHECK(esp_transport_take_clock_sync_event() == 0U);
+
+    feed_str("\r\n");
+    feed_str("0,CLOSED\r\n");
+    CHECK(esp_transport_has_pending_clock_sync() == 0U);
+    CHECK(esp_transport_take_clock_sync_event() == 0U);
+    return 0;
+}
+
+static int test_clock_quiet_window_expires_and_is_wrap_safe(void)
+{
+    EspClockQuietWindow quiet;
+
+    esp_clock_quiet_init(&quiet);
+    CHECK(esp_clock_quiet_active(&quiet, 100U) == 0U);
+    esp_clock_quiet_arm(&quiet, 100U);
+    CHECK(esp_clock_quiet_active(&quiet, 100U) == 1U);
+    CHECK(esp_clock_quiet_active(&quiet, 2099U) == 1U);
+    CHECK(esp_clock_quiet_active(&quiet, 2100U) == 0U);
+    CHECK(esp_clock_quiet_active(&quiet, 2101U) == 0U);
+
+    esp_clock_quiet_arm(&quiet, 0xFFFFFF00UL);
+    CHECK(esp_clock_quiet_active(&quiet, 0xFFFFFF10UL) == 1U);
+    CHECK(esp_clock_quiet_active(&quiet, 0x00000600UL) == 1U);
+    CHECK(esp_clock_quiet_active(&quiet, 0x000006D0UL) == 0U);
+    esp_clock_quiet_reset(&quiet);
+    CHECK(esp_clock_quiet_active(&quiet, 0x000006D0UL) == 0U);
+    return 0;
+}
+
+/* ===================================================================
  * TEST RUNNER
  * =================================================================== */
 
@@ -193,6 +262,8 @@ static int run_all_tests(void)
     if (test_connect_clears_pending_status()) return 1;
     if (test_closed_clears_pending_frames()) return 1;
     if (test_old_frames_not_available_after_reconnect()) return 1;
+    if (test_clock_sync_event_is_one_shot_and_reconnect_safe()) return 1;
+    if (test_clock_quiet_window_expires_and_is_wrap_safe()) return 1;
 
     puts("PASS test_esp_transport_gen");
     return 0;

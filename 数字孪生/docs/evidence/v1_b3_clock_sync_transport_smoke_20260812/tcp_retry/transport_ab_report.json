@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "task": "ClockSync transport attribution, Q/T only",
+  "mode": "clock_sync_only",
+  "control_commands_sent": [],
+  "payload_contract": "q_t_v1",
+  "pc_clock_source": "perf_counter_ns",
+  "single_outstanding": true,
+  "primary_retries": false,
+  "telemetry_migrated": false,
+  "health_migrated": false,
+  "control_migrated": false,
+  "runs": {
+    "tcp": {
+      "transport": "tcp",
+      "profile": {
+        "transport": "tcp",
+        "mode": "clock_sync_only",
+        "payload_contract": "q_t_v1",
+        "single_outstanding": true,
+        "primary_retries": false,
+        "pc_clock_source": "perf_counter_ns",
+        "telemetry_migrated": false,
+        "health_migrated": false,
+        "control_migrated": false
+      },
+      "host": "192.168.110.236",
+      "tcp_port": 8888,
+      "udp_target_port": 9998,
+      "udp_listen_port": 9999,
+      "count_requested": 1,
+      "period_s": 0.25,
+      "timeout_s": 2.0,
+      "late_grace_s": 0.5,
+      "connection_error": null,
+      "parse_errors": [],
+      "ledger": {
+        "transport": "tcp",
+        "pc_clock_source": "perf_counter_ns",
+        "observations": [
+          {
+            "transport": "tcp",
+            "sequence": 1,
+            "pc_tx_ns": 283825996369000,
+            "pc_timeout_ns": null,
+            "pc_rx_ns": 283826134423800,
+            "matched": true,
+            "outcome": "matched",
+            "late_reply": false,
+            "duplicate_count": 0,
+            "reordered": false,
+            "mcu_rx_tick_ms": 164261,
+            "mcu_tx_tick_ms": 164373,
+            "rtt_total_ns": 138054800,
+            "rtt_transport_ns": 26054800,
+            "pc_clock_source": "perf_counter_ns"
+          }
+        ],
+        "unmatched_replies": [],
+        "pending_sequences": [],
+        "summary": {
+          "sent_count": 1,
+          "matched_count": 1,
+          "lost_count": 0,
+          "loss_ratio": 0.0,
+          "duplicate_count": 0,
+          "reordered_count": 0,
+          "late_reply_count": 0,
+          "total_rtt_sample_count": 1,
+          "total_rtt_p50_ns": 138054800.0,
+          "total_rtt_p95_ns": 138054800.0,
+          "total_rtt_max_ns": 138054800,
+          "transport_rtt_sample_count": 1,
+          "transport_rtt_p50_ns": 26054800.0,
+          "transport_rtt_p95_ns": 26054800.0,
+          "transport_rtt_max_ns": 26054800,
+          "invalid_transport_rtt_count": 0,
+          "pending_count": 0
+        }
+      },
+      "causal_sync_input_count": 1,
+      "causal_sync": {
+        "verdict": "INSUFFICIENT EVIDENCE",
+        "reason": "invalid clock exchange evidence: at least 2 clock exchange samples are required",
+        "record_count": 1,
+        "excluded_record_count": 0,
+        "unclassified_record_count": 0,
+        "sample_count": 0,
+        "fit": null,
+        "exchange_fields": [
+          "sequence",
+          "pc_tx_ns",
+          "mcu_rx_tick_ms",
+          "mcu_tx_tick_ms",
+          "pc_rx_ns"
+        ],
+        "policy": {
+          "min_exchanges": 8,
+          "max_rtt_p95_ns": 20000000,
+          "max_residual_p95_ns": 5000000,
+          "max_uncertainty_p95_ns": 10000000
+        }
+      },
+      "raw_io": {
+        "n_send": 1,
+        "n_recv": 2,
+        "events": [
+          {
+            "dir": "TX",
+            "pc_ns": 283825996369000,
+            "pc_clock_source": "perf_counter_ns",
+            "wall_time_ns": 1786524122203833700,
+            "n_bytes": 7,
+            "bytes_hex": "512c312c34430a",
+            "sequence": 1
+          },
+          {
+            "dir": "RX",
+            "pc_ns": 283826035137600,
+            "pc_clock_source": "perf_counter_ns",
+            "wall_time_ns": 1786524122242648300,
+            "n_bytes": 33,
+            "bytes_hex": "532c6e6f6e652c6e6f6e652c53544f505045442c54494d454f55542c302c35440a"
+          },
+          {
+            "dir": "RX",
+            "pc_ns": 283826134423800,
+            "pc_clock_source": "perf_counter_ns",
+            "wall_time_ns": 1786524122341540100,
+            "n_bytes": 38,
+            "bytes_hex": "542c303030303030303030312c303030303136343236312c303030303136343337332c37420a"
+          }
+        ]
+      }
+    }
+  },
+  "out_dir": "docs/evidence/v1_b3_clock_sync_transport_smoke_20260812/tcp_retry"
+}

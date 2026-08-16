@@ -11,6 +11,7 @@ void telemetry_batch_clear(TelemetryBatch *batch)
 {
     batch->len = 0U;
     batch->count = 0U;
+    memset(batch->timing, 0, sizeof(batch->timing));
 }
 
 uint8_t telemetry_batch_append(TelemetryBatch *batch,
@@ -18,7 +19,18 @@ uint8_t telemetry_batch_append(TelemetryBatch *batch,
                                uint16_t frame_len,
                                uint8_t *overwrote)
 {
+    return telemetry_batch_append_timed(batch, frame, frame_len, 0,
+                                        overwrote);
+}
+
+uint8_t telemetry_batch_append_timed(TelemetryBatch *batch,
+                                     const uint8_t *frame,
+                                     uint16_t frame_len,
+                                     const TelemetryTimingRecord *timing,
+                                     uint8_t *overwrote)
+{
     uint16_t offset;
+    uint8_t slot;
 
     if (overwrote != 0) *overwrote = 0U;
     if (batch == 0 || frame == 0 ||
@@ -31,14 +43,25 @@ uint8_t telemetry_batch_append(TelemetryBatch *batch,
         memmove(batch->data,
                 batch->data + TELEMETRY_BATCH_FRAME_SIZE,
                 TELEMETRY_BATCH_MAX_BYTES - TELEMETRY_BATCH_FRAME_SIZE);
+        memmove(batch->timing,
+                batch->timing + 1U,
+                (TELEMETRY_BATCH_MAX_FRAMES - 1U) *
+                    sizeof(TelemetryTimingRecord));
         offset = TELEMETRY_BATCH_MAX_BYTES - TELEMETRY_BATCH_FRAME_SIZE;
+        slot = TELEMETRY_BATCH_MAX_FRAMES - 1U;
         if (overwrote != 0) *overwrote = 1U;
     } else {
         offset = (uint16_t)batch->count * TELEMETRY_BATCH_FRAME_SIZE;
+        slot = batch->count;
         batch->count++;
     }
 
     memcpy(batch->data + offset, frame, TELEMETRY_BATCH_FRAME_SIZE);
+    if (timing != 0) {
+        batch->timing[slot] = *timing;
+    } else {
+        memset(&batch->timing[slot], 0, sizeof(TelemetryTimingRecord));
+    }
     batch->len = (uint16_t)batch->count * TELEMETRY_BATCH_FRAME_SIZE;
     return 1U;
 }
@@ -81,6 +104,8 @@ uint8_t telemetry_batch_copy_prefix(const TelemetryBatch *src,
     if (count == 0U) return 0U;
     memcpy(dst->data, src->data,
            (uint16_t)count * TELEMETRY_BATCH_FRAME_SIZE);
+    memcpy(dst->timing, src->timing,
+           (uint16_t)count * sizeof(TelemetryTimingRecord));
     dst->count = count;
     dst->len = (uint16_t)count * TELEMETRY_BATCH_FRAME_SIZE;
     return 1U;
@@ -101,6 +126,8 @@ uint8_t telemetry_batch_drop_prefix(TelemetryBatch *batch,
     if (remaining != 0U) {
         memmove(batch->data, batch->data + drop_bytes,
                 (uint16_t)remaining * TELEMETRY_BATCH_FRAME_SIZE);
+        memmove(batch->timing, batch->timing + frame_count,
+                (uint16_t)remaining * sizeof(TelemetryTimingRecord));
     }
     batch->count = remaining;
     batch->len = (uint16_t)remaining * TELEMETRY_BATCH_FRAME_SIZE;
@@ -119,6 +146,8 @@ uint8_t telemetry_batch_drop_at(TelemetryBatch *batch, uint8_t index)
         memmove(batch->data + offset,
                 batch->data + offset + TELEMETRY_BATCH_FRAME_SIZE,
                 (uint16_t)remaining * TELEMETRY_BATCH_FRAME_SIZE);
+        memmove(batch->timing + index, batch->timing + index + 1U,
+                (uint16_t)remaining * sizeof(TelemetryTimingRecord));
     }
     batch->count--;
     batch->len = (uint16_t)batch->count * TELEMETRY_BATCH_FRAME_SIZE;

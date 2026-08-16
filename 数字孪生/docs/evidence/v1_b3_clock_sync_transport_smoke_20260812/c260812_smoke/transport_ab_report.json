@@ -1,0 +1,256 @@
+{
+  "schema_version": 1,
+  "task": "ClockSync transport attribution, Q/T only",
+  "mode": "clock_sync_only",
+  "control_commands_sent": [],
+  "payload_contract": "q_t_v1",
+  "pc_clock_source": "perf_counter_ns",
+  "single_outstanding": true,
+  "primary_retries": false,
+  "telemetry_migrated": false,
+  "health_migrated": false,
+  "control_migrated": false,
+  "runs": {
+    "tcp": {
+      "transport": "tcp",
+      "profile": {
+        "transport": "tcp",
+        "mode": "clock_sync_only",
+        "payload_contract": "q_t_v1",
+        "single_outstanding": true,
+        "primary_retries": false,
+        "pc_clock_source": "perf_counter_ns",
+        "telemetry_migrated": false,
+        "health_migrated": false,
+        "control_migrated": false
+      },
+      "host": "192.168.110.236",
+      "tcp_port": 8888,
+      "udp_target_port": 9998,
+      "udp_listen_port": 9999,
+      "count_requested": 1,
+      "period_s": 0.25,
+      "timeout_s": 1.0,
+      "late_grace_s": 0.25,
+      "connection_error": null,
+      "parse_errors": [
+        {
+          "pc_rx_ns": 282150579564700,
+          "line": "T,0,5D\n",
+          "error": "ProtocolError('wrong field count')"
+        }
+      ],
+      "ledger": {
+        "transport": "tcp",
+        "pc_clock_source": "perf_counter_ns",
+        "observations": [
+          {
+            "transport": "tcp",
+            "sequence": 1,
+            "pc_tx_ns": 282150519155900,
+            "pc_timeout_ns": null,
+            "pc_rx_ns": 282150673628200,
+            "matched": true,
+            "outcome": "matched",
+            "late_reply": false,
+            "duplicate_count": 0,
+            "reordered": false,
+            "mcu_rx_tick_ms": 1770430,
+            "mcu_tx_tick_ms": 1770553,
+            "rtt_total_ns": 154472300,
+            "rtt_transport_ns": 31472300,
+            "pc_clock_source": "perf_counter_ns"
+          }
+        ],
+        "unmatched_replies": [],
+        "pending_sequences": [],
+        "summary": {
+          "sent_count": 1,
+          "matched_count": 1,
+          "lost_count": 0,
+          "loss_ratio": 0.0,
+          "duplicate_count": 0,
+          "reordered_count": 0,
+          "late_reply_count": 0,
+          "total_rtt_sample_count": 1,
+          "total_rtt_p50_ns": 154472300.0,
+          "total_rtt_p95_ns": 154472300.0,
+          "total_rtt_max_ns": 154472300,
+          "transport_rtt_sample_count": 1,
+          "transport_rtt_p50_ns": 31472300.0,
+          "transport_rtt_p95_ns": 31472300.0,
+          "transport_rtt_max_ns": 31472300,
+          "invalid_transport_rtt_count": 0,
+          "pending_count": 0
+        }
+      },
+      "causal_sync_input_count": 1,
+      "causal_sync": {
+        "verdict": "INSUFFICIENT EVIDENCE",
+        "reason": "invalid clock exchange evidence: at least 2 clock exchange samples are required",
+        "record_count": 1,
+        "excluded_record_count": 0,
+        "unclassified_record_count": 0,
+        "sample_count": 0,
+        "fit": null,
+        "exchange_fields": [
+          "sequence",
+          "pc_tx_ns",
+          "mcu_rx_tick_ms",
+          "mcu_tx_tick_ms",
+          "pc_rx_ns"
+        ],
+        "policy": {
+          "min_exchanges": 8,
+          "max_rtt_p95_ns": 20000000,
+          "max_residual_p95_ns": 5000000,
+          "max_uncertainty_p95_ns": 10000000
+        }
+      },
+      "raw_io": {
+        "n_send": 1,
+        "n_recv": 2,
+        "events": [
+          {
+            "dir": "TX",
+            "pc_ns": 282150519155900,
+            "pc_clock_source": "perf_counter_ns",
+            "wall_time_ns": 1786522446726502200,
+            "n_bytes": 7,
+            "bytes_hex": "512c312c34430a",
+            "sequence": 1
+          },
+          {
+            "dir": "RX",
+            "pc_ns": 282150579564700,
+            "pc_clock_source": "perf_counter_ns",
+            "wall_time_ns": 1786522446786883700,
+            "n_bytes": 33,
+            "bytes_hex": "532c6e6f6e652c6e6f6e652c53544f505045442c54494d454f55542c302c35440a"
+          },
+          {
+            "dir": "RX",
+            "pc_ns": 282150673628200,
+            "pc_clock_source": "perf_counter_ns",
+            "wall_time_ns": 1786522446881305500,
+            "n_bytes": 38,
+            "bytes_hex": "542c303030303030303030312c303030313737303433302c303030313737303535332c37440a"
+          }
+        ]
+      }
+    },
+    "udp": {
+      "transport": "udp",
+      "profile": {
+        "transport": "udp",
+        "mode": "clock_sync_only",
+        "payload_contract": "q_t_v1",
+        "single_outstanding": true,
+        "primary_retries": false,
+        "pc_clock_source": "perf_counter_ns",
+        "telemetry_migrated": false,
+        "health_migrated": false,
+        "control_migrated": false
+      },
+      "host": "192.168.110.236",
+      "tcp_port": 8888,
+      "udp_target_port": 9998,
+      "udp_listen_port": 9999,
+      "count_requested": 1,
+      "period_s": 0.25,
+      "timeout_s": 1.0,
+      "late_grace_s": 0.25,
+      "connection_error": null,
+      "parse_errors": [],
+      "ledger": {
+        "transport": "udp",
+        "pc_clock_source": "perf_counter_ns",
+        "observations": [
+          {
+            "transport": "udp",
+            "sequence": 1,
+            "pc_tx_ns": 282151046036800,
+            "pc_timeout_ns": 282152056860500,
+            "pc_rx_ns": null,
+            "matched": false,
+            "outcome": "timeout",
+            "late_reply": false,
+            "duplicate_count": 0,
+            "reordered": false,
+            "mcu_rx_tick_ms": null,
+            "mcu_tx_tick_ms": null,
+            "rtt_total_ns": null,
+            "rtt_transport_ns": null,
+            "pc_clock_source": "perf_counter_ns"
+          }
+        ],
+        "unmatched_replies": [],
+        "pending_sequences": [],
+        "summary": {
+          "sent_count": 1,
+          "matched_count": 0,
+          "lost_count": 1,
+          "loss_ratio": 1.0,
+          "duplicate_count": 0,
+          "reordered_count": 0,
+          "late_reply_count": 0,
+          "total_rtt_sample_count": 0,
+          "total_rtt_p50_ns": null,
+          "total_rtt_p95_ns": null,
+          "total_rtt_max_ns": null,
+          "transport_rtt_sample_count": 0,
+          "transport_rtt_p50_ns": null,
+          "transport_rtt_p95_ns": null,
+          "transport_rtt_max_ns": null,
+          "invalid_transport_rtt_count": 0,
+          "pending_count": 0
+        }
+      },
+      "causal_sync_input_count": 0,
+      "causal_sync": {
+        "verdict": "INSUFFICIENT EVIDENCE",
+        "reason": "no clock exchange samples recorded",
+        "record_count": 0,
+        "excluded_record_count": 0,
+        "unclassified_record_count": 0,
+        "sample_count": 0,
+        "fit": null,
+        "exchange_fields": [
+          "sequence",
+          "pc_tx_ns",
+          "mcu_rx_tick_ms",
+          "mcu_tx_tick_ms",
+          "pc_rx_ns"
+        ],
+        "policy": {
+          "min_exchanges": 8,
+          "max_rtt_p95_ns": 20000000,
+          "max_residual_p95_ns": 5000000,
+          "max_uncertainty_p95_ns": 10000000
+        }
+      },
+      "raw_io": {
+        "n_send": 1,
+        "n_recv": 0,
+        "events": [
+          {
+            "dir": "TX",
+            "pc_ns": 282151046036800,
+            "pc_clock_source": "perf_counter_ns",
+            "wall_time_ns": 1786522447253811500,
+            "n_bytes": 7,
+            "bytes_hex": "512c312c34430a",
+            "sequence": 1
+          }
+        ]
+      },
+      "udp_capability_evidence": {
+        "udp_supported": false,
+        "udp_capability_source": null,
+        "ipd_header_mode": null,
+        "verdict": "INSUFFICIENT EVIDENCE"
+      }
+    }
+  },
+  "out_dir": "docs/evidence/v1_b3_clock_sync_transport_smoke_20260812/c260812_smoke"
+}

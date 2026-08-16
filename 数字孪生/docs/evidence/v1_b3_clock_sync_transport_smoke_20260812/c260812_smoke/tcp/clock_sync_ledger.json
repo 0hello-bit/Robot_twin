@@ -1,0 +1,44 @@
+{
+  "transport": "tcp",
+  "pc_clock_source": "perf_counter_ns",
+  "observations": [
+    {
+      "transport": "tcp",
+      "sequence": 1,
+      "pc_tx_ns": 282150519155900,
+      "pc_timeout_ns": null,
+      "pc_rx_ns": 282150673628200,
+      "matched": true,
+      "outcome": "matched",
+      "late_reply": false,
+      "duplicate_count": 0,
+      "reordered": false,
+      "mcu_rx_tick_ms": 1770430,
+      "mcu_tx_tick_ms": 1770553,
+      "rtt_total_ns": 154472300,
+      "rtt_transport_ns": 31472300,
+      "pc_clock_source": "perf_counter_ns"
+    }
+  ],
+  "unmatched_replies": [],
+  "pending_sequences": [],
+  "summary": {
+    "sent_count": 1,
+    "matched_count": 1,
+    "lost_count": 0,
+    "loss_ratio": 0.0,
+    "duplicate_count": 0,
+    "reordered_count": 0,
+    "late_reply_count": 0,
+    "total_rtt_sample_count": 1,
+    "total_rtt_p50_ns": 154472300.0,
+    "total_rtt_p95_ns": 154472300.0,
+    "total_rtt_max_ns": 154472300,
+    "transport_rtt_sample_count": 1,
+    "transport_rtt_p50_ns": 31472300.0,
+    "transport_rtt_p95_ns": 31472300.0,
+    "transport_rtt_max_ns": 31472300,
+    "invalid_transport_rtt_count": 0,
+    "pending_count": 0
+  }
+}

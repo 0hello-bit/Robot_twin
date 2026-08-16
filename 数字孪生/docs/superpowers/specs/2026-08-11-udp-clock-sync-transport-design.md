@@ -54,8 +54,15 @@ Required profile invariants:
 
 The UDP profile additionally requires explicit capability evidence containing an
 actual `AT+GMR` response, `CIPMUX`, `CIPMODE`, UDP support, and the incoming
-`+IPD` header mode. Missing capability evidence returns
-`INSUFFICIENT EVIDENCE`; it must not be interpreted as UDP support.
+`+IPD` header mode. The `udp_supported=true` assertion must carry a separately
+named, non-empty `udp_capability_source`; the four read-only AT queries alone
+are observations of installed firmware/configuration and do not establish UDP
+support. Missing capability evidence returns `INSUFFICIENT EVIDENCE`; it must
+not be interpreted as UDP support.
+The offline contract only recognizes an `AT+GMR` evidence string when it has
+an `AT version:` line with a non-empty value; this is a format gate for a
+previously captured response, not a hardware query or proof that the response
+was actually collected.
 
 ### `ClockSyncTransportObservation`
 
@@ -63,6 +70,7 @@ Each observation represents one primary sent sequence and contains:
 
 - `sequence`;
 - `pc_tx_ns` and optional `pc_rx_ns`, both from `perf_counter_ns`;
+- `pc_clock_source`, fixed to `perf_counter_ns`;
 - optional `rtt_total_ns` and `rtt_transport_ns` for a matched reply;
 - `duplicate_count`;
 - `reordered`;

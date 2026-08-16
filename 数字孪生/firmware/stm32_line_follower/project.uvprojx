@@ -780,6 +780,16 @@
               <FilePath>.\User\esp_runtime_transport.h</FilePath>
             </File>
             <File>
+              <FileName>esp_at_diagnostic.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\User\esp_at_diagnostic.c</FilePath>
+            </File>
+            <File>
+              <FileName>esp_at_diagnostic.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\User\esp_at_diagnostic.h</FilePath>
+            </File>
+            <File>
               <FileName>stm32f10x_conf.h</FileName>
               <FileType>5</FileType>
               <FilePath>.\User\stm32f10x_conf.h</FilePath>

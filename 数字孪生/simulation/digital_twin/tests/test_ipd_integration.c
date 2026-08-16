@@ -128,6 +128,32 @@ static int test_noise_before_frame(void)
     return 0;
 }
 
+/* Capability preflight requests are accepted only from an +IPD payload.
+   They must not be interpreted as a control frame or alter safety state. */
+static int test_capability_request_is_not_a_control_frame(void)
+{
+    const unsigned char plain_request[] = "D,ESP_CAPS,plain\n";
+    const unsigned char ipd_request[] =
+        "+IPD,0,18:D,ESP_CAPS,abc123\n";
+
+    twin_control_init(&k_baseline);
+    g_connected = 1U;
+    g_client_id = 0U;
+    esp_transport_init(&g_connected, &g_client_id);
+
+    feed_tcp(plain_request, sizeof(plain_request) - 1U);
+    CHECK(esp_transport_diagnostic_request_ready() == 0U);
+    CHECK(esp_transport_has_pending_ack() == 0U);
+    CHECK(twin_control_motion_inhibited() == 1U);
+
+    feed_tcp(ipd_request, sizeof(ipd_request) - 1U);
+    CHECK(esp_transport_diagnostic_request_ready() == 1U);
+    CHECK(esp_transport_has_pending_ack() == 0U);
+    CHECK(esp_transport_has_pending_status() == 0U);
+    CHECK(twin_control_motion_inhibited() == 1U);
+    return 0;
+}
+
 /* Test: two consecutive +IPD frames */
 static int test_consecutive_ipd_frames(void)
 {
@@ -495,6 +521,7 @@ int main(void)
     if (test_ipd_wraps_parameter_frame()) return 1;
     if (test_ipd_parameter_then_stop_produces_ack()) return 1;
     if (test_noise_before_frame()) return 1;
+    if (test_capability_request_is_not_a_control_frame()) return 1;
     if (test_consecutive_ipd_frames()) return 1;
     if (test_pending_ack_is_encoded()) return 1;
     if (test_connect_closed_handling()) return 1;
