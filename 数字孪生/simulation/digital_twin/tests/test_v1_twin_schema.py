@@ -43,6 +43,10 @@ from v1_twin.v1_twin_errors import (
     V1SchemaError,
     V1CalibrationHoldoutOverlapError,
 )
+from v1_twin.v1_twin_vehicle_geometry import (
+    VehicleBodyProfile,
+    derive_vehicle_body_rectangle,
+)
 
 
 # ============================================================
@@ -105,6 +109,59 @@ def test_pose_json_round_trip():
     restored = from_json(to_json(pose), V1Pose)
     assert restored == pose
     assert restored is not pose
+
+
+def test_legacy_pose_dict_omits_optional_body_rectangle():
+    assert "body_rectangle" not in make_pose().to_dict()
+
+
+def test_pose_with_body_rectangle_json_round_trip():
+    profile = VehicleBodyProfile.from_dict({
+        "profile_id": "test-profile",
+        "schema_version": "1.0.0",
+        "length_mm": 190.0,
+        "width_mm": 140.0,
+        "tag_to_center_forward_mm": 55.0,
+        "tag_to_center_left_mm": 0.0,
+        "source": "TEST",
+        "validation_status": "UNVERIFIED",
+        "calibration_status": "TEST_SEED",
+        "coordinate_frame": "relative_plane_mm",
+    })
+    pose = make_pose(body_rectangle=derive_vehicle_body_rectangle(make_pose(), profile))
+
+    assert from_json(to_json(pose), V1Pose) == pose
+
+
+def test_pose_rejects_malformed_nested_body_rectangle():
+    payload = make_pose().to_dict()
+    payload["body_rectangle"] = {"length_mm": 190.0}
+
+    with pytest.raises((ValueError, V1SchemaError)):
+        V1Pose.from_dict(payload)
+
+
+def test_sync_frame_json_round_trip_with_body_rectangle():
+    profile = VehicleBodyProfile.from_dict({
+        "profile_id": "test-profile",
+        "schema_version": "1.0.0",
+        "length_mm": 190.0,
+        "width_mm": 140.0,
+        "tag_to_center_forward_mm": 55.0,
+        "tag_to_center_left_mm": 0.0,
+        "source": "TEST",
+        "validation_status": "UNVERIFIED",
+        "calibration_status": "TEST_SEED",
+        "coordinate_frame": "relative_plane_mm",
+    })
+    pose = make_pose(body_rectangle=derive_vehicle_body_rectangle(make_pose(), profile))
+    frame = V1SyncFrame(
+        pose=pose,
+        telemetry=make_telemetry(),
+        sync_quality=V1SyncQuality.OK,
+    )
+
+    assert from_json(to_json(frame), V1SyncFrame) == frame
 
 
 def test_telemetry_json_round_trip():

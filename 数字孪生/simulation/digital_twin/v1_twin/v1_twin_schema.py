@@ -21,12 +21,13 @@ import json
 import math
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Mapping, Optional, Tuple
 
 from v1_twin.v1_twin_errors import (
     V1CalibrationHoldoutOverlapError,
     V1SchemaError,
 )
+from v1_twin.v1_twin_vehicle_geometry import VehicleBodyRectangle
 
 # Task 4B-4 fix: bumped 1.0.0 → 1.1.0.
 #   - V1TelemetryFrame 新增 yaw_rad（rad，可选；旧 JSON 缺失 → None = legacy/unknown）
@@ -115,6 +116,7 @@ class V1Pose:
     t_pc_ns: int
     source: str = "camera"                # "camera" | "simulated"
     schema_version: str = SCHEMA_VERSION
+    body_rectangle: Optional[VehicleBodyRectangle] = None
 
     def __post_init__(self) -> None:
         _require_finite(self.x_mm, "x_mm")
@@ -126,9 +128,12 @@ class V1Pose:
         _require(self.source in ("camera", "simulated"),
                  "source must be 'camera' or 'simulated'")
         _require_schema_version(self.schema_version)
+        if self.body_rectangle is not None:
+            _require(isinstance(self.body_rectangle, VehicleBodyRectangle),
+                     "body_rectangle must be a VehicleBodyRectangle")
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        result = {
             "type": "V1Pose",
             "x_mm": self.x_mm,
             "y_mm": self.y_mm,
@@ -138,9 +143,25 @@ class V1Pose:
             "source": self.source,
             "schema_version": self.schema_version,
         }
+        if self.body_rectangle is not None:
+            result["body_rectangle"] = self.body_rectangle.to_dict()
+        return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "V1Pose":
+        body_rectangle_data = data.get("body_rectangle")
+        body_rectangle = None
+        if body_rectangle_data is not None:
+            if not isinstance(body_rectangle_data, Mapping):
+                raise V1SchemaError(
+                    "body_rectangle must be an object or null"
+                )
+            try:
+                body_rectangle = VehicleBodyRectangle.from_dict(body_rectangle_data)
+            except KeyError as exc:
+                raise V1SchemaError(
+                    "body_rectangle is missing required field: {0}".format(exc.args[0])
+                ) from exc
         return cls(
             x_mm=data["x_mm"],
             y_mm=data["y_mm"],
@@ -149,6 +170,7 @@ class V1Pose:
             t_pc_ns=data["t_pc_ns"],
             source=data.get("source", "camera"),
             schema_version=data.get("schema_version", SCHEMA_VERSION),
+            body_rectangle=body_rectangle,
         )
 
 
