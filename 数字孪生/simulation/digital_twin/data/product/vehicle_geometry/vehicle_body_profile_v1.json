@@ -1,0 +1,14 @@
+{
+  "profile_id": "vehicle_body_visual_seed_v1",
+  "schema_version": "1.0.0",
+  "length_mm": 190.0,
+  "width_mm": 140.0,
+  "tag_to_center_forward_mm": 55.0,
+  "tag_to_center_left_mm": 0.0,
+  "source": "APRILTAG_RIGID_BODY_OFFSET",
+  "validation_status": "HEURISTIC_UNVERIFIED",
+  "calibration_status": "INITIAL_VIDEO_SEED",
+  "coordinate_frame": "relative_plane_mm",
+  "source_run_id": "c260817013638536",
+  "note": "Values are a visual seed for the retained video, not absolute measurement or closed-loop proof."
+}
