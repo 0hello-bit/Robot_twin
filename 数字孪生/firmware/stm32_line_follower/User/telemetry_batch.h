@@ -18,6 +18,18 @@ typedef struct {
     uint8_t count;
 } TelemetryBatch;
 
+/* Encode one TCP telemetry frame.  The output buffer must hold 47 bytes. */
+void telemetry_frame_encode(
+    uint8_t *frame,
+    int16_t s0, int16_t s1, int16_t s2, int16_t s3,
+    int16_t m1, int16_t m2, int16_t m3, int16_t m4,
+    int16_t error, int16_t pid_output,
+    uint32_t tick, int32_t yaw,
+    uint8_t imu_validity, uint8_t imu_init_status,
+    int16_t imu_ax, int16_t imu_ay, int16_t imu_az,
+    int16_t imu_gx, int16_t imu_gy, int16_t imu_gz,
+    uint32_t sample_seq);
+
 void telemetry_batch_init(TelemetryBatch *batch);
 void telemetry_batch_clear(TelemetryBatch *batch);
 

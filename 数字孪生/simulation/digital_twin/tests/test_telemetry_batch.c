@@ -7,6 +7,39 @@
 #include "telemetry_rate.h"
 #include "telemetry_batch.h"
 
+static void test_extended_frame_encoder_layout_and_checksum(void)
+{
+    uint8_t frame[TELEMETRY_BATCH_FRAME_SIZE];
+    uint8_t checksum;
+    uint8_t i;
+
+    telemetry_frame_encode(
+        frame,
+        1, 0, 1, 0,
+        -321, 654, -123, 456,
+        -77, 88, 987654U, -12345,
+        0x0FU, 0x21U,
+        -32768, -1, 0, 1, 32767, -2222,
+        0xF1234567U);
+
+    assert(frame[0] == 0xAAU);
+    assert(frame[1] == 0x55U);
+    assert(frame[2] == 0x01U);
+    assert(frame[3] == 42U);
+    assert(frame[30] == 0x00U && frame[31] == 0x80U);
+    assert(frame[32] == 0xFFU && frame[33] == 0xFFU);
+    assert(frame[34] == 0x00U && frame[35] == 0x00U);
+    assert(frame[36] == 0x01U && frame[37] == 0x00U);
+    assert(frame[38] == 0xFFU && frame[39] == 0x7FU);
+    assert(frame[40] == 0x52U && frame[41] == 0xF7U);
+    assert(frame[42] == 0x67U && frame[43] == 0x45U);
+    assert(frame[44] == 0x23U && frame[45] == 0xF1U);
+
+    checksum = 0x01U ^ 42U;
+    for (i = 4U; i < 46U; i++) checksum ^= frame[i];
+    assert(frame[46] == checksum);
+}
+
 static void test_current_wire_capacity_contract(void)
 {
     assert(TELEMETRY_BATCH_FRAME_SIZE == 47U);
@@ -165,6 +198,7 @@ static void test_consume_clears_batch_and_rejects_wrong_frame_size(void)
 
 int main(void)
 {
+    test_extended_frame_encoder_layout_and_checksum();
     test_current_wire_capacity_contract();
     test_appends_three_frames_without_overwrite();
     test_appends_eight_frames_without_overwrite();

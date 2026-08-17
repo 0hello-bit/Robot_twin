@@ -296,68 +296,6 @@ static void ESP_ServiceTX(void)
     ESP_TX_HandleTerminal();
 }
 
-/* 构建 47 字节遥测帧到 s_tele_frame（42 字节 payload）。 */
-static void build_telemetry_frame(int16_t s0, int16_t s1, int16_t s2, int16_t s3,
-                                   int16_t m1, int16_t m2, int16_t m3, int16_t m4,
-                                   int16_t error, int16_t pid_output,
-                                   uint32_t tick, int32_t yaw,
-                                   uint8_t imu_validity,
-                                   uint8_t imu_init_status,
-                                   const MPU6050_Data *imu_snapshot,
-                                   uint32_t sample_seq)
-{
-    uint8_t type = 0x01;
-    uint8_t len  = 42;
-    uint8_t cs   = type ^ len;
-    uint8_t i;
-    int32_t yaw_int = yaw;
-
-    s_tele_frame[4]  = (uint8_t)(s0 & 0xFF);
-    s_tele_frame[5]  = (uint8_t)(s1 & 0xFF);
-    s_tele_frame[6]  = (uint8_t)(s2 & 0xFF);
-    s_tele_frame[7]  = (uint8_t)(s3 & 0xFF);
-    s_tele_frame[8]  = (uint8_t)(m1 & 0xFF);        s_tele_frame[9]  = (uint8_t)((m1 >> 8) & 0xFF);
-    s_tele_frame[10] = (uint8_t)(m2 & 0xFF);        s_tele_frame[11] = (uint8_t)((m2 >> 8) & 0xFF);
-    s_tele_frame[12] = (uint8_t)(m3 & 0xFF);        s_tele_frame[13] = (uint8_t)((m3 >> 8) & 0xFF);
-    s_tele_frame[14] = (uint8_t)(m4 & 0xFF);        s_tele_frame[15] = (uint8_t)((m4 >> 8) & 0xFF);
-    s_tele_frame[16] = (uint8_t)(error & 0xFF);     s_tele_frame[17] = (uint8_t)((error >> 8) & 0xFF);
-    s_tele_frame[18] = (uint8_t)(pid_output & 0xFF);s_tele_frame[19] = (uint8_t)((pid_output >> 8) & 0xFF);
-    s_tele_frame[20] = (uint8_t)(tick & 0xFF);
-    s_tele_frame[21] = (uint8_t)((tick >> 8) & 0xFF);
-    s_tele_frame[22] = (uint8_t)((tick >> 16) & 0xFF);
-    s_tele_frame[23] = (uint8_t)((tick >> 24) & 0xFF);
-    s_tele_frame[24] = (uint8_t)(yaw_int & 0xFF);
-    s_tele_frame[25] = (uint8_t)((yaw_int >> 8) & 0xFF);
-    s_tele_frame[26] = (uint8_t)((yaw_int >> 16) & 0xFF);
-    s_tele_frame[27] = (uint8_t)((yaw_int >> 24) & 0xFF);
-    s_tele_frame[28] = imu_validity;
-    s_tele_frame[29] = imu_init_status;
-    s_tele_frame[30] = (uint8_t)(imu_snapshot->ax & 0xFF);
-    s_tele_frame[31] = (uint8_t)((imu_snapshot->ax >> 8) & 0xFF);
-    s_tele_frame[32] = (uint8_t)(imu_snapshot->ay & 0xFF);
-    s_tele_frame[33] = (uint8_t)((imu_snapshot->ay >> 8) & 0xFF);
-    s_tele_frame[34] = (uint8_t)(imu_snapshot->az & 0xFF);
-    s_tele_frame[35] = (uint8_t)((imu_snapshot->az >> 8) & 0xFF);
-    s_tele_frame[36] = (uint8_t)(imu_snapshot->gx & 0xFF);
-    s_tele_frame[37] = (uint8_t)((imu_snapshot->gx >> 8) & 0xFF);
-    s_tele_frame[38] = (uint8_t)(imu_snapshot->gy & 0xFF);
-    s_tele_frame[39] = (uint8_t)((imu_snapshot->gy >> 8) & 0xFF);
-    s_tele_frame[40] = (uint8_t)(imu_snapshot->gz & 0xFF);
-    s_tele_frame[41] = (uint8_t)((imu_snapshot->gz >> 8) & 0xFF);
-    s_tele_frame[42] = (uint8_t)(sample_seq & 0xFF);
-    s_tele_frame[43] = (uint8_t)((sample_seq >> 8) & 0xFF);
-    s_tele_frame[44] = (uint8_t)((sample_seq >> 16) & 0xFF);
-    s_tele_frame[45] = (uint8_t)((sample_seq >> 24) & 0xFF);
-
-    for (i = 4; i < 46; i++) cs ^= s_tele_frame[i];
-
-    s_tele_frame[0] = 0xAA;
-    s_tele_frame[1] = 0x55;
-    s_tele_frame[2] = type;
-    s_tele_frame[3] = len;
-    s_tele_frame[46] = cs;
-}
-
 /* 尝试把待发遥测交给 TX 状态机（仅当空闲且无 critical 待发）。 */
 static void ESP_TrySendTelemetry(void)
 {
@@ -406,11 +344,17 @@ static void Telemetry_Queue(int16_t s0, int16_t s1, int16_t s2, int16_t s3,
     }
     if (imu_snapshot == NULL) return;
     sample_seq = s_telemetry_sample_seq;
-    build_telemetry_frame(s0, s1, s2, s3, m1, m2, m3, m4,
-                          error, pid_output, tick,
-                          (int32_t)(imu_snapshot->yaw * 100),
-                          MPU6050_GetValidityFlags(),
-                          MPU6050_GetInitStatus(), imu_snapshot, sample_seq);
+    telemetry_frame_encode(
+        s_tele_frame,
+        s0, s1, s2, s3,
+        m1, m2, m3, m4,
+        error, pid_output, tick,
+        (int32_t)(imu_snapshot->yaw * 100),
+        MPU6050_GetValidityFlags(),
+        MPU6050_GetInitStatus(),
+        imu_snapshot->ax, imu_snapshot->ay, imu_snapshot->az,
+        imu_snapshot->gx, imu_snapshot->gy, imu_snapshot->gz,
+        sample_seq);
     if (telemetry_delivery_append(&s_tele_delivery, s_tele_frame,
                                   TELEMETRY_BATCH_FRAME_SIZE, &overwrote)) {
         s_telemetry_sample_seq++;

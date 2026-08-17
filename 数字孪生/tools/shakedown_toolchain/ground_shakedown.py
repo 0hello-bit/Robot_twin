@@ -640,6 +640,35 @@ class _SessionLoop(object):
             "imu_validity_known": bool(decoded["imu_validity_known"]),
             "imu_init_status": int(decoded["imu_init_status"]),
             "imu_init_status_known": bool(decoded["imu_init_status_known"]),
+            "imu_ax_raw": (
+                int(decoded["imu_ax_raw"])
+                if decoded["imu_ax_raw"] is not None else None
+            ),
+            "imu_ay_raw": (
+                int(decoded["imu_ay_raw"])
+                if decoded["imu_ay_raw"] is not None else None
+            ),
+            "imu_az_raw": (
+                int(decoded["imu_az_raw"])
+                if decoded["imu_az_raw"] is not None else None
+            ),
+            "imu_gx_raw": (
+                int(decoded["imu_gx_raw"])
+                if decoded["imu_gx_raw"] is not None else None
+            ),
+            "imu_gy_raw": (
+                int(decoded["imu_gy_raw"])
+                if decoded["imu_gy_raw"] is not None else None
+            ),
+            "imu_gz_raw": (
+                int(decoded["imu_gz_raw"])
+                if decoded["imu_gz_raw"] is not None else None
+            ),
+            "sample_seq": (
+                int(decoded["sample_seq"])
+                if decoded["sample_seq"] is not None else None
+            ),
+            "imu_raw_known": bool(decoded["imu_raw_known"]),
         })
 
     def _on_health(self, payload):

@@ -2382,6 +2382,33 @@ def test_session_telemetry_preserves_current_imu_evidence_fields():
     assert record["imu_init_status_known"] is True
 
 
+def test_session_telemetry_preserves_extended_raw_imu_fields():
+    loop = ground_shakedown._SessionLoop.__new__(ground_shakedown._SessionLoop)
+    loop.telemetry_frames = []
+    payload = bytearray(42)
+    payload[16:20] = (9876).to_bytes(4, "little")
+    payload[20:24] = (-1234).to_bytes(4, "little", signed=True)
+    payload[24] = 0x0F
+    payload[25] = 0x21
+    for offset, value in zip(
+        range(26, 38, 2), (-32768, -1, 0, 1, 32767, -2222)
+    ):
+        payload[offset:offset + 2] = value.to_bytes(2, "little", signed=True)
+    payload[38:42] = (0xF1234567).to_bytes(4, "little")
+
+    loop._on_telemetry(bytes(payload))
+
+    record = loop.telemetry_frames[0]
+    assert record["imu_ax_raw"] == -32768
+    assert record["imu_ay_raw"] == -1
+    assert record["imu_az_raw"] == 0
+    assert record["imu_gx_raw"] == 1
+    assert record["imu_gy_raw"] == 32767
+    assert record["imu_gz_raw"] == -2222
+    assert record["sample_seq"] == 0xF1234567
+    assert record["imu_raw_known"] is True
+
+
 def test_imu_evidence_summary_verifies_fusion_ready_frames():
     summary = ground_shakedown.summarize_imu_evidence({
         "telemetry": {"frames": [{

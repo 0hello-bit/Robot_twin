@@ -2,6 +2,78 @@
 
 #include <string.h>
 
+void telemetry_frame_encode(
+    uint8_t *frame,
+    int16_t s0, int16_t s1, int16_t s2, int16_t s3,
+    int16_t m1, int16_t m2, int16_t m3, int16_t m4,
+    int16_t error, int16_t pid_output,
+    uint32_t tick, int32_t yaw,
+    uint8_t imu_validity, uint8_t imu_init_status,
+    int16_t imu_ax, int16_t imu_ay, int16_t imu_az,
+    int16_t imu_gx, int16_t imu_gy, int16_t imu_gz,
+    uint32_t sample_seq)
+{
+    uint8_t type = 0x01U;
+    uint8_t len = 42U;
+    uint8_t checksum;
+    uint8_t i;
+    int32_t yaw_int = yaw;
+
+    if (frame == 0) return;
+
+    frame[4] = (uint8_t)(s0 & 0xFF);
+    frame[5] = (uint8_t)(s1 & 0xFF);
+    frame[6] = (uint8_t)(s2 & 0xFF);
+    frame[7] = (uint8_t)(s3 & 0xFF);
+    frame[8] = (uint8_t)(m1 & 0xFF);
+    frame[9] = (uint8_t)((m1 >> 8) & 0xFF);
+    frame[10] = (uint8_t)(m2 & 0xFF);
+    frame[11] = (uint8_t)((m2 >> 8) & 0xFF);
+    frame[12] = (uint8_t)(m3 & 0xFF);
+    frame[13] = (uint8_t)((m3 >> 8) & 0xFF);
+    frame[14] = (uint8_t)(m4 & 0xFF);
+    frame[15] = (uint8_t)((m4 >> 8) & 0xFF);
+    frame[16] = (uint8_t)(error & 0xFF);
+    frame[17] = (uint8_t)((error >> 8) & 0xFF);
+    frame[18] = (uint8_t)(pid_output & 0xFF);
+    frame[19] = (uint8_t)((pid_output >> 8) & 0xFF);
+    frame[20] = (uint8_t)(tick & 0xFF);
+    frame[21] = (uint8_t)((tick >> 8) & 0xFF);
+    frame[22] = (uint8_t)((tick >> 16) & 0xFF);
+    frame[23] = (uint8_t)((tick >> 24) & 0xFF);
+    frame[24] = (uint8_t)(yaw_int & 0xFF);
+    frame[25] = (uint8_t)((yaw_int >> 8) & 0xFF);
+    frame[26] = (uint8_t)((yaw_int >> 16) & 0xFF);
+    frame[27] = (uint8_t)((yaw_int >> 24) & 0xFF);
+    frame[28] = imu_validity;
+    frame[29] = imu_init_status;
+    frame[30] = (uint8_t)(imu_ax & 0xFF);
+    frame[31] = (uint8_t)((imu_ax >> 8) & 0xFF);
+    frame[32] = (uint8_t)(imu_ay & 0xFF);
+    frame[33] = (uint8_t)((imu_ay >> 8) & 0xFF);
+    frame[34] = (uint8_t)(imu_az & 0xFF);
+    frame[35] = (uint8_t)((imu_az >> 8) & 0xFF);
+    frame[36] = (uint8_t)(imu_gx & 0xFF);
+    frame[37] = (uint8_t)((imu_gx >> 8) & 0xFF);
+    frame[38] = (uint8_t)(imu_gy & 0xFF);
+    frame[39] = (uint8_t)((imu_gy >> 8) & 0xFF);
+    frame[40] = (uint8_t)(imu_gz & 0xFF);
+    frame[41] = (uint8_t)((imu_gz >> 8) & 0xFF);
+    frame[42] = (uint8_t)(sample_seq & 0xFF);
+    frame[43] = (uint8_t)((sample_seq >> 8) & 0xFF);
+    frame[44] = (uint8_t)((sample_seq >> 16) & 0xFF);
+    frame[45] = (uint8_t)((sample_seq >> 24) & 0xFF);
+
+    checksum = type ^ len;
+    for (i = 4U; i < 46U; i++) checksum ^= frame[i];
+
+    frame[0] = 0xAAU;
+    frame[1] = 0x55U;
+    frame[2] = type;
+    frame[3] = len;
+    frame[46] = checksum;
+}
+
 void telemetry_batch_init(TelemetryBatch *batch)
 {
     telemetry_batch_clear(batch);
@@ -27,7 +99,7 @@ uint8_t telemetry_batch_append(TelemetryBatch *batch,
     }
 
     if (batch->count >= TELEMETRY_BATCH_MAX_FRAMES) {
-        /* Keep the latest eight frames; the queue is intentionally droppable. */
+        /* Keep the latest sixteen frames; the queue is intentionally droppable. */
         memmove(batch->data,
                 batch->data + TELEMETRY_BATCH_FRAME_SIZE,
                 TELEMETRY_BATCH_MAX_BYTES - TELEMETRY_BATCH_FRAME_SIZE);

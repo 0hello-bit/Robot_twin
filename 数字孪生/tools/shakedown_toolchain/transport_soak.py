@@ -396,6 +396,35 @@ class _SessionCtx(object):
             "imu_validity_known": bool(d["imu_validity_known"]),
             "imu_init_status": int(d["imu_init_status"]),
             "imu_init_status_known": bool(d["imu_init_status_known"]),
+            "imu_ax_raw": (
+                int(d["imu_ax_raw"])
+                if d["imu_ax_raw"] is not None else None
+            ),
+            "imu_ay_raw": (
+                int(d["imu_ay_raw"])
+                if d["imu_ay_raw"] is not None else None
+            ),
+            "imu_az_raw": (
+                int(d["imu_az_raw"])
+                if d["imu_az_raw"] is not None else None
+            ),
+            "imu_gx_raw": (
+                int(d["imu_gx_raw"])
+                if d["imu_gx_raw"] is not None else None
+            ),
+            "imu_gy_raw": (
+                int(d["imu_gy_raw"])
+                if d["imu_gy_raw"] is not None else None
+            ),
+            "imu_gz_raw": (
+                int(d["imu_gz_raw"])
+                if d["imu_gz_raw"] is not None else None
+            ),
+            "sample_seq": (
+                int(d["sample_seq"])
+                if d["sample_seq"] is not None else None
+            ),
+            "imu_raw_known": bool(d["imu_raw_known"]),
         }
         with self.frames_lock:
             self.frames.append(frame)
