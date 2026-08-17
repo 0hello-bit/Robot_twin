@@ -158,9 +158,9 @@ class V1Pose:
                 )
             try:
                 body_rectangle = VehicleBodyRectangle.from_dict(body_rectangle_data)
-            except KeyError as exc:
+            except (KeyError, TypeError, ValueError) as exc:
                 raise V1SchemaError(
-                    "body_rectangle is missing required field: {0}".format(exc.args[0])
+                    "invalid body_rectangle: {0}".format(exc)
                 ) from exc
         return cls(
             x_mm=data["x_mm"],

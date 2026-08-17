@@ -141,6 +141,31 @@ def test_pose_rejects_malformed_nested_body_rectangle():
         V1Pose.from_dict(payload)
 
 
+def test_pose_rejects_null_nested_body_rectangle_corners():
+    payload = make_pose().to_dict()
+    payload["body_rectangle"] = {
+        "anchor_x_mm": 12.5,
+        "anchor_y_mm": -3.25,
+        "center_x_mm": 64.8,
+        "center_y_mm": 25.0,
+        "yaw_rad": 0.314,
+        "length_mm": 190.0,
+        "width_mm": 140.0,
+        "tag_to_center_forward_mm": 55.0,
+        "tag_to_center_left_mm": 0.0,
+        "corners_mm": None,
+        "confidence": 0.97,
+        "profile_id": "test-profile",
+        "source": "TEST",
+        "validation_status": "UNVERIFIED",
+        "calibration_status": "TEST_SEED",
+        "coordinate_frame": "relative_plane_mm",
+    }
+
+    with pytest.raises(V1SchemaError):
+        V1Pose.from_dict(payload)
+
+
 def test_sync_frame_json_round_trip_with_body_rectangle():
     profile = VehicleBodyProfile.from_dict({
         "profile_id": "test-profile",
