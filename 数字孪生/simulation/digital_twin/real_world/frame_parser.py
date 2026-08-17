@@ -47,6 +47,7 @@ HEADER_2 = 0x55
 # ── 载荷长度 ──
 PAYLOAD_LEN_TELEMETRY = 24
 PAYLOAD_LEN_TELEMETRY_CURRENT = 26
+PAYLOAD_LEN_TELEMETRY_EXTENDED = 42
 PAYLOAD_LEN_STATUS     = 7
 PAYLOAD_LEN_MOTOR_REG_DIAG = 24
 PAYLOAD_LEN_IMU_DIAGNOSTIC = 4
@@ -239,7 +240,8 @@ def decode_telemetry(payload):
         dict: {s0, s1, s2, s3, m1, m2, m3, m4, error, pid_output, tick_ms, yaw}
     """
     if len(payload) not in (PAYLOAD_LEN_TELEMETRY,
-                            PAYLOAD_LEN_TELEMETRY_CURRENT):
+                            PAYLOAD_LEN_TELEMETRY_CURRENT,
+                            PAYLOAD_LEN_TELEMETRY_EXTENDED):
         return None
 
     d = {
@@ -260,10 +262,32 @@ def decode_telemetry(payload):
                                    payload[22], payload[23])
     d['yaw'] = yaw_deg_x100 / 100.0
     d['imu_yaw_deg_x100'] = yaw_deg_x100
-    d['imu_validity'] = payload[24] if len(payload) == 26 else 0
-    d['imu_validity_known'] = len(payload) == 26
-    d['imu_init_status'] = payload[25] if len(payload) == 26 else 0
-    d['imu_init_status_known'] = len(payload) == 26
+    has_current_imu_status = len(payload) in (
+        PAYLOAD_LEN_TELEMETRY_CURRENT,
+        PAYLOAD_LEN_TELEMETRY_EXTENDED,
+    )
+    d['imu_validity'] = payload[24] if has_current_imu_status else 0
+    d['imu_validity_known'] = has_current_imu_status
+    d['imu_init_status'] = payload[25] if has_current_imu_status else 0
+    d['imu_init_status_known'] = has_current_imu_status
+    d['imu_ax_raw'] = None
+    d['imu_ay_raw'] = None
+    d['imu_az_raw'] = None
+    d['imu_gx_raw'] = None
+    d['imu_gy_raw'] = None
+    d['imu_gz_raw'] = None
+    d['sample_seq'] = None
+    d['imu_raw_known'] = False
+    if len(payload) == PAYLOAD_LEN_TELEMETRY_EXTENDED:
+        d['imu_ax_raw'] = _bytes_to_int16(payload[26], payload[27])
+        d['imu_ay_raw'] = _bytes_to_int16(payload[28], payload[29])
+        d['imu_az_raw'] = _bytes_to_int16(payload[30], payload[31])
+        d['imu_gx_raw'] = _bytes_to_int16(payload[32], payload[33])
+        d['imu_gy_raw'] = _bytes_to_int16(payload[34], payload[35])
+        d['imu_gz_raw'] = _bytes_to_int16(payload[36], payload[37])
+        d['sample_seq'] = _bytes_to_uint32(
+            payload[38], payload[39], payload[40], payload[41])
+        d['imu_raw_known'] = True
     return d
 
 
