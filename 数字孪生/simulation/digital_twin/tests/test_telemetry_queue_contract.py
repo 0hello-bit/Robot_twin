@@ -29,8 +29,9 @@ def test_main_encodes_extended_telemetry_fields_at_approved_offsets():
 
     assert "telemetry_frame_encode(" in source
     assert "uint8_t len = 42U;" in encoder
-    for offset in range(30, 46):
-        assert f"frame[{offset}]" in encoder
+    for offset in (30, 32, 34, 36, 38, 40):
+        assert f"write_u16_le(frame + {offset}" in encoder
+    assert "write_u32_le(frame + 42" in encoder
     assert "frame[46] = checksum" in encoder
     assert "const MPU6050_Data *imu_snapshot" in source
     assert "sample_seq" in source

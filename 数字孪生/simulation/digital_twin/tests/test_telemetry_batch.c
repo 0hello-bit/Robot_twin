@@ -10,8 +10,16 @@
 static void test_extended_frame_encoder_layout_and_checksum(void)
 {
     uint8_t frame[TELEMETRY_BATCH_FRAME_SIZE];
-    uint8_t checksum;
-    uint8_t i;
+    static const uint8_t expected[TELEMETRY_BATCH_FRAME_SIZE] = {
+        0xAAU, 0x55U, 0x01U, 0x2AU,
+        0x01U, 0x00U, 0x01U, 0x00U,
+        0xBFU, 0xFEU, 0x8EU, 0x02U, 0x85U, 0xFFU, 0xC8U, 0x01U,
+        0xB3U, 0xFFU, 0x58U, 0x00U, 0x06U, 0x12U, 0x0FU, 0x00U,
+        0xC7U, 0xCFU, 0xFFU, 0xFFU, 0x0FU, 0x21U,
+        0x00U, 0x80U, 0xFFU, 0xFFU, 0x00U, 0x00U, 0x01U, 0x00U,
+        0xFFU, 0x7FU, 0x52U, 0xF7U,
+        0x67U, 0x45U, 0x23U, 0xF1U, 0x28U,
+    };
 
     telemetry_frame_encode(
         frame,
@@ -22,22 +30,7 @@ static void test_extended_frame_encoder_layout_and_checksum(void)
         -32768, -1, 0, 1, 32767, -2222,
         0xF1234567U);
 
-    assert(frame[0] == 0xAAU);
-    assert(frame[1] == 0x55U);
-    assert(frame[2] == 0x01U);
-    assert(frame[3] == 42U);
-    assert(frame[30] == 0x00U && frame[31] == 0x80U);
-    assert(frame[32] == 0xFFU && frame[33] == 0xFFU);
-    assert(frame[34] == 0x00U && frame[35] == 0x00U);
-    assert(frame[36] == 0x01U && frame[37] == 0x00U);
-    assert(frame[38] == 0xFFU && frame[39] == 0x7FU);
-    assert(frame[40] == 0x52U && frame[41] == 0xF7U);
-    assert(frame[42] == 0x67U && frame[43] == 0x45U);
-    assert(frame[44] == 0x23U && frame[45] == 0xF1U);
-
-    checksum = 0x01U ^ 42U;
-    for (i = 4U; i < 46U; i++) checksum ^= frame[i];
-    assert(frame[46] == checksum);
+    assert(memcmp(frame, expected, sizeof(expected)) == 0);
 }
 
 static void test_current_wire_capacity_contract(void)

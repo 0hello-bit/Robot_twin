@@ -2,6 +2,20 @@
 
 #include <string.h>
 
+static void write_u16_le(uint8_t *dst, uint16_t value)
+{
+    dst[0] = (uint8_t)(value & 0xFFU);
+    dst[1] = (uint8_t)((value >> 8) & 0xFFU);
+}
+
+static void write_u32_le(uint8_t *dst, uint32_t value)
+{
+    dst[0] = (uint8_t)(value & 0xFFU);
+    dst[1] = (uint8_t)((value >> 8) & 0xFFU);
+    dst[2] = (uint8_t)((value >> 16) & 0xFFU);
+    dst[3] = (uint8_t)((value >> 24) & 0xFFU);
+}
+
 void telemetry_frame_encode(
     uint8_t *frame,
     int16_t s0, int16_t s1, int16_t s2, int16_t s3,
@@ -17,7 +31,6 @@ void telemetry_frame_encode(
     uint8_t len = 42U;
     uint8_t checksum;
     uint8_t i;
-    int32_t yaw_int = yaw;
 
     if (frame == 0) return;
 
@@ -25,44 +38,23 @@ void telemetry_frame_encode(
     frame[5] = (uint8_t)(s1 & 0xFF);
     frame[6] = (uint8_t)(s2 & 0xFF);
     frame[7] = (uint8_t)(s3 & 0xFF);
-    frame[8] = (uint8_t)(m1 & 0xFF);
-    frame[9] = (uint8_t)((m1 >> 8) & 0xFF);
-    frame[10] = (uint8_t)(m2 & 0xFF);
-    frame[11] = (uint8_t)((m2 >> 8) & 0xFF);
-    frame[12] = (uint8_t)(m3 & 0xFF);
-    frame[13] = (uint8_t)((m3 >> 8) & 0xFF);
-    frame[14] = (uint8_t)(m4 & 0xFF);
-    frame[15] = (uint8_t)((m4 >> 8) & 0xFF);
-    frame[16] = (uint8_t)(error & 0xFF);
-    frame[17] = (uint8_t)((error >> 8) & 0xFF);
-    frame[18] = (uint8_t)(pid_output & 0xFF);
-    frame[19] = (uint8_t)((pid_output >> 8) & 0xFF);
-    frame[20] = (uint8_t)(tick & 0xFF);
-    frame[21] = (uint8_t)((tick >> 8) & 0xFF);
-    frame[22] = (uint8_t)((tick >> 16) & 0xFF);
-    frame[23] = (uint8_t)((tick >> 24) & 0xFF);
-    frame[24] = (uint8_t)(yaw_int & 0xFF);
-    frame[25] = (uint8_t)((yaw_int >> 8) & 0xFF);
-    frame[26] = (uint8_t)((yaw_int >> 16) & 0xFF);
-    frame[27] = (uint8_t)((yaw_int >> 24) & 0xFF);
+    write_u16_le(frame + 8, (uint16_t)m1);
+    write_u16_le(frame + 10, (uint16_t)m2);
+    write_u16_le(frame + 12, (uint16_t)m3);
+    write_u16_le(frame + 14, (uint16_t)m4);
+    write_u16_le(frame + 16, (uint16_t)error);
+    write_u16_le(frame + 18, (uint16_t)pid_output);
+    write_u32_le(frame + 20, tick);
+    write_u32_le(frame + 24, (uint32_t)yaw);
     frame[28] = imu_validity;
     frame[29] = imu_init_status;
-    frame[30] = (uint8_t)(imu_ax & 0xFF);
-    frame[31] = (uint8_t)((imu_ax >> 8) & 0xFF);
-    frame[32] = (uint8_t)(imu_ay & 0xFF);
-    frame[33] = (uint8_t)((imu_ay >> 8) & 0xFF);
-    frame[34] = (uint8_t)(imu_az & 0xFF);
-    frame[35] = (uint8_t)((imu_az >> 8) & 0xFF);
-    frame[36] = (uint8_t)(imu_gx & 0xFF);
-    frame[37] = (uint8_t)((imu_gx >> 8) & 0xFF);
-    frame[38] = (uint8_t)(imu_gy & 0xFF);
-    frame[39] = (uint8_t)((imu_gy >> 8) & 0xFF);
-    frame[40] = (uint8_t)(imu_gz & 0xFF);
-    frame[41] = (uint8_t)((imu_gz >> 8) & 0xFF);
-    frame[42] = (uint8_t)(sample_seq & 0xFF);
-    frame[43] = (uint8_t)((sample_seq >> 8) & 0xFF);
-    frame[44] = (uint8_t)((sample_seq >> 16) & 0xFF);
-    frame[45] = (uint8_t)((sample_seq >> 24) & 0xFF);
+    write_u16_le(frame + 30, (uint16_t)imu_ax);
+    write_u16_le(frame + 32, (uint16_t)imu_ay);
+    write_u16_le(frame + 34, (uint16_t)imu_az);
+    write_u16_le(frame + 36, (uint16_t)imu_gx);
+    write_u16_le(frame + 38, (uint16_t)imu_gy);
+    write_u16_le(frame + 40, (uint16_t)imu_gz);
+    write_u32_le(frame + 42, sample_seq);
 
     checksum = type ^ len;
     for (i = 4U; i < 46U; i++) checksum ^= frame[i];
