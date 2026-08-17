@@ -41,13 +41,13 @@ static void test_success_consumes_only_the_committed_prefix(void)
     assert(telemetry_delivery_prepare(&delivery) == 1U);
     inflight = telemetry_delivery_inflight(&delivery);
     assert(inflight != 0);
-    assert(telemetry_batch_count(inflight) == 8U);
+    assert(telemetry_batch_count(inflight) == 5U);
     assert(telemetry_batch_data(inflight)[0] == 0x11U);
     assert(telemetry_batch_count(&delivery.pending) == 10U);
 
     telemetry_delivery_commit_success(&delivery);
-    assert(telemetry_batch_count(&delivery.pending) == 2U);
-    assert(telemetry_batch_data(&delivery.pending)[0] == 0x99U);
+    assert(telemetry_batch_count(&delivery.pending) == 5U);
+    assert(telemetry_batch_data(&delivery.pending)[0] == 0x66U);
     assert(telemetry_delivery_inflight(&delivery) == 0);
 }
 
@@ -103,19 +103,19 @@ static void test_overflow_does_not_drop_inflight_prefix(void)
     append_value(&delivery, 0x10U);
     (void)overwritten;
 
-    /* The eight-frame retry prefix must remain in pending.  The oldest
+    /* The five-frame retry prefix must remain in pending.  The oldest
        droppable frame is the first frame after that protected prefix. */
     assert(telemetry_batch_data(&delivery.pending)[0U] == 0x00U);
     assert(telemetry_batch_data(&delivery.pending)[
-               7U * TELEMETRY_BATCH_FRAME_SIZE] == 0x07U);
+               4U * TELEMETRY_BATCH_FRAME_SIZE] == 0x04U);
     assert(telemetry_batch_data(&delivery.pending)[
-               8U * TELEMETRY_BATCH_FRAME_SIZE] == 0x09U);
+               5U * TELEMETRY_BATCH_FRAME_SIZE] == 0x06U);
 
     telemetry_delivery_commit_success(&delivery);
-    assert(telemetry_batch_count(&delivery.pending) == 8U);
-    assert(telemetry_batch_data(&delivery.pending)[0U] == 0x09U);
+    assert(telemetry_batch_count(&delivery.pending) == 11U);
+    assert(telemetry_batch_data(&delivery.pending)[0U] == 0x06U);
     assert(telemetry_batch_data(&delivery.pending)[
-               7U * TELEMETRY_BATCH_FRAME_SIZE] == 0x10U);
+               10U * TELEMETRY_BATCH_FRAME_SIZE] == 0x10U);
 }
 
 int main(void)

@@ -22,7 +22,7 @@
 
 /* ── 缓冲区尺寸 ─────────────────────────────────────────────────────── */
 #define CIPSEND_TX_MAX_CMD   24U          /* "AT+CIPSEND=<id>,<len>\r\n"     */
-#define CIPSEND_TX_MAX_DATA  248U         /* 8 telemetry frames (8 * 31)     */
+#define CIPSEND_TX_MAX_DATA  248U         /* ESP CIPSEND data ceiling         */
 
 /* ── 优先级 / 标签 ───────────────────────────────────────────────────── */
 #define CIPSEND_TX_PRIORITY_DROPPABLE  0U  /* telemetry / diag               */

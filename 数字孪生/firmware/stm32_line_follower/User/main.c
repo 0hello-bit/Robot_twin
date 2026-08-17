@@ -170,6 +170,7 @@ static TwinControlClockSync s_clock_sync_inflight;
 /* 真实单调时间（mono_time.h / mono_time_core.h）。 */
 static uint32_t s_last_telemetry_ms = 0U;
 static uint32_t s_last_yaw_ms = 0U;
+static uint32_t s_telemetry_sample_seq = 0U;
 
 /* yaw dt 边界保护（ms）：零 dt 钳到 min，异常大间隔钳到 max。 */
 #define YAW_DT_MIN_MS  1U
@@ -295,15 +296,18 @@ static void ESP_ServiceTX(void)
     ESP_TX_HandleTerminal();
 }
 
-/* 构建 31 字节遥测帧到 s_tele_frame（兼容旧 payload 布局）。 */
+/* 构建 47 字节遥测帧到 s_tele_frame（42 字节 payload）。 */
 static void build_telemetry_frame(int16_t s0, int16_t s1, int16_t s2, int16_t s3,
                                    int16_t m1, int16_t m2, int16_t m3, int16_t m4,
                                    int16_t error, int16_t pid_output,
                                    uint32_t tick, int32_t yaw,
-                                   uint8_t imu_validity)
+                                   uint8_t imu_validity,
+                                   uint8_t imu_init_status,
+                                   const MPU6050_Data *imu_snapshot,
+                                   uint32_t sample_seq)
 {
     uint8_t type = 0x01;
-    uint8_t len  = 26;
+    uint8_t len  = 42;
     uint8_t cs   = type ^ len;
     uint8_t i;
     int32_t yaw_int = yaw;
@@ -327,15 +331,31 @@ static void build_telemetry_frame(int16_t s0, int16_t s1, int16_t s2, int16_t s3
     s_tele_frame[26] = (uint8_t)((yaw_int >> 16) & 0xFF);
     s_tele_frame[27] = (uint8_t)((yaw_int >> 24) & 0xFF);
     s_tele_frame[28] = imu_validity;
-    s_tele_frame[29] = MPU6050_GetInitStatus();
+    s_tele_frame[29] = imu_init_status;
+    s_tele_frame[30] = (uint8_t)(imu_snapshot->ax & 0xFF);
+    s_tele_frame[31] = (uint8_t)((imu_snapshot->ax >> 8) & 0xFF);
+    s_tele_frame[32] = (uint8_t)(imu_snapshot->ay & 0xFF);
+    s_tele_frame[33] = (uint8_t)((imu_snapshot->ay >> 8) & 0xFF);
+    s_tele_frame[34] = (uint8_t)(imu_snapshot->az & 0xFF);
+    s_tele_frame[35] = (uint8_t)((imu_snapshot->az >> 8) & 0xFF);
+    s_tele_frame[36] = (uint8_t)(imu_snapshot->gx & 0xFF);
+    s_tele_frame[37] = (uint8_t)((imu_snapshot->gx >> 8) & 0xFF);
+    s_tele_frame[38] = (uint8_t)(imu_snapshot->gy & 0xFF);
+    s_tele_frame[39] = (uint8_t)((imu_snapshot->gy >> 8) & 0xFF);
+    s_tele_frame[40] = (uint8_t)(imu_snapshot->gz & 0xFF);
+    s_tele_frame[41] = (uint8_t)((imu_snapshot->gz >> 8) & 0xFF);
+    s_tele_frame[42] = (uint8_t)(sample_seq & 0xFF);
+    s_tele_frame[43] = (uint8_t)((sample_seq >> 8) & 0xFF);
+    s_tele_frame[44] = (uint8_t)((sample_seq >> 16) & 0xFF);
+    s_tele_frame[45] = (uint8_t)((sample_seq >> 24) & 0xFF);
 
-    for (i = 4; i < 30; i++) cs ^= s_tele_frame[i];
+    for (i = 4; i < 46; i++) cs ^= s_tele_frame[i];
 
     s_tele_frame[0] = 0xAA;
     s_tele_frame[1] = 0x55;
     s_tele_frame[2] = type;
     s_tele_frame[3] = len;
-    s_tele_frame[30] = cs;
+    s_tele_frame[46] = cs;
 }
 
 /* 尝试把待发遥测交给 TX 状态机（仅当空闲且无 critical 待发）。 */
@@ -375,18 +395,25 @@ static void ESP_TrySendTelemetry(void)
 static void Telemetry_Queue(int16_t s0, int16_t s1, int16_t s2, int16_t s3,
                             int16_t m1, int16_t m2, int16_t m3, int16_t m4,
                             int16_t error, int16_t pid_output,
-                            uint32_t tick, int32_t yaw,
-                            uint8_t imu_validity)
+                            uint32_t tick,
+                            const MPU6050_Data *imu_snapshot)
 {
     uint8_t overwrote;
+    uint32_t sample_seq;
     if (!g_tcp_client_connected || g_tcp_client_id > 4) {
         telemetry_delivery_clear(&s_tele_delivery);
         return;
     }
+    if (imu_snapshot == NULL) return;
+    sample_seq = s_telemetry_sample_seq;
     build_telemetry_frame(s0, s1, s2, s3, m1, m2, m3, m4,
-                          error, pid_output, tick, yaw, imu_validity);
+                          error, pid_output, tick,
+                          (int32_t)(imu_snapshot->yaw * 100),
+                          MPU6050_GetValidityFlags(),
+                          MPU6050_GetInitStatus(), imu_snapshot, sample_seq);
     if (telemetry_delivery_append(&s_tele_delivery, s_tele_frame,
                                   TELEMETRY_BATCH_FRAME_SIZE, &overwrote)) {
+        s_telemetry_sample_seq++;
         hstats_telemetry_generated(&g_health_stats);
         if (overwrote) hstats_telemetry_overwritten(&g_health_stats);
         ESP_TrySendTelemetry();
@@ -997,11 +1024,12 @@ int main(void)
             if (twin_control_report_line_lost(mono_now_ms())) {
                 MotorTargetsZero();
                 if (telemetry_rate_due(mono_now_ms(), s_last_telemetry_ms)) {
+                    MPU6050_Data telemetry_imu;
                     s_last_telemetry_ms = mono_now_ms();
+                    telemetry_imu = mpu_data;
                     Telemetry_Queue(0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                                     s_last_telemetry_ms,
-                                    (int32_t)(mpu_data.yaw * 100),
-                                    MPU6050_GetValidityFlags());
+                                    &telemetry_imu);
                 }
                 ESP_FlushAfterControl();
                 Delay_ms(LOOP_DELAY_MS);
@@ -1025,13 +1053,14 @@ int main(void)
             }
 
             if (telemetry_rate_due(mono_now_ms(), s_last_telemetry_ms)) {
+                MPU6050_Data telemetry_imu;
                 s_last_telemetry_ms = mono_now_ms();
+                telemetry_imu = mpu_data;
                 Telemetry_Queue(0, 0, 0, 0,
                                 (int16_t)sm_l, (int16_t)sm_r,
                                 (int16_t)sm_r, (int16_t)sm_l,
                                 0, 0, s_last_telemetry_ms,
-                                (int32_t)(mpu_data.yaw * 100),
-                                MPU6050_GetValidityFlags());
+                                &telemetry_imu);
             }
 
             ESP_FlushAfterControl();
@@ -1158,14 +1187,15 @@ int main(void)
             Diag_CaptureAndSendOnce();
 
             if (telemetry_rate_due(mono_now_ms(), s_last_telemetry_ms)) {
+                MPU6050_Data telemetry_imu;
                 s_last_telemetry_ms = mono_now_ms();
+                telemetry_imu = mpu_data;
                 Telemetry_Queue(b0, b1, b2, b3,
                                 (int16_t)sm_l, (int16_t)sm_r,
                                 (int16_t)sm_r, (int16_t)sm_l,
                                  (int16_t)(error * 100), (int16_t)pid,
                                  s_last_telemetry_ms,
-                                 (int32_t)(mpu_data.yaw * 100),
-                                 MPU6050_GetValidityFlags());
+                                 &telemetry_imu);
             }
         }
 

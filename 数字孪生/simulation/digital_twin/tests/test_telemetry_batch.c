@@ -9,11 +9,11 @@
 
 static void test_current_wire_capacity_contract(void)
 {
-    assert(TELEMETRY_BATCH_FRAME_SIZE == 31U);
+    assert(TELEMETRY_BATCH_FRAME_SIZE == 47U);
     assert(TELEMETRY_BATCH_MAX_FRAMES == 16U);
-    assert(TELEMETRY_BATCH_SEND_MAX_FRAMES == 8U);
-    assert(TELEMETRY_BATCH_MAX_BYTES == 496U);
-    assert(TELEMETRY_BATCH_SEND_MAX_BYTES == 248U);
+    assert(TELEMETRY_BATCH_SEND_MAX_FRAMES == 5U);
+    assert(TELEMETRY_BATCH_MAX_BYTES == 752U);
+    assert(TELEMETRY_BATCH_SEND_MAX_BYTES == 235U);
     assert(TELEMETRY_INTERVAL_MS == 30U);
     assert(telemetry_rate_due(29U, 0U) == 0U);
     assert(telemetry_rate_due(30U, 0U) == 1U);

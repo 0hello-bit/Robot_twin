@@ -3,15 +3,15 @@
 
 #include <stdint.h>
 
-#define TELEMETRY_BATCH_FRAME_SIZE 31U
+#define TELEMETRY_BATCH_FRAME_SIZE 47U
 #define TELEMETRY_BATCH_MAX_FRAMES 16U
-#define TELEMETRY_BATCH_SEND_MAX_FRAMES 8U
+#define TELEMETRY_BATCH_SEND_MAX_FRAMES 5U
 #define TELEMETRY_BATCH_MAX_BYTES \
     (TELEMETRY_BATCH_FRAME_SIZE * TELEMETRY_BATCH_MAX_FRAMES)
 #define TELEMETRY_BATCH_SEND_MAX_BYTES \
     (TELEMETRY_BATCH_FRAME_SIZE * TELEMETRY_BATCH_SEND_MAX_FRAMES)
 
-/* A fixed-size, latest-eight queue for droppable telemetry frames. */
+/* A fixed-size, latest-sixteen queue for droppable telemetry frames. */
 typedef struct {
     uint8_t data[TELEMETRY_BATCH_MAX_BYTES];
     uint16_t len;
