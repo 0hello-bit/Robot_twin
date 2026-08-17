@@ -34,7 +34,9 @@ from v1_twin.v1_twin_vehicle_geometry import VehicleBodyRectangle
 #   - V1TelemetryFrame.pwm 改为有符号 int（负值表示轮子反转，不再钳零）
 # 兼容行为：schema 1.0.0 旧 JSON（无 yaw、pwm 非负）仍可加载；
 # from_dict 保留存储的 schema_version（可追溯数据来源）。
-SCHEMA_VERSION = "1.1.0"
+# Raw six-axis telemetry and the MCU sample sequence are optional so legacy
+# 24/26-byte captures remain loadable with explicit unknown values.
+SCHEMA_VERSION = "1.2.0"
 SENSOR_COUNT = 4
 PWM_COUNT = 4
 
@@ -204,6 +206,14 @@ class V1TelemetryFrame:
     imu_validity_known: bool = False
     imu_init_status: int = 0
     imu_init_status_known: bool = False
+    imu_ax_raw: Optional[int] = None
+    imu_ay_raw: Optional[int] = None
+    imu_az_raw: Optional[int] = None
+    imu_gx_raw: Optional[int] = None
+    imu_gy_raw: Optional[int] = None
+    imu_gz_raw: Optional[int] = None
+    sample_seq: Optional[int] = None
+    imu_raw_known: bool = False
 
     def __post_init__(self) -> None:
         _require(len(self.sensors) == SENSOR_COUNT,
@@ -236,6 +246,29 @@ class V1TelemetryFrame:
                  "imu_init_status must fit uint8")
         _require(isinstance(self.imu_init_status_known, bool),
                  "imu_init_status_known must be bool")
+        for field in (
+            "imu_ax_raw", "imu_ay_raw", "imu_az_raw",
+            "imu_gx_raw", "imu_gy_raw", "imu_gz_raw",
+        ):
+            value = getattr(self, field)
+            if value is not None:
+                _require_int(value, field)
+                _require(-32768 <= value <= 32767,
+                         "{0} must fit int16".format(field))
+        if self.sample_seq is not None:
+            _require_int(self.sample_seq, "sample_seq")
+            _require(0 <= self.sample_seq <= 0xFFFFFFFF,
+                     "sample_seq must fit uint32")
+        _require(isinstance(self.imu_raw_known, bool),
+                 "imu_raw_known must be bool")
+        if self.imu_raw_known:
+            _require(
+                all(getattr(self, field) is not None for field in (
+                    "imu_ax_raw", "imu_ay_raw", "imu_az_raw",
+                    "imu_gx_raw", "imu_gy_raw", "imu_gz_raw",
+                )) and self.sample_seq is not None,
+                "imu_raw_known requires raw IMU fields and sample_seq",
+            )
         _require_schema_version(self.schema_version)
 
     @property
@@ -264,6 +297,14 @@ class V1TelemetryFrame:
             "imu_validity_known": self.imu_validity_known,
             "imu_init_status": self.imu_init_status,
             "imu_init_status_known": self.imu_init_status_known,
+            "imu_ax_raw": self.imu_ax_raw,
+            "imu_ay_raw": self.imu_ay_raw,
+            "imu_az_raw": self.imu_az_raw,
+            "imu_gx_raw": self.imu_gx_raw,
+            "imu_gy_raw": self.imu_gy_raw,
+            "imu_gz_raw": self.imu_gz_raw,
+            "sample_seq": self.sample_seq,
+            "imu_raw_known": self.imu_raw_known,
             "schema_version": self.schema_version,
         }
 
@@ -283,6 +324,14 @@ class V1TelemetryFrame:
             imu_validity_known=data.get("imu_validity_known", False),
             imu_init_status=data.get("imu_init_status", 0),
             imu_init_status_known=data.get("imu_init_status_known", False),
+            imu_ax_raw=data.get("imu_ax_raw"),
+            imu_ay_raw=data.get("imu_ay_raw"),
+            imu_az_raw=data.get("imu_az_raw"),
+            imu_gx_raw=data.get("imu_gx_raw"),
+            imu_gy_raw=data.get("imu_gy_raw"),
+            imu_gz_raw=data.get("imu_gz_raw"),
+            sample_seq=data.get("sample_seq"),
+            imu_raw_known=data.get("imu_raw_known", False),
         )
 
 
