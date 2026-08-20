@@ -13,7 +13,13 @@
    uart_ring_pop / uart_ring_drain.  No mutual exclusion needed because
    only one reader and one writer, and each only touches its own index. */
 typedef struct {
-    volatile uint8_t buf[UART_RING_SIZE];
+    uint8_t byte;
+    uint32_t observed_tick_ms;
+    uint8_t observed_valid;
+} UartRxRecord;
+
+typedef struct {
+    volatile UartRxRecord buf[UART_RING_SIZE];
     volatile uint16_t head;          /* producer write index       */
     volatile uint16_t tail;          /* consumer read index        */
     volatile uint32_t rx_bytes;      /* total bytes received       */
@@ -30,9 +36,17 @@ void uart_ring_init(UartRing *ring);
    Returns 1 on success, 0 if ring is full (byte dropped). */
 uint8_t uart_ring_push(UartRing *ring, uint8_t byte);
 
+/* ISR-safe producer with the timestamp observed at the UART interrupt
+   boundary.  This is a software ISR boundary, not a hardware wire stamp. */
+uint8_t uart_ring_push_at(UartRing *ring, uint8_t byte,
+                          uint32_t observed_tick_ms);
+
 /* Main-context consumer: retrieve one byte (non-blocking).
    Returns 1 if *byte is valid, 0 if ring empty. */
 uint8_t uart_ring_pop(UartRing *ring, uint8_t *byte);
+
+/* Main-context consumer that preserves the producer-side observation record. */
+uint8_t uart_ring_pop_record(UartRing *ring, UartRxRecord *record);
 
 /* Drain all currently available bytes into a linear buffer.
    Returns the number of bytes written to buf (0 if empty). */

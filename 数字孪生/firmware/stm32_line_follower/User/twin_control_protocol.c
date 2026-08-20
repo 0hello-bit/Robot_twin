@@ -8,6 +8,9 @@
 static char g_line[TWIN_CONTROL_LINE_MAX + 1U];
 static uint8_t g_line_length;
 static uint8_t g_line_overflow;
+static uint32_t g_line_q_uart_rx_first_tick_ms;
+static uint32_t g_line_q_uart_rx_last_tick_ms;
+static uint8_t g_line_q_uart_rx_timestamp_valid;
 static TwinControlParams g_pending_params;
 static uint8_t g_has_pending_params;
 static uint8_t g_restore_baseline;
@@ -378,7 +381,8 @@ static void parse_heartbeat(char *line)
     g_heartbeat_pending = 1U;
 }
 
-static uint8_t parse_clock_sync(char *line, uint32_t now_ms,
+static uint8_t parse_clock_sync(char *line,
+                                uint32_t q_parse_done_tick_ms,
                                 TwinControlClockSync *clock_sync)
 {
     char *fields[2];
@@ -390,7 +394,12 @@ static uint8_t parse_clock_sync(char *line, uint32_t now_ms,
     }
     clock_sync->has_reply = 1U;
     clock_sync->sequence = sequence;
-    clock_sync->mcu_rx_tick_ms = now_ms;
+    clock_sync->q_uart_rx_first_tick_ms = g_line_q_uart_rx_first_tick_ms;
+    clock_sync->q_uart_rx_last_tick_ms = g_line_q_uart_rx_last_tick_ms;
+    clock_sync->q_parse_done_tick_ms = q_parse_done_tick_ms;
+    clock_sync->q_uart_rx_timestamp_valid =
+        g_line_q_uart_rx_timestamp_valid;
+    clock_sync->q_parse_done_timestamp_valid = 1U;
     return 1U;
 }
 
@@ -413,6 +422,9 @@ void twin_control_init(const TwinControlParams *baseline)
 {
     g_line_length = 0U;
     g_line_overflow = 0U;
+    g_line_q_uart_rx_first_tick_ms = 0U;
+    g_line_q_uart_rx_last_tick_ms = 0U;
+    g_line_q_uart_rx_timestamp_valid = 0U;
     g_has_pending_params = 0U;
     g_restore_baseline = 0U;
     /* Task 2B: firmware resets with motion INHIBITED by default.
@@ -454,12 +466,23 @@ void twin_control_init(const TwinControlParams *baseline)
 
 uint8_t twin_control_receive_byte(uint8_t byte, TwinControlResult *result)
 {
-    return twin_control_receive_byte_at(byte, 0U, result, 0);
+    return twin_control_receive_byte_timed(byte, 0U, 0U, 0U, result, 0);
 }
 
 uint8_t twin_control_receive_byte_at(uint8_t byte, uint32_t now_ms,
                                      TwinControlResult *result,
                                      TwinControlClockSync *clock_sync)
+{
+    /* Compatibility path: the caller knows only the parser-observed tick.
+       It must not be upgraded to a UART receive timestamp. */
+    return twin_control_receive_byte_timed(
+        byte, 0U, 0U, now_ms, result, clock_sync);
+}
+
+uint8_t twin_control_receive_byte_timed(
+    uint8_t byte, uint32_t uart_rx_tick_ms, uint8_t uart_rx_timestamp_valid,
+    uint32_t parse_observed_tick_ms, TwinControlResult *result,
+    TwinControlClockSync *clock_sync)
 {
     clear_result(result);
     if (clock_sync != 0) memset(clock_sync, 0, sizeof(*clock_sync));
@@ -468,10 +491,19 @@ uint8_t twin_control_receive_byte_at(uint8_t byte, uint32_t now_ms,
         return 0U;
     }
     if (byte == '\n') {
-        uint8_t has_result = parse_line(result, now_ms, clock_sync);
-        g_line_length = 0U;
-        g_line_overflow = 0U;
-        return has_result;
+        if (g_line_length > 0U && uart_rx_timestamp_valid) {
+            g_line_q_uart_rx_last_tick_ms = uart_rx_tick_ms;
+        }
+        {
+            uint8_t has_result = parse_line(
+                result, parse_observed_tick_ms, clock_sync);
+            g_line_length = 0U;
+            g_line_overflow = 0U;
+            g_line_q_uart_rx_first_tick_ms = 0U;
+            g_line_q_uart_rx_last_tick_ms = 0U;
+            g_line_q_uart_rx_timestamp_valid = 0U;
+            return has_result;
+        }
     }
     if (byte < 0x20U || byte > 0x7EU) {
         g_line_overflow = 1U;
@@ -482,6 +514,11 @@ uint8_t twin_control_receive_byte_at(uint8_t byte, uint32_t now_ms,
         g_line_overflow = 1U;
         return 0U;
     }
+    if (g_line_length == 0U) {
+        g_line_q_uart_rx_first_tick_ms = uart_rx_tick_ms;
+        g_line_q_uart_rx_timestamp_valid = uart_rx_timestamp_valid;
+    }
+    g_line_q_uart_rx_last_tick_ms = uart_rx_tick_ms;
     g_line[g_line_length++] = (char)byte;
     return 0U;
 }
@@ -748,20 +785,38 @@ uint16_t twin_control_encode_status(const TwinControlStatus *status,
 }
 
 uint16_t twin_control_encode_clock_sync(const TwinControlClockSync *clock_sync,
-                                        uint32_t mcu_tx_tick_ms,
-                                        char *output,
-                                        uint16_t output_size)
+                                         uint32_t t_transaction_started_tick_ms,
+                                         char *output,
+                                         uint16_t output_size)
 {
     char body[TWIN_CONTROL_LINE_MAX + 1U];
     int written;
     uint16_t length;
     uint8_t value;
     if (clock_sync == 0 || output == 0 || !clock_sync->has_reply ||
-        clock_sync->sequence == 0U) return 0U;
-    written = sprintf(body, "T,%lu,%lu,%lu",
+        clock_sync->sequence == 0U ||
+        !clock_sync->q_uart_rx_timestamp_valid ||
+        !clock_sync->q_parse_done_timestamp_valid ||
+        !clock_sync->t_transaction_started_timestamp_valid ||
+        !clock_sync->t_payload_generated_timestamp_valid ||
+        t_transaction_started_tick_ms !=
+            clock_sync->t_transaction_started_tick_ms) {
+        return 0U;
+    }
+    if (clock_sync->q_parse_done_tick_ms <
+            clock_sync->q_uart_rx_first_tick_ms ||
+        t_transaction_started_tick_ms < clock_sync->q_parse_done_tick_ms ||
+        clock_sync->t_payload_generated_tick_ms <
+            t_transaction_started_tick_ms) {
+        return 0U;
+    }
+    written = sprintf(body, "T,%lu,%lu,%lu,%lu,%lu,%u",
                       (unsigned long)clock_sync->sequence,
-                      (unsigned long)clock_sync->mcu_rx_tick_ms,
-                      (unsigned long)mcu_tx_tick_ms);
+                      (unsigned long)clock_sync->q_uart_rx_first_tick_ms,
+                      (unsigned long)clock_sync->q_parse_done_tick_ms,
+                      (unsigned long)t_transaction_started_tick_ms,
+                      (unsigned long)clock_sync->t_payload_generated_tick_ms,
+                      (unsigned int)TWIN_CONTROL_CLOCK_SYNC_TIMESTAMP_SCHEMA);
     if (written < 0 || written >= (int)sizeof(body)) return 0U;
     length = (uint16_t)written;
     if ((uint32_t)length + 5U > output_size) return 0U;
@@ -776,7 +831,8 @@ uint16_t twin_control_encode_clock_sync(const TwinControlClockSync *clock_sync,
 }
 
 uint16_t twin_control_encode_clock_sync_fixed(
-    const TwinControlClockSync *clock_sync, uint32_t mcu_tx_tick_ms,
+    const TwinControlClockSync *clock_sync,
+    uint32_t t_transaction_started_tick_ms,
     char *output, uint16_t output_size)
 {
     char body[TWIN_CONTROL_CLOCK_SYNC_FRAME_LEN];
@@ -785,14 +841,31 @@ uint16_t twin_control_encode_clock_sync_fixed(
     uint8_t value;
 
     if (clock_sync == 0 || output == 0 || !clock_sync->has_reply ||
-        clock_sync->sequence == 0U || output_size <
+        clock_sync->sequence == 0U ||
+        !clock_sync->q_uart_rx_timestamp_valid ||
+        !clock_sync->q_parse_done_timestamp_valid ||
+        !clock_sync->t_transaction_started_timestamp_valid ||
+        !clock_sync->t_payload_generated_timestamp_valid ||
+        t_transaction_started_tick_ms !=
+            clock_sync->t_transaction_started_tick_ms ||
+        output_size <
         (uint16_t)(TWIN_CONTROL_CLOCK_SYNC_FRAME_LEN + 1U)) {
         return 0U;
     }
-    written = sprintf(body, "T,%010lu,%010lu,%010lu",
+    if (clock_sync->q_parse_done_tick_ms <
+            clock_sync->q_uart_rx_first_tick_ms ||
+        t_transaction_started_tick_ms < clock_sync->q_parse_done_tick_ms ||
+        clock_sync->t_payload_generated_tick_ms <
+            t_transaction_started_tick_ms) {
+        return 0U;
+    }
+    written = sprintf(body, "T,%010lu,%010lu,%010lu,%010lu,%010lu,%u",
                       (unsigned long)clock_sync->sequence,
-                      (unsigned long)clock_sync->mcu_rx_tick_ms,
-                      (unsigned long)mcu_tx_tick_ms);
+                      (unsigned long)clock_sync->q_uart_rx_first_tick_ms,
+                      (unsigned long)clock_sync->q_parse_done_tick_ms,
+                      (unsigned long)t_transaction_started_tick_ms,
+                      (unsigned long)clock_sync->t_payload_generated_tick_ms,
+                      (unsigned int)TWIN_CONTROL_CLOCK_SYNC_TIMESTAMP_SCHEMA);
     if (written != (int)(TWIN_CONTROL_CLOCK_SYNC_FRAME_LEN - 4U)) {
         return 0U;
     }

@@ -32,6 +32,7 @@ import hashlib
 import json
 import math
 import os
+from dataclasses import replace
 from pathlib import Path
 import queue
 import socket
@@ -64,9 +65,30 @@ from v1_twin.v1_twin_pose_fusion import V1PoseFusion
 from v1_twin.v1_twin_imu_control import summarize_imu_evidence
 from v1_twin.v1_twin_motion_evidence import build_camera_motion_evidence
 from v1_twin.v1_twin_schema import V1TelemetryFrame, V1Pose
+from v1_twin.v1_twin_vehicle_geometry import (
+    derive_vehicle_body_rectangle,
+    load_default_vehicle_body_profile,
+)
 from v1_twin.v1_twin_causal_sync import build_causal_sync_report
 from v1_twin.v1_twin_sync import ClockSync
-from real_world.frame_parser import decode_health, decode_telemetry
+from v1_twin.clock_event_identity import (
+    CLOCK_DOMAIN_MCU_MONOTONIC_MS,
+    CLOCK_DOMAIN_PC_MONOTONIC_NS,
+    EVENT_PC_Q_SENT,
+    EVENT_PC_T_RECEIVED,
+    EVENT_Q_PARSE_DONE,
+    EVENT_Q_UART_RX_ISR,
+    EVENT_T_PAYLOAD_GENERATED,
+    EVENT_T_TRANSACTION_STARTED,
+    OBSERVED_BOUNDARY,
+    REPORTED_BOUNDARY,
+    ClockExchangeIdentity,
+)
+from real_world.frame_parser import (
+    decode_health,
+    decode_telemetry,
+    decode_timing_diagnostic,
+)
 from real_world.runtime_protocol import (
     ClockSyncProbe,
     ClockSyncReply,
@@ -90,14 +112,23 @@ CAMERA_FPS = camera_common.DEFAULT_FPS
 CAMERA_PERIOD_NS = int(round(1_000_000_000 / CAMERA_FPS))
 TELEMETRY_PERIOD_NS = 30_000_000  # firmware generation interval
 TOLERANCE_NS = max(CAMERA_PERIOD_NS, TELEMETRY_PERIOD_NS)
+TRACK_REFERENCE_FILENAME = "track_reference.png"
+TRACK_REFERENCE_REPORT_KEY = "track_reference"
+TRACK_REFERENCE_SOURCE = "PRE_MOTION_CAMERA_FRAME"
+TRACK_REFERENCE_MIN_MEAN_GRAY = 1.0
 CLOCK_PROBE_PERIOD_S = 0.25
 CLOCK_PREFLIGHT_EXCHANGES = 8
 CLOCK_POSTFLIGHT_EXCHANGES = 8
 CLOCK_QUIET_PROBE_TIMEOUT_S = 1.0
+# A lost reply is retained as evidence, then one fresh sequence may replace
+# that sample. Persistent loss still fails closed before START.
+CLOCK_QUIET_RETRY_LIMIT = 1
 STOP_CONFIRM_TIMEOUT_S = 1.0
 READER_JOIN_TIMEOUT_S = 1.0
 ANALYSIS_QUEUE_SIZE = 8
 ANALYSIS_JOIN_TIMEOUT_S = 1.0
+DEFAULT_ANALYSIS_FRAME_STRIDE = 4
+VEHICLE_BODY_PROFILE = load_default_vehicle_body_profile()
 
 
 OBSERVATION_PROFILES = MappingProxyType({
@@ -123,6 +154,7 @@ RECOVERY_POLICIES = MappingProxyType({
         "cache_preprocessors": False,
         "full_frame_fallback_scales": None,
         "roi_padding_px": 32.0,
+        "gray_channel": None,
         "offline_only": False,
     }),
     "fast_recovery": MappingProxyType({
@@ -133,6 +165,7 @@ RECOVERY_POLICIES = MappingProxyType({
         "cache_preprocessors": True,
         "full_frame_fallback_scales": (1.0,),
         "roi_padding_px": 32.0,
+        "gray_channel": None,
         "offline_only": True,
     }),
     "fast_recovery_wide": MappingProxyType({
@@ -143,6 +176,40 @@ RECOVERY_POLICIES = MappingProxyType({
         "cache_preprocessors": True,
         "full_frame_fallback_scales": (1.0,),
         "roi_padding_px": 96.0,
+        "gray_channel": None,
+        "offline_only": True,
+    }),
+    "fast_recovery_balanced": MappingProxyType({
+        "name": "fast_recovery_balanced",
+        "roi_detect_scales": (1.0,),
+        "recovery_preprocess_modes": ("blue_clahe",),
+        "roi_preprocess_scales": (1.0,),
+        "cache_preprocessors": True,
+        "full_frame_fallback_scales": (1.0,),
+        "roi_padding_px": 64.0,
+        "gray_channel": None,
+        "offline_only": True,
+    }),
+    "fast_recovery_blue": MappingProxyType({
+        "name": "fast_recovery_blue",
+        "roi_detect_scales": (1.0,),
+        "recovery_preprocess_modes": ("blue_clahe",),
+        "roi_preprocess_scales": (1.0,),
+        "cache_preprocessors": True,
+        "full_frame_fallback_scales": (1.0,),
+        "roi_padding_px": 96.0,
+        "gray_channel": 0,
+        "offline_only": True,
+    }),
+    "fast_recovery_green": MappingProxyType({
+        "name": "fast_recovery_green",
+        "roi_detect_scales": (1.0,),
+        "recovery_preprocess_modes": ("blue_clahe",),
+        "roi_preprocess_scales": (1.0,),
+        "cache_preprocessors": True,
+        "full_frame_fallback_scales": (1.0,),
+        "roi_padding_px": 96.0,
+        "gray_channel": 1,
         "offline_only": True,
     }),
 })
@@ -170,11 +237,24 @@ def resolve_recovery_policy(name="production"):
         )
 
 
+def normalize_analysis_frame_stride(value=1):
+    """Validate the capture-to-analysis sampling stride."""
+    stride = int(value)
+    if stride < 1:
+        raise ValueError("analysis frame stride must be positive")
+    return stride
+
+
 def _build_recovery_detector_parameters(policy_name):
     """Build the detector parameters paired with a recovery policy."""
     policy = resolve_recovery_policy(policy_name)
     parameters = cv2.aruco.DetectorParameters()
-    if policy["name"] == "fast_recovery_wide":
+    if policy["name"] in {
+        "fast_recovery_wide",
+        "fast_recovery_balanced",
+        "fast_recovery_blue",
+        "fast_recovery_green",
+    }:
         parameters.adaptiveThreshWinSizeMax = 53
         parameters.adaptiveThreshWinSizeStep = 5
         parameters.adaptiveThreshConstant = 3.0
@@ -219,6 +299,7 @@ def create_pose_tracker(
         recovery_policy=policy["name"],
         roi_padding_px=policy["roi_padding_px"],
         full_frame_fallback_scales=fallback_scales,
+        gray_channel=policy["gray_channel"],
         detector_parameters=detector_parameters,
     )
 
@@ -255,8 +336,23 @@ def capture_pc_clock_ns():
         _last_capture_pc_clock_ns = now_ns
         return now_ns
 
+
+def clock_reply_pc_timestamp(arrival_pc_ns=None, fallback_pc_ns=None):
+    """Use the socket receive boundary as the Q/T reply timestamp.
+
+    The parser callback can run after the bytes were returned by ``recv``.
+    Prefer that earlier boundary; only fall back to a fresh clock read when a
+    caller has no receive-boundary timestamp.
+    """
+    if arrival_pc_ns is not None:
+        return int(arrival_pc_ns)
+    if fallback_pc_ns is None:
+        return capture_pc_clock_ns()
+    return int(fallback_pc_ns)
+
 OUTPUT_FILENAMES = (
     "camera.avi",
+    TRACK_REFERENCE_FILENAME,
     "video_evidence.json",
     "pose.jsonl",
     "telemetry.jsonl",
@@ -266,6 +362,7 @@ OUTPUT_FILENAMES = (
     "raw_telemetry.json",
     "telemetry_boundary.json",
     "raw_health.json",
+    "timing_diagnostics.json",
     "raw_io.json",
     "clock_exchanges.jsonl",
     "sync_report.json",
@@ -275,7 +372,8 @@ OUTPUT_FILENAMES = (
 )
 B3_RAW_FILENAMES = ("pose.jsonl", "telemetry.jsonl", "frame_index.jsonl")
 B3_DIAGNOSTIC_FILENAMES = (
-    "raw_health.json", "raw_io.json", "telemetry_boundary.json"
+    "raw_health.json", "timing_diagnostics.json", "raw_io.json",
+    "telemetry_boundary.json"
 )
 
 FAILURE_FRAME_DIRNAME = "failed_frames"
@@ -327,6 +425,71 @@ def read_camera_mode(cap, index, width, height):
         "height": int(height),
         "fps": float(cap.get(cv2.CAP_PROP_FPS)),
         "fourcc": fourcc,
+    }
+
+
+def capture_track_reference(cap, path, camera_mode):
+    """Save one validated pre-motion camera frame as the track reference."""
+    mode = dict(camera_mode or {})
+    expected_width = int(mode.get("width", 0))
+    expected_height = int(mode.get("height", 0))
+    if expected_width <= 0 or expected_height <= 0:
+        raise ValueError("track reference requires validated camera dimensions")
+
+    ok, frame = cap.read()
+    if not ok or frame is None or getattr(frame, "size", 0) == 0:
+        raise ValueError("track reference camera frame is unreadable")
+    if getattr(frame, "ndim", 0) < 2:
+        raise ValueError("track reference camera frame has invalid dimensions")
+    height, width = frame.shape[:2]
+    if (int(width), int(height)) != (expected_width, expected_height):
+        raise ValueError(
+            "track reference frame size mismatch: actual {}x{} vs expected {}x{}".format(
+                width, height, expected_width, expected_height
+            )
+        )
+
+    if frame.ndim == 2:
+        gray = frame
+    elif frame.ndim == 3 and frame.shape[2] == 1:
+        gray = frame[:, :, 0]
+    elif frame.ndim == 3 and frame.shape[2] in (3, 4):
+        gray = cv2.cvtColor(
+            frame,
+            cv2.COLOR_BGR2GRAY if frame.shape[2] == 3 else cv2.COLOR_BGRA2GRAY,
+        )
+    else:
+        raise ValueError("track reference camera frame has unsupported channels")
+    mean_gray = float(np.asarray(gray, dtype=np.float64).mean())
+    std_gray = float(np.asarray(gray, dtype=np.float64).std())
+    if (
+        not math.isfinite(mean_gray)
+        or not math.isfinite(std_gray)
+        or mean_gray <= TRACK_REFERENCE_MIN_MEAN_GRAY
+    ):
+        raise ValueError(
+            "track reference camera frame is empty or non-black"
+        )
+
+    output_path = Path(path).resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    encoded_ok, encoded = cv2.imencode(".png", frame)
+    if not encoded_ok:
+        raise RuntimeError("track reference PNG encoding failed")
+    encoded.tofile(str(output_path))
+    if not output_path.is_file() or output_path.stat().st_size <= 0:
+        raise RuntimeError("track reference PNG was not written")
+    return {
+        "status": "AVAILABLE",
+        "source": TRACK_REFERENCE_SOURCE,
+        "path": str(output_path),
+        "format": "PNG",
+        "width": int(width),
+        "height": int(height),
+        "mean_gray": mean_gray,
+        "std_gray": std_gray,
+        "size_bytes": int(output_path.stat().st_size),
+        "sha256": _sha256_file(output_path),
     }
 
 
@@ -417,26 +580,53 @@ def binarize_sensor(v):
 class ClockExchangeCollector:
     """Retain complete PC/MCU clock exchanges without hiding gaps."""
 
-    def __init__(self):
+    def __init__(self, capture_id="local"):
         self._lock = threading.Lock()
+        self.capture_id = str(capture_id)
+        ClockExchangeIdentity(
+            transport="tcp", capture_id=self.capture_id, sequence=1
+        )
         self._pending = {}
         self._records = []
         self._unmatched_replies = []
 
-    def begin_probe(self, sequence, pc_tx_ns, phase=None):
+    def begin_probe(
+        self,
+        sequence,
+        pc_tx_ns,
+        phase=None,
+        sample_role=None,
+        included_in_fit=None,
+    ):
         sequence = int(sequence)
         pc_tx_ns = int(pc_tx_ns)
         if sequence <= 0 or pc_tx_ns < 0:
             raise ValueError("clock probe sequence/timestamp must be positive")
         if phase is not None and not str(phase):
             raise ValueError("clock probe phase must not be empty")
+        if sample_role is None or not str(sample_role):
+            raise ValueError("clock probe sample role is required")
+        if included_in_fit is None or not isinstance(included_in_fit, bool):
+            raise ValueError("clock probe included_in_fit must be boolean")
+        sample_role = str(sample_role)
+        if sample_role not in {"arm_probe", "formal"}:
+            raise ValueError(
+                "clock probe sample role must be arm_probe or formal"
+            )
+        if included_in_fit != (sample_role == "formal"):
+            raise ValueError(
+                "clock probe sample role and included_in_fit are inconsistent"
+            )
         with self._lock:
             if sequence in self._pending:
                 raise ValueError("clock probe sequence is already pending")
-            self._pending[sequence] = {
+            pending = {
                 "pc_tx_ns": pc_tx_ns,
                 "phase": (str(phase) if phase is not None else None),
             }
+            pending["sample_role"] = str(sample_role)
+            pending["included_in_fit"] = bool(included_in_fit)
+            self._pending[sequence] = pending
         return ClockSyncProbe(sequence).encode().encode("ascii")
 
     def cancel_probe(self, sequence):
@@ -460,13 +650,120 @@ class ClockExchangeCollector:
             if pc_rx_ns < pc_tx_ns:
                 self._unmatched_replies.append(int(reply.sequence))
                 return False
-            record = {
-                "sequence": int(reply.sequence),
-                "pc_tx_ns": int(pc_tx_ns),
-                "mcu_rx_tick_ms": int(reply.mcu_rx_tick_ms),
-                "mcu_tx_tick_ms": int(reply.mcu_tx_tick_ms),
-                "pc_rx_ns": int(pc_rx_ns),
-            }
+            pending_sample_role = pending["sample_role"]
+            pending_included_in_fit = pending["included_in_fit"]
+            if not reply.event_timestamp_valid:
+                # Keep legacy replies as explicit replay evidence, but never
+                # invent v2 event identities or let them enter causal fitting.
+                identity = ClockExchangeIdentity(
+                    transport="tcp",
+                    capture_id=self.capture_id,
+                    sequence=int(reply.sequence),
+                )
+                record = {
+                    "capture_id": self.capture_id,
+                    "observation_id": identity.exchange_id,
+                    "sequence": int(reply.sequence),
+                    "pc_tx_ns": int(pc_tx_ns),
+                    "pc_rx_ns": int(pc_rx_ns),
+                    "timestamp_schema_version": int(
+                        reply.timestamp_schema_version
+                    ),
+                    "sample_role": pending_sample_role,
+                    "included_in_fit": False,
+                    "legacy_timestamp_semantics": "unclassified",
+                    "legacy_first_tick_ms": int(reply.legacy_first_tick_ms),
+                    "legacy_second_tick_ms": int(reply.legacy_second_tick_ms),
+                    "legacy_requested_included_in_fit": bool(
+                        pending_included_in_fit
+                    ),
+                }
+            else:
+                identity = ClockExchangeIdentity(
+                    transport="tcp",
+                    capture_id=self.capture_id,
+                    sequence=int(reply.sequence),
+                )
+                record = {
+                    "capture_id": self.capture_id,
+                    "observation_id": identity.exchange_id,
+                    "sequence": int(reply.sequence),
+                    "pc_tx_ns": int(pc_tx_ns),
+                    "pc_tx_event_id": identity.event(EVENT_PC_Q_SENT),
+                    "pc_tx_event_kind": EVENT_PC_Q_SENT,
+                    "pc_tx_event_clock_domain": CLOCK_DOMAIN_PC_MONOTONIC_NS,
+                    "pc_tx_event_validity": OBSERVED_BOUNDARY,
+                    # No independent physical bound has been measured for
+                    # this host-side boundary yet.
+                    "pc_tx_event_uncertainty_ns": None,
+                    "pc_tx_event_observed_ns": int(pc_tx_ns),
+                    "pc_tx_event_data_age_ns": 0,
+                    "q_event_id": identity.event(EVENT_Q_UART_RX_ISR),
+                    "q_event_tick_ms": int(reply.q_event_timestamp_ms),
+                    "q_event_observed_tick_ms": int(reply.q_event_timestamp_ms),
+                    "q_event_data_age_ms": 0,
+                    "q_event_kind": EVENT_Q_UART_RX_ISR,
+                    "q_event_clock_domain": CLOCK_DOMAIN_MCU_MONOTONIC_MS,
+                    "q_event_validity": OBSERVED_BOUNDARY,
+                    "q_event_uncertainty_ns": None,
+                    "q_parse_event_id": identity.event(EVENT_Q_PARSE_DONE),
+                    "q_parse_causal_parent_event_id": identity.event(
+                        EVENT_Q_UART_RX_ISR
+                    ),
+                    "q_parse_done_tick_ms": int(reply.q_parse_done_tick_ms),
+                    "q_parse_event_kind": EVENT_Q_PARSE_DONE,
+                    "q_parse_event_clock_domain": CLOCK_DOMAIN_MCU_MONOTONIC_MS,
+                    "q_parse_event_validity": REPORTED_BOUNDARY,
+                    "q_parse_event_uncertainty_ns": None,
+                    "q_parse_event_observed_tick_ms": None,
+                    "q_parse_event_data_age_ms": None,
+                    "q_parse_role": "diagnostic_only",
+                    "t_event_id": identity.event(EVENT_T_TRANSACTION_STARTED),
+                    "t_event_tick_ms": int(reply.t_event_timestamp_ms),
+                    "t_event_observed_tick_ms": int(reply.t_event_timestamp_ms),
+                    "t_event_data_age_ms": 0,
+                    "t_event_kind": EVENT_T_TRANSACTION_STARTED,
+                    "t_event_clock_domain": CLOCK_DOMAIN_MCU_MONOTONIC_MS,
+                    "t_event_validity": OBSERVED_BOUNDARY,
+                    "t_event_uncertainty_ns": None,
+                    "t_payload_event_id": identity.event(
+                        EVENT_T_PAYLOAD_GENERATED
+                    ),
+                    "t_payload_causal_parent_event_id": identity.event(
+                        EVENT_T_TRANSACTION_STARTED
+                    ),
+                    "t_payload_generated_tick_ms": int(
+                        reply.t_payload_generated_tick_ms
+                    ),
+                    "t_payload_event_kind": EVENT_T_PAYLOAD_GENERATED,
+                    "t_payload_event_clock_domain": CLOCK_DOMAIN_MCU_MONOTONIC_MS,
+                    "t_payload_event_validity": REPORTED_BOUNDARY,
+                    "t_payload_event_uncertainty_ns": None,
+                    "t_payload_event_observed_tick_ms": None,
+                    "t_payload_event_data_age_ms": None,
+                    "t_payload_role": "diagnostic_only",
+                    "pc_rx_ns": int(pc_rx_ns),
+                    "pc_rx_event_id": identity.event(EVENT_PC_T_RECEIVED),
+                    "pc_rx_event_kind": EVENT_PC_T_RECEIVED,
+                    "pc_rx_event_clock_domain": CLOCK_DOMAIN_PC_MONOTONIC_NS,
+                    "pc_rx_event_validity": OBSERVED_BOUNDARY,
+                    "pc_rx_event_uncertainty_ns": None,
+                    "pc_rx_event_observed_ns": int(pc_rx_ns),
+                    "pc_rx_event_data_age_ns": 0,
+                    "timestamp_schema_version": int(
+                        reply.timestamp_schema_version
+                    ),
+                    "sample_role": pending_sample_role,
+                    # This flag is actual fit admission, not the caller's
+                    # request.  No uncertainty bound is measured here yet.
+                    "fit_requested": bool(pending_included_in_fit),
+                    "included_in_fit": False,
+                    "fit_exclusion_reason": (
+                        "uncertainty_unverified"
+                        if pending_included_in_fit
+                        else "sample_role_excluded"
+                    ),
+                }
             if pending["phase"] is not None:
                 record["phase"] = pending["phase"]
             self._records.append(record)
@@ -551,10 +848,17 @@ class TelemetryCaptureBoundary:
             arrival_pc_ns = self._arrival_pc_ns
             if arrival_pc_ns is None:
                 arrival_pc_ns = int(decode_pc_ns)
+            arrival_pc_ns = int(arrival_pc_ns)
+            decode_pc_ns = int(decode_pc_ns)
             record = {
                 "tick_ms": int(tick_ms),
-                "arrival_pc_ns": int(arrival_pc_ns),
-                "decode_pc_ns": int(decode_pc_ns),
+                "mcu_generation_tick_ms": int(tick_ms),
+                "arrival_pc_ns": arrival_pc_ns,
+                "pc_arrival_ns": arrival_pc_ns,
+                "decode_pc_ns": decode_pc_ns,
+                "pc_decode_minus_arrival_ns": (
+                    decode_pc_ns - arrival_pc_ns
+                ),
                 "recv_batch_id": int(self._recv_batch_id),
                 "recv_batch_bytes": int(self._recv_batch_bytes),
                 "phase": self.phase,
@@ -839,10 +1143,25 @@ class _AnalysisWorker:
                     "analysis_status": "processed",
                 }
                 try:
+                    track_with_diagnostics_and_geometry = getattr(
+                        self._tracker,
+                        "track_with_diagnostics_and_geometry",
+                        None,
+                    )
                     track_with_diagnostics = getattr(
                         self._tracker, "track_with_diagnostics", None
                     )
-                    if track_with_diagnostics is not None:
+                    tag_corners_px = None
+                    if track_with_diagnostics_and_geometry is not None:
+                        pose, detector_diagnostics, tag_corners_px = (
+                            track_with_diagnostics_and_geometry(
+                                frame, t_pc_ns=t_pc_ns
+                            )
+                        )
+                        result["diagnostics"] = dict(
+                            detector_diagnostics or {}
+                        )
+                    elif track_with_diagnostics is not None:
                         pose, detector_diagnostics = track_with_diagnostics(
                             frame, t_pc_ns=t_pc_ns
                         )
@@ -853,6 +1172,13 @@ class _AnalysisWorker:
                         pose = self._tracker.track(
                             frame, t_pc_ns=t_pc_ns
                         )
+                    if pose is not None:
+                        body_rectangle = derive_vehicle_body_rectangle(
+                            pose,
+                            VEHICLE_BODY_PROFILE,
+                            tag_corners_px=tag_corners_px,
+                        )
+                        pose = replace(pose, body_rectangle=body_rectangle)
                     result["pose"] = pose
                 except BaseException as exc:  # noqa: BLE001
                     error = repr(exc)
@@ -966,6 +1292,10 @@ def write_capture_artifacts(out_dir, poses, telemetry, frame_index=None,
                   ensure_ascii=False)
     with open(os.path.join(out_dir, "raw_health.json"), "w", encoding="utf-8") as f:
         json.dump(diagnostics.get("health_frames", []), f, indent=2,
+                  ensure_ascii=False)
+    with open(os.path.join(out_dir, "timing_diagnostics.json"), "w",
+              encoding="utf-8") as f:
+        json.dump(diagnostics.get("timing_diagnostics", []), f, indent=2,
                   ensure_ascii=False)
     with open(os.path.join(out_dir, "raw_io.json"), "w", encoding="utf-8") as f:
         json.dump(diagnostics.get("raw_io", {}), f, indent=2,
@@ -1130,7 +1460,8 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                              max_failure_frame_thumbnails=MAX_FAILURE_FRAME_THUMBNAILS,
                              expected_frame_size=None,
                              video_writer=None,
-                             video_evidence=None):
+                             video_evidence=None,
+                             analysis_frame_stride=1):
     """START → 等待首帧遥测 → 采集 的生命周期，附带统一幂等清理。
 
     *sock* / *cap* / *tracker* 由调用方注入（真硬件或离线 fake）。
@@ -1144,6 +1475,9 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
     恰好执行一次。测试用 fake socket/camera 驱动本函数，不连接真车。
     """
     actions = _new_action_state()
+    analysis_frame_stride = normalize_analysis_frame_stride(
+        analysis_frame_stride
+    )
     telemetry = []
     poses = []
     pose_entries = []
@@ -1177,6 +1511,8 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
     raw_io = RawIoLogger(None)
     health_frames = []
     diagnostics["health_frames"] = health_frames
+    timing_diagnostics = []
+    diagnostics["timing_diagnostics"] = timing_diagnostics
     tele_lock = threading.Lock()
     stop_reader = threading.Event()
     boundary = TelemetryCaptureBoundary("sync", run_id)
@@ -1184,7 +1520,7 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
     status_cv = threading.Condition()
     statuses = []
     status_parse_errors = []
-    clock_exchanges = ClockExchangeCollector()
+    clock_exchanges = ClockExchangeCollector(capture_id=run_id)
     clock_sync_parse_errors = []
     diagnostics["clock_sync_parse_errors"] = clock_sync_parse_errors
     reader_error = []
@@ -1194,6 +1530,7 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
     analysis_captured_frames = 0
     analysis_eligible_frames = 0
     analysis_skipped_frames = 0
+    analysis_failed_frames = 0
     heartbeat_cmd = HeartbeatCommand("sync", run_id).encode().encode("ascii")
     next_heartbeat = None
     next_clock_probe = None
@@ -1215,7 +1552,12 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
         next_heartbeat = time.monotonic() + HEARTBEAT_PERIOD_S
         return True
 
-    def send_clock_probe(force=False, phase=None):
+    def send_clock_probe(
+        force=False,
+        phase=None,
+        sample_role=None,
+        included_in_fit=None,
+    ):
         """Send at most one outstanding Q probe on the existing TCP path."""
         nonlocal next_clock_probe, next_clock_sequence
         now = time.monotonic()
@@ -1228,7 +1570,11 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
         pc_tx_ns = capture_pc_clock_ns()
         try:
             command = clock_exchanges.begin_probe(
-                sequence, pc_tx_ns, phase=phase
+                sequence,
+                pc_tx_ns,
+                phase=phase,
+                sample_role=sample_role,
+                included_in_fit=included_in_fit,
             )
             sock.sendall(command)
             raw_io.log_send(command)
@@ -1249,13 +1595,24 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
     # contention from telemetry instead of only clock transport quality.
     clock_sampling = {
         "policy": "quiet_pre_start_post_stop",
+        "probe_period_s": float(CLOCK_PROBE_PERIOD_S),
         "pre_start_requested": int(CLOCK_PREFLIGHT_EXCHANGES),
         "post_stop_requested": int(CLOCK_POSTFLIGHT_EXCHANGES),
+        "pre_start_retries": 0,
+        "post_stop_retries": 0,
         "active_run_probes": 0,
         "pre_start_ok": False,
         "post_stop_ok": False,
     }
     diagnostics["clock_sync_sampling"] = clock_sampling
+
+    def wait_for_clock_probe_slot():
+        """Keep consecutive Q probes outside one CIPSEND response window."""
+        if next_clock_probe is None:
+            return
+        remaining = next_clock_probe - time.monotonic()
+        if remaining > 0.0:
+            time.sleep(remaining)
 
     def collect_quiet_clock_exchanges(count, phase):
         """Collect sequential Q/T samples while no motion telemetry is due."""
@@ -1263,30 +1620,69 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
         if target == 0:
             return True
         initial_count = len(clock_exchanges.records())
-        for _ in range(target):
-            before_count = len(clock_exchanges.records())
-            if not send_clock_probe(force=True, phase=phase):
-                clock_sync_parse_errors.append({
-                    "stage": "quiet_window_send",
-                    "phase": phase,
-                    "error": "clock probe send failed",
-                })
-                return False
-            deadline = time.monotonic() + CLOCK_QUIET_PROBE_TIMEOUT_S
-            with status_cv:
-                while len(clock_exchanges.records()) <= before_count:
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0.0 or reader_error:
-                        break
-                    status_cv.wait(remaining)
-            if len(clock_exchanges.records()) <= before_count:
+        # The first exchange establishes the quiet-window arm boundary. It is
+        # retained as evidence but excluded from the causal fit because it may
+        # still observe the tail of a preceding CIPSEND transaction.
+        sample_plan = [("arm_probe", False)]
+        sample_plan.extend(("formal", True) for _ in range(target))
+        for sample_role, included_in_fit in sample_plan:
+            attempts = 0
+            while True:
+                attempts += 1
+                probe_sequence = next_clock_sequence
+                before_count = len(clock_exchanges.records())
+                wait_for_clock_probe_slot()
+                if not send_clock_probe(
+                    force=True,
+                    phase=phase,
+                    sample_role=sample_role,
+                    included_in_fit=included_in_fit,
+                ):
+                    clock_sync_parse_errors.append({
+                        "stage": "quiet_window_send",
+                        "phase": phase,
+                        "sample_role": sample_role,
+                        "sequence": int(probe_sequence),
+                        "attempt": int(attempts),
+                        "error": "clock probe send failed",
+                    })
+                    return False
+                deadline = time.monotonic() + CLOCK_QUIET_PROBE_TIMEOUT_S
+                with status_cv:
+                    while len(clock_exchanges.records()) <= before_count:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0.0 or reader_error:
+                            break
+                        status_cv.wait(remaining)
+                if len(clock_exchanges.records()) > before_count:
+                    break
+
+                # Do not leave a timed-out sequence pending: the replacement
+                # must use a new sequence, and any late reply is unmatched
+                # evidence rather than silently becoming a different sample.
+                clock_exchanges.cancel_probe(probe_sequence)
+                retry_key = (
+                    "pre_start_retries"
+                    if phase == "pre_start_quiet"
+                    else "post_stop_retries"
+                )
+                can_retry = (
+                    not reader_error
+                    and attempts <= CLOCK_QUIET_RETRY_LIMIT
+                )
                 clock_sync_parse_errors.append({
                     "stage": "quiet_window_receive",
                     "phase": phase,
+                    "sample_role": sample_role,
+                    "sequence": int(probe_sequence),
+                    "attempt": int(attempts),
+                    "retrying": bool(can_retry),
                     "error": "clock probe reply timeout",
                 })
-                return False
-        return len(clock_exchanges.records()) >= initial_count + target
+                if not can_retry:
+                    return False
+                clock_sampling[retry_key] += 1
+        return len(clock_exchanges.records()) >= initial_count + len(sample_plan)
 
     def apply_analysis_result(result):
         frame_number = int(result["frame_index"])
@@ -1342,6 +1738,7 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
         summary["analysis_skipped_frames"] = int(
             analysis_skipped_frames
         )
+        summary["analysis_failed_frames"] = int(analysis_failed_frames)
         status_counts = {}
         for frame_record in analysis_records.values():
             status = frame_record.get("analysis_status")
@@ -1355,9 +1752,23 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
             not summary["analysis_stop_timed_out"]
             and summary["dropped_frames"] == 0
             and summary["incomplete_frames"] == 0
+            and summary["analysis_failed_frames"] == 0
             and not summary["worker_errors"]
         )
-        summary["analysis_sequence"] = "capture_order_with_queue_drops"
+        summary["analysis_frame_stride"] = int(analysis_frame_stride)
+        summary["analysis_coverage_complete"] = bool(
+            summary["analysis_skipped_frames"] == 0
+            and summary["dropped_frames"] == 0
+            and summary["incomplete_frames"] == 0
+            and summary["analysis_failed_frames"] == 0
+            and not summary["worker_errors"]
+            and not summary["analysis_stop_timed_out"]
+        )
+        summary["analysis_sequence"] = (
+            "capture_order_with_stride_and_queue_drops"
+            if analysis_frame_stride > 1
+            else "capture_order_with_queue_drops"
+        )
         summary["dropped_frames_do_not_advance_tracker"] = True
         diagnostics["analysis"] = summary
 
@@ -1408,6 +1819,26 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
         with tele_lock:
             health_frames.append(record)
 
+    def on_timing(payload):
+        d = decode_timing_diagnostic(payload)
+        if not d:
+            return
+        decode_pc_ns = capture_pc_clock_ns()
+        arrival_pc_ns = current_recv["arrival_pc_ns"]
+        if arrival_pc_ns is None:
+            arrival_pc_ns = decode_pc_ns
+        record = {
+            "frame_ts_s": round(time.time(), 6),
+            "pc_arrival_ns": int(arrival_pc_ns),
+            "decode_pc_ns": int(decode_pc_ns),
+            "pc_decode_minus_arrival_ns": int(
+                decode_pc_ns - arrival_pc_ns
+            ),
+        }
+        record.update({key: int(value) for key, value in d.items()})
+        with tele_lock:
+            timing_diagnostics.append(record)
+
     def on_status(line):
         if line.startswith("T,"):
             try:
@@ -1421,7 +1852,10 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                     })
                     status_cv.notify_all()
                 return
-            clock_exchanges.complete_probe(reply, capture_pc_clock_ns())
+            clock_exchanges.complete_probe(
+                reply,
+                clock_reply_pc_timestamp(current_recv["arrival_pc_ns"]),
+            )
             with status_cv:
                 status_cv.notify_all()
             return
@@ -1442,7 +1876,8 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
         """Read mixed binary telemetry and ASCII status frames."""
         parser = MixedStreamParser(on_telemetry=on_telemetry,
                                    on_line=on_status,
-                                   on_health=on_health)
+                                   on_health=on_health,
+                                   on_timing=on_timing)
         while not stop_reader.is_set():
             try:
                 data = sock.recv(4096)
@@ -1544,9 +1979,10 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                                 frame_record["failure_reason"] = (
                                     "camera_frame_shape_unavailable"
                                 )
-                                analysis_skipped_frames += 1
-                                frame_record["analysis_skipped"] = True
-                                frame_record["analysis_skip_reason"] = (
+                                analysis_failed_frames += 1
+                                frame_record["analysis_status"] = "failed"
+                                frame_record["analysis_failed"] = True
+                                frame_record["analysis_failure_reason"] = (
                                     "camera_frame_shape_unavailable"
                                 )
                                 actions["collect_error"] = (
@@ -1586,9 +2022,10 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                                 frame_record["expected_frame_height"] = int(
                                     expected_frame_size[1]
                                 )
-                                analysis_skipped_frames += 1
-                                frame_record["analysis_skipped"] = True
-                                frame_record["analysis_skip_reason"] = (
+                                analysis_failed_frames += 1
+                                frame_record["analysis_status"] = "failed"
+                                frame_record["analysis_failed"] = True
+                                frame_record["analysis_failure_reason"] = (
                                     "camera_frame_shape_mismatch"
                                 )
                                 actions["collect_error"] = repr(exc)
@@ -1617,9 +2054,10 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                                 frame_record["failure_reason"] = (
                                     "video_write_failed"
                                 )
-                                analysis_skipped_frames += 1
-                                frame_record["analysis_skipped"] = True
-                                frame_record["analysis_skip_reason"] = (
+                                analysis_failed_frames += 1
+                                frame_record["analysis_status"] = "failed"
+                                frame_record["analysis_failed"] = True
+                                frame_record["analysis_failure_reason"] = (
                                     "video_write_failed"
                                 )
                                 actions["collect_error"] = repr(exc)
@@ -1627,18 +2065,33 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                                 return telemetry, poses, actions, outcome
                             video_evidence["frames_written"] += 1
                         analysis_eligible_frames += 1
-                        frame_record["analysis_status"] = "queued"
-                        frame_record["analysis_dropped"] = False
                         frame_number = frame_record["frame_index"]
                         analysis_records[frame_number] = frame_record
-                        if not analysis_worker.submit(
-                            frame, frame_number, t_pc_ns
-                        ):
-                            frame_record["analysis_status"] = "dropped"
-                            frame_record["analysis_dropped"] = True
+                        if frame_number % analysis_frame_stride != 0:
+                            frame_record["analysis_status"] = "skipped"
+                            frame_record["analysis_skipped"] = True
+                            frame_record["analysis_skip_reason"] = (
+                                "analysis_frame_stride"
+                            )
+                            frame_record["analysis_dropped"] = False
+                            analysis_skipped_frames += 1
+                        else:
+                            frame_record["analysis_status"] = "queued"
+                            frame_record["analysis_dropped"] = False
+                            if not analysis_worker.submit(
+                                frame, frame_number, t_pc_ns
+                            ):
+                                frame_record["analysis_status"] = "dropped"
+                                frame_record["analysis_dropped"] = True
                         drain_analysis_results()
                     else:
                         frame_record["failure_reason"] = "frame_read_failed"
+                        analysis_failed_frames += 1
+                        frame_record["analysis_status"] = "read_failed"
+                        frame_record["analysis_failed"] = True
+                        frame_record["analysis_failure_reason"] = (
+                            "frame_read_failed"
+                        )
                 finally:
                     analysis_records.setdefault(
                         frame_record["frame_index"], frame_record
@@ -1724,6 +2177,7 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
         pose_entries.sort(key=lambda entry: (entry[0], entry[1]))
         poses[:] = [entry[2] for entry in pose_entries]
         diagnostics["health_frames"] = list(health_frames)
+        diagnostics["timing_diagnostics"] = list(timing_diagnostics)
         diagnostics["health"] = compute_health_summary(health_frames)
         diagnostics["telemetry_boundary"] = boundary.to_dict()
         diagnostics["clock_exchanges"] = clock_exchanges.to_dict()
@@ -1734,8 +2188,22 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
     return telemetry, poses, actions, outcome
 
 
-def _analysis_report_diagnostics(diagnostics=None):
-    return dict((diagnostics or {}).get("analysis", {}))
+def _clock_sync_diagnostics(diagnostics=None):
+    source = diagnostics or {}
+    clock_exchanges = source.get("clock_exchanges") or {}
+    return {
+        "analysis": dict(source.get("analysis", {})),
+        "clock_exchanges_file": "clock_exchanges.jsonl",
+        "clock_sync_sampling": dict(
+            source.get("clock_sync_sampling", {})
+        ),
+        "clock_sync_parse_errors": list(
+            source.get("clock_sync_parse_errors", [])
+        ),
+        "clock_sync_unmatched_replies": list(
+            clock_exchanges.get("unmatched_replies", [])
+        ),
+    }
 
 
 def build_sync_report(*, host, duration_s, run_id, camera_mode, actions,
@@ -1751,6 +2219,7 @@ def build_sync_report(*, host, duration_s, run_id, camera_mode, actions,
         causal_sync if causal_sync is not None
         else build_causal_sync_report([])
     )
+    track_reference = (diagnostics or {}).get(TRACK_REFERENCE_REPORT_KEY)
     report = {
         "schema_version": 1,
         "task": "4B-4",
@@ -1776,18 +2245,21 @@ def build_sync_report(*, host, duration_s, run_id, camera_mode, actions,
         "n_telemetry": int(n_telemetry),
         "calibration": dict(calibration_evidence or {}),
         "video_evidence": video_evidence,
+        TRACK_REFERENCE_REPORT_KEY: (
+            dict(track_reference) if isinstance(track_reference, dict) else None
+        ),
         "observation_profile": _observation_profile_evidence(
             observation_profile
         ),
         "diagnostics": {
-            "analysis": _analysis_report_diagnostics(diagnostics),
             "health": dict((diagnostics or {}).get("health", {})),
             "raw_health_file": "raw_health.json",
-            "raw_io_file": "raw_io.json",
-            "clock_exchanges_file": "clock_exchanges.jsonl",
-            "clock_sync_sampling": dict(
-                (diagnostics or {}).get("clock_sync_sampling", {})
+            "timing_diagnostic_file": "timing_diagnostics.json",
+            "timing_diagnostic_count": len(
+                (diagnostics or {}).get("timing_diagnostics", [])
             ),
+            "raw_io_file": "raw_io.json",
+            **_clock_sync_diagnostics(diagnostics),
             "telemetry_boundary_file": "telemetry_boundary.json",
             "formal_telemetry_count": int(
                 (diagnostics or {}).get("formal_telemetry_count", n_telemetry)
@@ -1836,8 +2308,14 @@ def build_sync_report(*, host, duration_s, run_id, camera_mode, actions,
 def build_session_failure_report(*, host, duration_s, run_id, camera_mode,
                                  actions, outcome, reason, n_poses,
                                  n_telemetry, observation_profile=None,
-                                 video_evidence=None, diagnostics=None):
+                                 video_evidence=None, causal_sync=None,
+                                 diagnostics=None):
     """Build a non-passing report for failures before clock fitting."""
+    causal_sync_report = dict(
+        causal_sync if causal_sync is not None
+        else build_causal_sync_report([])
+    )
+    track_reference = (diagnostics or {}).get(TRACK_REFERENCE_REPORT_KEY)
     return {
         "schema_version": 1,
         "task": "4B-4",
@@ -1863,11 +2341,14 @@ def build_session_failure_report(*, host, duration_s, run_id, camera_mode,
         "video_evidence": dict(
             video_evidence or _new_video_evidence()
         ),
-        "diagnostics": {
-            "analysis": _analysis_report_diagnostics(diagnostics),
-        },
-        "causal_sync": build_causal_sync_report([]),
-        "causal_sync_verdict": "INSUFFICIENT EVIDENCE",
+        TRACK_REFERENCE_REPORT_KEY: (
+            dict(track_reference) if isinstance(track_reference, dict) else None
+        ),
+        "diagnostics": _clock_sync_diagnostics(diagnostics),
+        "causal_sync": causal_sync_report,
+        "causal_sync_verdict": causal_sync_report.get(
+            "verdict", "INSUFFICIENT EVIDENCE"
+        ),
         "observation_profile": _observation_profile_evidence(
             observation_profile
         ),
@@ -1879,7 +2360,8 @@ def write_session_failure_report(out_dir, *, host, duration_s, run_id,
                                  camera_mode, actions, outcome, reason,
                                  n_poses, n_telemetry,
                                  observation_profile=None,
-                                 video_evidence=None, diagnostics=None):
+                                 video_evidence=None, causal_sync=None,
+                                 diagnostics=None):
     report = build_session_failure_report(
         host=host,
         duration_s=duration_s,
@@ -1892,11 +2374,52 @@ def write_session_failure_report(out_dir, *, host, duration_s, run_id,
         n_telemetry=n_telemetry,
         observation_profile=observation_profile,
         video_evidence=video_evidence,
+        causal_sync=causal_sync,
         diagnostics=diagnostics,
     )
+    return finalize_run_report(out_dir, report)
+
+
+def _write_sync_report(out_dir, report):
     with open(os.path.join(out_dir, "sync_report.json"), "w",
               encoding="utf-8") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
+
+
+def build_dashboard_postprocess(run_dir):
+    """Build the browser report without changing capture or gate results."""
+    run_dir = Path(run_dir).resolve()
+    output_dir = run_dir / "dashboard"
+    result = {
+        "status": "FAILED",
+        "output_dir": "dashboard",
+        "index_file": "dashboard/index.html",
+        "data_file": "dashboard/dashboard_data.json",
+    }
+    try:
+        visualization_root = str(_WORKSPACE_ROOT / "tools" / "visualization")
+        if visualization_root not in sys.path:
+            sys.path.insert(0, visualization_root)
+        from build_sync_dashboard import write_dashboard
+
+        write_dashboard(run_dir, output_dir)
+        if not (output_dir / "index.html").is_file():
+            raise FileNotFoundError(str(output_dir / "index.html"))
+        if not (output_dir / "dashboard_data.json").is_file():
+            raise FileNotFoundError(str(output_dir / "dashboard_data.json"))
+    except BaseException as exc:  # noqa: BLE001 - keep capture evidence primary
+        result["error"] = repr(exc)
+        return result
+    result["status"] = "GENERATED"
+    return result
+
+
+def finalize_run_report(out_dir, report):
+    """Persist dashboard status after the run's source artifacts are written."""
+    _write_sync_report(out_dir, report)
+    postprocessing = report.setdefault("postprocessing", {})
+    postprocessing["dashboard"] = build_dashboard_postprocess(out_dir)
+    _write_sync_report(out_dir, report)
     return report
 
 
@@ -1906,6 +2429,9 @@ def connect_car(host, port, socket_factory=None):
     sock = factory(socket.AF_INET, socket.SOCK_STREAM)
     try:
         sock.settimeout(3.0)
+        # Q/T uses small request and reply frames; avoid client-side Nagle
+        # delay when measuring the existing TCP path.
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         sock.connect((host, port))
         sock.settimeout(0.1)
     except BaseException:
@@ -2030,6 +2556,12 @@ def main():
         action="store_true",
         help="allow one bounded real run with an offline-qualified recovery policy",
     )
+    ap.add_argument(
+        "--analysis-frame-stride",
+        type=int,
+        default=DEFAULT_ANALYSIS_FRAME_STRIDE,
+        help="analyze every Nth captured frame while retaining every video frame",
+    )
     args = ap.parse_args()
 
     try:
@@ -2038,6 +2570,14 @@ def main():
         )
     except (TypeError, ValueError) as exc:
         print("ERROR: observation profile failed: {}".format(exc))
+        return 2
+
+    try:
+        analysis_frame_stride = normalize_analysis_frame_stride(
+            args.analysis_frame_stride
+        )
+    except (TypeError, ValueError) as exc:
+        print("ERROR: analysis frame stride failed: {}".format(exc))
         return 2
 
     try:
@@ -2189,6 +2729,41 @@ def main():
         print("ERROR: camera mode mismatch: {}".format(camera_mode))
         return 1
 
+    track_reference_path = Path(out_dir) / TRACK_REFERENCE_FILENAME
+    try:
+        track_reference = capture_track_reference(
+            cap, track_reference_path, camera_mode
+        )
+    except BaseException as exc:  # noqa: BLE001 - fail closed before TCP
+        actions = _new_action_state()
+        track_reference = {
+            "status": "UNAVAILABLE",
+            "source": TRACK_REFERENCE_SOURCE,
+            "path": str(track_reference_path.resolve()),
+            "reason": repr(exc),
+        }
+        try:
+            cap.release()
+            actions["camera_released"] = True
+        except BaseException as cleanup_exc:  # noqa: BLE001
+            actions["release_error"] = repr(cleanup_exc)
+        write_session_failure_report(
+            out_dir,
+            host=args.host,
+            duration_s=args.duration,
+            run_id=run_id,
+            camera_mode=camera_mode,
+            actions=actions,
+            outcome="track_reference_failed",
+            reason=repr(exc),
+            n_poses=0,
+            n_telemetry=0,
+            observation_profile=observation_profile,
+            diagnostics={TRACK_REFERENCE_REPORT_KEY: track_reference},
+        )
+        print("ERROR: track reference capture failed: {}".format(exc))
+        return 1
+
     print("connecting to car {}:{} ...".format(args.host, args.port))
     try:
         sock = connect_car(args.host, args.port)
@@ -2211,6 +2786,7 @@ def main():
             n_poses=0,
             n_telemetry=0,
             observation_profile=observation_profile,
+            diagnostics={TRACK_REFERENCE_REPORT_KEY: track_reference},
         )
         print("ERROR: car connection failed: {}".format(exc))
         return 1
@@ -2240,7 +2816,14 @@ def main():
             except BaseException as cleanup_exc:  # noqa: BLE001
                 actions["release_error"] = repr(cleanup_exc)
             write_capture_artifacts(
-                out_dir, [], [], [], {"video_evidence": video_evidence}
+                out_dir,
+                [],
+                [],
+                [],
+                {
+                    "video_evidence": video_evidence,
+                    TRACK_REFERENCE_REPORT_KEY: track_reference,
+                },
             )
             write_session_failure_report(
                 out_dir,
@@ -2255,6 +2838,7 @@ def main():
                 n_telemetry=0,
                 observation_profile=observation_profile,
                 video_evidence=video_evidence,
+                diagnostics={TRACK_REFERENCE_REPORT_KEY: track_reference},
             )
             print("ERROR: capture video setup failed: {}".format(exc))
             return 1
@@ -2265,14 +2849,23 @@ def main():
 
     # 采集生命周期（START→等待→采集→统一清理）由 session 函数负责。
     frame_index = []
-    diagnostics = {"recovery_policy": recovery_policy["name"]}
+    diagnostics = {
+        "recovery_policy": recovery_policy["name"],
+        "analysis_frame_stride": int(analysis_frame_stride),
+        TRACK_REFERENCE_REPORT_KEY: track_reference,
+    }
     telemetry, poses, actions, outcome = run_sync_capture_session(
         sock, cap, tracker, run_id, args.duration, args.wait_timeout,
         frame_index=frame_index, diagnostics=diagnostics,
         failure_frame_dir=Path(out_dir) / FAILURE_FRAME_DIRNAME,
         expected_frame_size=(CAMERA_WIDTH, CAMERA_HEIGHT),
         video_writer=video_writer,
-        video_evidence=video_evidence)
+        video_evidence=video_evidence,
+        analysis_frame_stride=analysis_frame_stride)
+
+    clock_exchange_records = (diagnostics.get("clock_exchanges", {})
+                              .get("records", []))
+    causal_sync = build_causal_sync_report(clock_exchange_records)
 
     # 动作状态报告：START 失败时不假称已 STOP。
     print("cleanup actions:", {k: v for k, v in actions.items()})
@@ -2299,6 +2892,7 @@ def main():
             n_telemetry=len(telemetry),
             observation_profile=observation_profile,
             video_evidence=video_evidence,
+            causal_sync=causal_sync,
             diagnostics=diagnostics,
         )
         print("ERROR: session outcome={0}: {1}".format(outcome, reason))
@@ -2322,6 +2916,7 @@ def main():
             n_telemetry=len(telemetry),
             observation_profile=observation_profile,
             video_evidence=video_evidence,
+            causal_sync=causal_sync,
             diagnostics=diagnostics,
         )
         print("ERROR: 数据不足")
@@ -2351,15 +2946,13 @@ def main():
             n_telemetry=len(telemetry),
             observation_profile=observation_profile,
             video_evidence=video_evidence,
+            causal_sync=causal_sync,
             diagnostics=diagnostics,
         )
         print("ERROR: ClockSync failed: {}".format(exc))
         return 1
     print("ClockSync(batched): pc_ns = {:.3f} * tick + {:.0f}, resid_rms={:.0f}ns".format(
         a, b, residuals["rms_ns"]))
-    clock_exchange_records = (diagnostics.get("clock_exchanges", {})
-                              .get("records", []))
-    causal_sync = build_causal_sync_report(clock_exchange_records)
     print("CausalClockSync: {} (samples={})".format(
         causal_sync["verdict"], causal_sync.get("sample_count", 0)))
 
@@ -2384,6 +2977,7 @@ def main():
             n_poses=len(poses),
             n_telemetry=len(telemetry),
             video_evidence=video_evidence,
+            causal_sync=causal_sync,
             diagnostics=diagnostics,
         )
         print("ERROR: synchronized dataset failed: {}".format(exc))
@@ -2437,9 +3031,7 @@ def main():
         observation_profile=observation_profile,
         causal_sync=causal_sync,
     )
-    with open(os.path.join(out_dir, "sync_report.json"), "w",
-              encoding="utf-8") as f:
-        json.dump(report, f, indent=2, ensure_ascii=False)
+    _write_sync_report(out_dir, report)
     # 保存原始数据（独立 run_id 目录，不覆盖）
     write_capture_artifacts(
         out_dir,
@@ -2451,7 +3043,9 @@ def main():
         fusion_evidence_source="REAL_SYNC",
         sync_gate_verdict=gate.verdict,
     )
+    report = finalize_run_report(out_dir, report)
     print("report:", os.path.join(out_dir, "sync_report.json"))
+    print("dashboard:", os.path.join(out_dir, "dashboard", "index.html"))
     return 0 if report["verdict"] == "PASS" else 2
 
 

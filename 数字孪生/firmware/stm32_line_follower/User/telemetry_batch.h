@@ -4,16 +4,31 @@
 #include <stdint.h>
 
 #define TELEMETRY_BATCH_FRAME_SIZE 31U
-#define TELEMETRY_BATCH_MAX_FRAMES 16U
+#define TELEMETRY_BATCH_MAX_FRAMES 32U
 #define TELEMETRY_BATCH_SEND_MAX_FRAMES 8U
 #define TELEMETRY_BATCH_MAX_BYTES \
     (TELEMETRY_BATCH_FRAME_SIZE * TELEMETRY_BATCH_MAX_FRAMES)
 #define TELEMETRY_BATCH_SEND_MAX_BYTES \
     (TELEMETRY_BATCH_FRAME_SIZE * TELEMETRY_BATCH_SEND_MAX_FRAMES)
+#define TELEMETRY_BATCH_DELIVERY_WINDOW_FRAMES \
+    TELEMETRY_BATCH_SEND_MAX_FRAMES
 
-/* A fixed-size, latest-eight queue for droppable telemetry frames. */
+typedef struct {
+    uint32_t generation_tick_ms;
+    uint32_t t_imu_start_ms;
+    uint32_t t_imu_done_ms;
+    uint32_t t_sensor_done_ms;
+    uint32_t t_state_ms;
+    uint32_t t_enqueue_ms;
+    uint32_t t_tx_start_ms;
+    uint32_t t_send_ok_ms;
+    uint32_t sample_seq;
+} TelemetryTimingRecord;
+
+/* A fixed-size queue for droppable telemetry frames and their stage timing. */
 typedef struct {
     uint8_t data[TELEMETRY_BATCH_MAX_BYTES];
+    TelemetryTimingRecord timing[TELEMETRY_BATCH_MAX_FRAMES];
     uint16_t len;
     uint8_t count;
 } TelemetryBatch;
@@ -26,6 +41,12 @@ uint8_t telemetry_batch_append(TelemetryBatch *batch,
                                const uint8_t *frame,
                                uint16_t frame_len,
                                uint8_t *overwrote);
+
+uint8_t telemetry_batch_append_timed(TelemetryBatch *batch,
+                                     const uint8_t *frame,
+                                     uint16_t frame_len,
+                                     const TelemetryTimingRecord *timing,
+                                     uint8_t *overwrote);
 
 uint8_t telemetry_batch_has_data(const TelemetryBatch *batch);
 uint8_t telemetry_batch_count(const TelemetryBatch *batch);

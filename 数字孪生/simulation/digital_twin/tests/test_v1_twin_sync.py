@@ -26,15 +26,29 @@ def test_tick_modulus_is_uint32():
 
 def test_add_sample_unwraps_wrapped_tick():
     cs = ClockSync()
-    # 100ms, 200ms, 300ms, 然后回绕到 50ms（+2^32）
-    cs.add_sample(100, 1_000_000_000)
-    cs.add_sample(200, 2_000_000_000)
-    cs.add_sample(300, 3_000_000_000)
-    cs.add_sample(50, 4_000_000_000)  # 回绕
+    before_wrap = TICK_MODULUS - 300
+    cs.add_sample(before_wrap, 1_000_000_000)
+    cs.add_sample(TICK_MODULUS - 200, 2_000_000_000)
+    cs.add_sample(TICK_MODULUS - 100, 3_000_000_000)
+    cs.add_sample(50, 4_000_000_000)
     uw = cs.unwrapped_ticks()
-    assert uw == [100, 200, 300, TICK_MODULUS + 50]
-    # 展开后严格递增
+    assert uw == [
+        before_wrap,
+        TICK_MODULUS - 200,
+        TICK_MODULUS - 100,
+        TICK_MODULUS + 50,
+    ]
     assert all(b > a for a, b in zip(uw, uw[1:]))
+
+
+def test_add_sample_ignores_out_of_order_tick_without_false_wrap():
+    cs = ClockSync()
+    cs.add_sample(204_100, 1_000_000_000)
+    cs.add_sample(204_200, 1_100_000_000)
+    cs.add_sample(204_100, 1_200_000_000)
+    cs.add_sample(204_300, 1_300_000_000)
+
+    assert cs.unwrapped_ticks() == [204_100, 204_200, 204_300]
 
 
 def test_linear_regression_recovers_mapping():
@@ -121,3 +135,45 @@ def test_fit_still_works_when_no_batching():
     a, b = cs.params()
     assert a == pytest.approx(true_a, rel=1e-6)
     assert b == pytest.approx(true_b, rel=1e-3)
+
+
+def test_fit_handles_large_absolute_timestamps():
+    """Absolute MCU and PC clocks must not destabilize the slope fit."""
+    cs = ClockSync()
+    true_a = 1_000_000
+    true_b = 1_700_000_000_000_000_000
+    for tick in (3_000_000_000, 3_000_000_020,
+                 3_000_001_000, 3_000_001_020):
+        cs.add_sample(tick, true_a * tick + true_b)
+
+    cs.fit()
+    a, _ = cs.params()
+
+    assert a == pytest.approx(true_a, rel=1e-9)
+
+
+def test_fit_batched_handles_large_absolute_timestamps():
+    """Batch means must retain the true slope at large absolute timestamps."""
+    cs = ClockSync()
+    true_a = 1_000_000
+    true_b = 1_700_000_000_000_000_000
+    batch_means = []
+    for start_tick in (3_000_000_000, 3_000_001_000):
+        base_pc = true_a * start_tick + true_b + 30_000_000
+        ticks, pcs = [], []
+        for j in range(2):
+            tick = start_tick + j * 20
+            pc = base_pc + j * 100_000
+            cs.add_sample(tick, pc)
+            ticks.append(tick)
+            pcs.append(pc)
+        batch_means.append((sum(ticks) / len(ticks), sum(pcs) / len(pcs)))
+
+    cs.fit_batched()
+    a, _ = cs.params()
+
+    assert a == pytest.approx(true_a, rel=1e-9)
+    for mean_tick, mean_pc in batch_means:
+        assert cs.tick_to_pc_ns(mean_tick) == pytest.approx(
+            mean_pc, abs=1_000
+        )

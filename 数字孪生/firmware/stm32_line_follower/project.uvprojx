@@ -745,6 +745,16 @@
               <FilePath>.\User\telemetry_delivery.h</FilePath>
             </File>
             <File>
+              <FileName>timing_diagnostic.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\User\timing_diagnostic.c</FilePath>
+            </File>
+            <File>
+              <FileName>timing_diagnostic.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\User\timing_diagnostic.h</FilePath>
+            </File>
+            <File>
               <FileName>telemetry_rate.h</FileName>
               <FileType>5</FileType>
               <FilePath>.\User\telemetry_rate.h</FilePath>

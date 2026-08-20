@@ -24,6 +24,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f10x_it.h"
 #include "uart_ring.h"
+#include "mono_time.h"
 
 /* SPSC UART RX ring — shared between USART1_IRQHandler (producer) and
    the main loop (consumer).  Defined in main.c. */
@@ -164,7 +165,9 @@ void USART1_IRQHandler(void)
         }
 
         byte = (uint8_t)USART_ReceiveData(USART1);
-        uart_ring_push(&g_uart_ring, byte);
+        /* Capture the software UART-ISR boundary before the byte can wait in
+           the ring.  This is intentionally not called wire/hardware time. */
+        uart_ring_push_at(&g_uart_ring, byte, mono_now_ms());
     }
 
     /* Task 4B-4 fix: TXE interrupt drains the TX ring (non-blocking TX).

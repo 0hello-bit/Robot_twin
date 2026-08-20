@@ -22,7 +22,9 @@ void uart_ring_init(UartRing *ring)
     ring->high_water = 0U;
 }
 
-uint8_t uart_ring_push(UartRing *ring, uint8_t byte)
+static uint8_t uart_ring_push_record(UartRing *ring, uint8_t byte,
+                                      uint32_t observed_tick_ms,
+                                      uint8_t observed_valid)
 {
     uint16_t h = ring->head;
     uint16_t t = ring->tail;
@@ -34,7 +36,9 @@ uint8_t uart_ring_push(UartRing *ring, uint8_t byte)
         return 0U;
     }
 
-    ring->buf[h & UART_RING_MASK] = byte;
+    ring->buf[h & UART_RING_MASK].byte = byte;
+    ring->buf[h & UART_RING_MASK].observed_tick_ms = observed_tick_ms;
+    ring->buf[h & UART_RING_MASK].observed_valid = observed_valid;
     ring->head = (uint16_t)(h + 1U);
     ring->rx_bytes++;
     /* Health baseline (Task 4): historical peak occupancy (ISR side, 2
@@ -45,7 +49,26 @@ uint8_t uart_ring_push(UartRing *ring, uint8_t byte)
     return 1U;
 }
 
+uint8_t uart_ring_push(UartRing *ring, uint8_t byte)
+{
+    return uart_ring_push_record(ring, byte, 0U, 0U);
+}
+
+uint8_t uart_ring_push_at(UartRing *ring, uint8_t byte,
+                          uint32_t observed_tick_ms)
+{
+    return uart_ring_push_record(ring, byte, observed_tick_ms, 1U);
+}
+
 uint8_t uart_ring_pop(UartRing *ring, uint8_t *byte)
+{
+    UartRxRecord record;
+    if (byte == 0 || !uart_ring_pop_record(ring, &record)) return 0U;
+    *byte = record.byte;
+    return 1U;
+}
+
+uint8_t uart_ring_pop_record(UartRing *ring, UartRxRecord *record)
 {
     uint16_t h = ring->head;
     uint16_t t = ring->tail;
@@ -54,7 +77,8 @@ uint8_t uart_ring_pop(UartRing *ring, uint8_t *byte)
         return 0U;  /* empty */
     }
 
-    *byte = ring->buf[t & UART_RING_MASK];
+    if (record == 0) return 0U;
+    *record = ring->buf[t & UART_RING_MASK];
     ring->tail = (uint16_t)(t + 1U);
     return 1U;
 }
@@ -68,7 +92,7 @@ uint16_t uart_ring_drain(UartRing *ring, uint8_t *buf, uint16_t capacity)
         uint16_t t = ring->tail;
         if (h == t) break;
 
-        buf[count] = ring->buf[t & UART_RING_MASK];
+        buf[count] = ring->buf[t & UART_RING_MASK].byte;
         ring->tail = (uint16_t)(t + 1U);
         count++;
     }

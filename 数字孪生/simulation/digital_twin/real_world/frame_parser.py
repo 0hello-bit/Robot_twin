@@ -36,6 +36,7 @@ FRAME_TYPE_STATUS    = 0x02
 FRAME_TYPE_ACK       = 0x03
 FRAME_TYPE_MOTOR_REG_DIAG = 0x7E
 FRAME_TYPE_IMU_DIAGNOSTIC = 0x7D
+FRAME_TYPE_TIMING_DIAGNOSTIC = 0x7F
 # Health baseline (Round 2 item 1): 0x02 语义复用。旧 STATUS 是孑遗定义
 # （len=7，从未被固件发射）；0x02(len=106) 是新增健康诊断帧。
 FRAME_TYPE_HEALTH    = 0x02
@@ -50,6 +51,7 @@ PAYLOAD_LEN_TELEMETRY_CURRENT = 26
 PAYLOAD_LEN_STATUS     = 7
 PAYLOAD_LEN_MOTOR_REG_DIAG = 24
 PAYLOAD_LEN_IMU_DIAGNOSTIC = 4
+PAYLOAD_LEN_TIMING_DIAGNOSTIC = 48
 PAYLOAD_LEN_HEALTH     = 106
 # 载荷长度上限：原 len>64 拒绝 → 改为 len>106 拒绝（容纳 0x02，设计 §8.2）。
 PAYLOAD_LEN_MAX        = 106
@@ -401,6 +403,34 @@ def decode_imu_diagnostic(payload):
         'init_status': payload[1],
         'validity_flags': payload[2],
         'hardware_observed_id': payload[3],
+    }
+
+
+def decode_timing_diagnostic(payload):
+    """Decode the additive 0x7F stage/batch timing diagnostic frame."""
+    if len(payload) != PAYLOAD_LEN_TIMING_DIAGNOSTIC:
+        return None
+
+    values = {}
+    offset = 8
+    for key in (
+        't_imu_start_ms', 't_imu_done_ms', 't_sensor_done_ms',
+        't_state_ms', 't_enqueue_ms', 't_tx_start_ms', 't_send_ok_ms',
+        'batch_first_tick_ms', 'batch_last_tick_ms', 'sample_seq',
+    ):
+        values[key] = _bytes_to_uint32(
+            payload[offset], payload[offset + 1],
+            payload[offset + 2], payload[offset + 3])
+        offset += 4
+
+    return {
+        'schema_version': payload[0],
+        'flags': payload[1],
+        'batch_id': _bytes_to_uint16(payload[2], payload[3]),
+        'batch_count': payload[4],
+        'pending_count': payload[5],
+        'overwrite_total': _bytes_to_uint16(payload[6], payload[7]),
+        **values,
     }
 
 

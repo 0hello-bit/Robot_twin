@@ -17,10 +17,30 @@ import numpy as np
 
 # 固件 tick 回绕模数：uint32 乘积溢出周期
 TICK_MODULUS = 1 << 32
+TICK_WRAP_HIGH_WATERMARK = TICK_MODULUS - 1_000_000
+TICK_WRAP_LOW_WATERMARK = 1_000_000
 
 
 class ClockSyncError(RuntimeError):
     """ClockSync 配置/运行错误。"""
+
+
+def _fit_centered(ts, ps, error_message):
+    """Fit ``ps = a * ts + b`` without subtracting large raw sums."""
+    ticks = np.asarray(ts, dtype=float)
+    pc_ns = np.asarray(ps, dtype=float)
+    tick_mean = float(ticks.mean())
+    pc_mean = float(pc_ns.mean())
+    centered_ticks = ticks - tick_mean
+    centered_pc_ns = pc_ns - pc_mean
+    denominator = float(np.dot(centered_ticks, centered_ticks))
+    if not np.isfinite(denominator) or denominator < 1e-12:
+        raise ClockSyncError(error_message)
+    slope = float(
+        np.dot(centered_ticks, centered_pc_ns) / denominator
+    )
+    intercept = float(pc_mean - slope * tick_mean)
+    return slope, intercept
 
 
 class ClockSync:
@@ -44,8 +64,17 @@ class ClockSync:
         tick_ms = int(tick_ms)
         pc_ns = int(pc_ns)
         if self._raw and tick_ms < self._raw[-1][0]:
-            # 检测到回绕（值突降）
-            self._offset += TICK_MODULUS
+            previous_tick = self._raw[-1][0]
+            is_wrap = (
+                previous_tick >= TICK_WRAP_HIGH_WATERMARK
+                and tick_ms <= TICK_WRAP_LOW_WATERMARK
+            )
+            if is_wrap:
+                self._offset += TICK_MODULUS
+            else:
+                # A delayed/duplicated telemetry frame is not a uint32 wrap.
+                self._raw.append((tick_ms, pc_ns))
+                return
         uw = tick_ms + self._offset
         self._raw.append((tick_ms, pc_ns))
         self._unwrapped.append((uw, pc_ns))
@@ -67,17 +96,11 @@ class ClockSync:
             raise ClockSyncError(
                 "ClockSync.fit requires at least 2 samples"
             )
-        ts = np.array([t for t, _ in self._unwrapped], dtype=float)
-        ps = np.array([p for _, p in self._unwrapped], dtype=float)
-        n = len(ts)
-        sx, sy = ts.sum(), ps.sum()
-        sxx = float((ts * ts).sum())
-        sxy = float((ts * ps).sum())
-        denom = n * sxx - sx * sx
-        if abs(denom) < 1e-12:
-            raise ClockSyncError("ClockSync.fit degenerate samples")
-        a = (n * sxy - sx * sy) / denom
-        b = (sy - a * sx) / n
+        ts = [t for t, _ in self._unwrapped]
+        ps = [p for _, p in self._unwrapped]
+        a, b = _fit_centered(
+            ts, ps, "ClockSync.fit degenerate samples"
+        )
         self._a = float(a)
         self._b = float(b)
         self._batch_means = None   # 逐点拟合，无批次均值
@@ -102,17 +125,11 @@ class ClockSync:
         if len(batches) < 2:
             raise ClockSyncError(
                 "fit_batched requires at least 2 batches")
-        ts = np.array([sum(t for t, _ in b) / len(b) for b in batches], dtype=float)
-        ps = np.array([sum(p for _, p in b) / len(b) for b in batches], dtype=float)
-        n = len(ts)
-        sx, sy = ts.sum(), ps.sum()
-        sxx = float((ts * ts).sum())
-        sxy = float((ts * ps).sum())
-        denom = n * sxx - sx * sx
-        if abs(denom) < 1e-12:
-            raise ClockSyncError("fit_batched degenerate samples")
-        a = (n * sxy - sx * sy) / denom
-        b = (sy - a * sx) / n
+        ts = [sum(t for t, _ in b) / len(b) for b in batches]
+        ps = [sum(p for _, p in b) / len(b) for b in batches]
+        a, b = _fit_centered(
+            ts, ps, "fit_batched degenerate samples"
+        )
         self._a = float(a)
         self._b = float(b)
         self._batch_means = [

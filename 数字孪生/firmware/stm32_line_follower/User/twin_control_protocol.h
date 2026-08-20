@@ -9,7 +9,13 @@
 #define TWIN_CONTROL_STATE_MAX 16U
 #define TWIN_CONTROL_REASON_MAX 16U
 #define TWIN_CONTROL_LINE_MAX 96U
-#define TWIN_CONTROL_CLOCK_SYNC_FRAME_LEN 38U
+/* T v2 keeps the legacy Q/T correlation sequence but exposes every named
+   MCU boundary.  The four ticks are: Q first byte observed by UART ISR,
+   Q parse completion, CIPSEND transaction start, and late payload materialise.
+   Only the first and third are the causal-fit endpoints; the other two are
+   delay diagnostics. */
+#define TWIN_CONTROL_CLOCK_SYNC_TIMESTAMP_SCHEMA 2U
+#define TWIN_CONTROL_CLOCK_SYNC_FRAME_LEN 62U
 
 /* Task 2B: maximum consecutive line-loss duration (ms) before hard stop.
    This is an initial conservative value for the Task 2B test bench;
@@ -65,8 +71,16 @@ typedef struct {
 
 typedef struct {
     uint8_t has_reply;
+    uint8_t q_uart_rx_timestamp_valid;
+    uint8_t q_parse_done_timestamp_valid;
+    uint8_t t_transaction_started_timestamp_valid;
+    uint8_t t_payload_generated_timestamp_valid;
     uint32_t sequence;
-    uint32_t mcu_rx_tick_ms;
+    uint32_t q_uart_rx_first_tick_ms;
+    uint32_t q_uart_rx_last_tick_ms;
+    uint32_t q_parse_done_tick_ms;
+    uint32_t t_transaction_started_tick_ms;
+    uint32_t t_payload_generated_tick_ms;
 } TwinControlClockSync;
 
 void twin_control_init(const TwinControlParams *baseline);
@@ -75,6 +89,12 @@ uint8_t twin_control_receive_byte(uint8_t byte, TwinControlResult *result);
 uint8_t twin_control_receive_byte_at(uint8_t byte, uint32_t now_ms,
                                      TwinControlResult *result,
                                      TwinControlClockSync *clock_sync);
+/* Timed input path.  uart_rx_tick_ms is captured at the UART ISR boundary;
+   parse_observed_tick_ms is sampled by the main-context parser. */
+uint8_t twin_control_receive_byte_timed(
+    uint8_t byte, uint32_t uart_rx_tick_ms, uint8_t uart_rx_timestamp_valid,
+    uint32_t parse_observed_tick_ms, TwinControlResult *result,
+    TwinControlClockSync *clock_sync);
 uint8_t twin_control_apply_pending(TwinControlParams *active,
                                    const TwinControlParams *baseline,
                                    TwinControlResult *result);
@@ -87,11 +107,12 @@ uint16_t twin_control_encode_status(const TwinControlStatus *status,
                                     char *output,
                                     uint16_t output_size);
 uint16_t twin_control_encode_clock_sync(const TwinControlClockSync *clock_sync,
-                                        uint32_t mcu_tx_tick_ms,
+                                        uint32_t t_transaction_started_tick_ms,
                                         char *output,
                                         uint16_t output_size);
 uint16_t twin_control_encode_clock_sync_fixed(
-    const TwinControlClockSync *clock_sync, uint32_t mcu_tx_tick_ms,
+    const TwinControlClockSync *clock_sync,
+    uint32_t t_transaction_started_tick_ms,
     char *output, uint16_t output_size);
 
 /* --- Task 2B safety-hardening API --- */

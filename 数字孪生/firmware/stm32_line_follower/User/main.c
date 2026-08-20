@@ -25,11 +25,12 @@
 #include "telemetry_batch.h"
 #include "telemetry_delivery.h"
 #include "telemetry_rate.h"
+#include "timing_diagnostic.h"
 
 /******************************************************************************
  * ESP01S WiFi (TCP Server)
  ******************************************************************************/
-#define WIFI_SSID   "@Ruijie-sC384"
+#define WIFI_SSID   "HUAWEI-1CR2M9"
 #define WIFI_PWD    "xiang87777114"
 #define TCP_PORT    8888
 
@@ -166,6 +167,33 @@ static uint8_t s_control_cycle_ready;
    one diagnostic frame. */
 static uint8_t s_imu_diag_pending = 1U;
 static TwinControlClockSync s_clock_sync_inflight;
+static EspClockQuietWindow s_clock_quiet;
+
+static uint8_t ESP_TrySendClockSync(void);
+
+/* Timing diagnostic state. Stage timestamps travel beside each queued
+   telemetry frame; only the latest completed batch is emitted at 1 Hz. */
+static TelemetryTimingRecord s_timing_work;
+static TimingDiagnosticSnapshot s_timing_report;
+static uint32_t s_timing_sample_seq = 0U;
+static uint16_t s_timing_batch_id = 0U;
+static uint16_t s_timing_overwrite_total = 0U;
+static uint32_t s_last_timing_diag_ms = 0U;
+static uint8_t s_timing_diag_pending = 0U;
+static uint8_t s_timing_diag_inflight = 0U;
+static uint8_t s_timing_telemetry_inflight = 0U;
+
+#define TIMING_DIAGNOSTIC_PERIOD_MS 1000U
+
+static void reset_timing_diagnostic_state(void)
+{
+    memset(&s_timing_work, 0, sizeof(s_timing_work));
+    memset(&s_timing_report, 0, sizeof(s_timing_report));
+    s_last_timing_diag_ms = 0U;
+    s_timing_diag_pending = 0U;
+    s_timing_diag_inflight = 0U;
+    s_timing_telemetry_inflight = 0U;
+}
 
 /* 真实单调时间（mono_time.h / mono_time_core.h）。 */
 static uint32_t s_last_telemetry_ms = 0U;
@@ -194,8 +222,13 @@ static uint8_t fill_clock_sync_payload(uint8_t *data, uint16_t *data_len,
     if (data == 0 || data_len == 0 || clock_sync == 0) return 0U;
     reserved_len = *data_len;
     if (reserved_len != TWIN_CONTROL_CLOCK_SYNC_FRAME_LEN) return 0U;
+    /* The callback runs after the ESP '>' prompt.  Preserve this delayed
+       materialisation boundary separately from transaction start. */
+    clock_sync->t_payload_generated_tick_ms = now_ms;
+    clock_sync->t_payload_generated_timestamp_valid = 1U;
     encoded_len = twin_control_encode_clock_sync_fixed(
-        clock_sync, now_ms, (char *)data, capacity);
+        clock_sync, clock_sync->t_transaction_started_tick_ms,
+        (char *)data, capacity);
     return (encoded_len == reserved_len) ? 1U : 0U;
 }
 
@@ -213,6 +246,8 @@ static void ESP_MarkDisconnected(void)
 {
     g_tcp_client_id = 0xFF;
     g_tcp_client_connected = 0;
+    esp_clock_quiet_reset(&s_clock_quiet);
+    reset_timing_diagnostic_state();
     hstats_health_epoch_changed(&g_health_stats);  /* 断连 → 放弃待发健康帧 */
     twin_control_timeout();
 }
@@ -224,6 +259,7 @@ static void ESP_TX_HandleTerminal(void)
 {
     uint8_t terminal_tag = CIPSEND_TX_TAG_NONE;
     uint8_t terminal_result = CTS_RESULT_NONE;
+    uint32_t terminal_now_ms;
 
     /* Starting CIPSEND is not delivery evidence; wait for SEND OK. */
     if (cipsend_tx_is_terminal(&g_cipsend_tx)) {
@@ -231,10 +267,29 @@ static void ESP_TX_HandleTerminal(void)
         terminal_result = cipsend_tx_result(&g_cipsend_tx);
     }
 
+    terminal_now_ms = mono_now_ms();
+
+    /* Capture telemetry terminal timing before the coordinator can clear an
+       in-flight batch on a CLOSED boundary. */
+    if (terminal_tag == CIPSEND_TX_TAG_TELEMETRY
+        && s_timing_telemetry_inflight) {
+        if (terminal_result == CTS_RESULT_OK) {
+            telemetry_delivery_mark_inflight_send_ok(&s_tele_delivery,
+                                                     terminal_now_ms);
+            s_timing_report.t_send_ok_ms = terminal_now_ms;
+            s_timing_report.flags |= TIMING_DIAGNOSTIC_FLAG_SEND_OK;
+        }
+        s_timing_report.flags |= TIMING_DIAGNOSTIC_FLAG_TX_TERMINAL;
+        s_timing_telemetry_inflight = 0U;
+        if (terminal_result != CTS_RESULT_CLOSED) {
+            s_timing_diag_pending = 1U;
+        }
+    }
+
     /* Delegates to the extracted pure-logic function in esp_tx_coordinator,
        which is Host-testable via the same production code path.  See
        tx_boundary_design_decision.md §4 and §9. */
-    etc_handle_terminal(&g_coordinator, mono_now_ms());
+    etc_handle_terminal(&g_coordinator, terminal_now_ms);
 
     /* Only SEND OK commits the in-flight telemetry prefix.  Error/timeout
        leaves it owned by telemetry_delivery for a same-connection retry;
@@ -258,18 +313,66 @@ static void ESP_TX_HandleTerminal(void)
     if (imu_diagnostic_delivery_confirmed(terminal_tag, terminal_result)) {
         s_imu_diag_pending = 0U;
     }
+
+    if (terminal_tag == CIPSEND_TX_TAG_TIMING_DIAGNOSTIC) {
+        s_timing_diag_inflight = 0U;
+        if (terminal_result != CTS_RESULT_OK
+            && terminal_result != CTS_RESULT_CLOSED) {
+            s_timing_diag_pending = 1U;
+        }
+    }
 }
 
 /* Phase 1: drain RX ring, route every byte to both the transport
    (CONNECT/CLOSED/+IPD) and the TX state machine ('>' / SEND OK parse). */
 static void ESP_ServiceRX(void)
 {
-    uint8_t ch;
-    while (uart_ring_pop(&g_uart_ring, &ch)) {
-        esp_transport_set_now_ms(mono_now_ms());
-        esp_transport_process_byte(ch);        /* CONNECT/CLOSED/+IPD 输入路径 */
-        cipsend_tx_feed_byte(&g_cipsend_tx, ch); /* TX 事务 '>' / SEND OK 解析 */
+    UartRxRecord record;
+    while (uart_ring_pop_record(&g_uart_ring, &record)) {
+        uint32_t parse_observed_tick_ms = mono_now_ms();
+        esp_transport_set_now_ms(parse_observed_tick_ms);
+        esp_transport_process_byte_at(
+            record.byte, record.observed_tick_ms, record.observed_valid,
+            parse_observed_tick_ms);           /* CONNECT/CLOSED/+IPD 输入路径 */
+        cipsend_tx_feed_byte(&g_cipsend_tx, record.byte); /* TX '>' / SEND OK */
     }
+}
+
+/* Start a pending clock response at the earliest safe dispatch point.  This
+   fast lane is deliberately non-preemptive: ACK/STATUS remain ahead of it,
+   and an already-started CIPSEND is never interrupted. */
+static uint8_t ESP_TrySendClockSync(void)
+{
+    char cmd[24];
+    uint32_t start_tick_ms;
+
+    if (!g_tcp_client_connected || g_tcp_client_id > 4U) return 0U;
+    if (!esp_transport_has_pending_clock_sync()) return 0U;
+    if (cipsend_tx_busy(&g_cipsend_tx)) return 0U;
+    if (txfq_has_retry(&g_tx_queue)
+        || esp_transport_has_pending_ack()
+        || esp_transport_has_pending_status()
+        || twin_control_has_pending_status()) {
+        return 0U;
+    }
+
+    start_tick_ms = mono_now_ms();
+    if (!esp_transport_peek_pending_clock_sync(&s_clock_sync_inflight)) {
+        return 0U;
+    }
+    s_clock_sync_inflight.t_transaction_started_tick_ms = start_tick_ms;
+    s_clock_sync_inflight.t_transaction_started_timestamp_valid = 1U;
+    build_cipsend_cmd(cmd, TWIN_CONTROL_CLOCK_SYNC_FRAME_LEN);
+    if (!cipsend_tx_start_late_data(
+            &g_cipsend_tx, cmd, (uint16_t)strlen(cmd),
+            TWIN_CONTROL_CLOCK_SYNC_FRAME_LEN, CIPSEND_TX_PRIORITY_CRITICAL,
+            CIPSEND_TX_TAG_CLOCK_SYNC, start_tick_ms,
+            fill_clock_sync_payload, &s_clock_sync_inflight)) {
+        return 0U;
+    }
+    hstats_tx_started(&g_health_stats, CIPSEND_TX_TAG_CLOCK_SYNC,
+                      start_tick_ms);
+    return 1U;
 }
 
 /* Phase 2+3: check connection boundary, then push TX + handle terminal.
@@ -285,11 +388,22 @@ static void ESP_ServiceTX(void)
     (void)etc_check_boundary(&g_coordinator,
                              esp_transport_connection_generation(),
                              mono_now_ms());
+    if (esp_transport_take_disconnect_event()) {
+        reset_timing_diagnostic_state();
+    }
     /* 连接代次变化 → 放弃旧代次待发健康帧（发送仲裁，不得发给新客户端）。 */
     gen = esp_transport_connection_generation();
     if (gen != s_last_tx_generation) {
         s_last_tx_generation = gen;
+        esp_clock_quiet_reset(&s_clock_quiet);
+        reset_timing_diagnostic_state();
         hstats_health_epoch_changed(&g_health_stats);
+    }
+    if (esp_transport_take_clock_sync_event()) {
+        esp_clock_quiet_arm(&s_clock_quiet, mono_now_ms());
+    }
+    if (!g_tcp_client_connected || g_tcp_client_id > 4U) {
+        esp_clock_quiet_reset(&s_clock_quiet);
     }
     cipsend_tx_tick(&g_cipsend_tx, mono_now_ms(), uart_tx_sink, NULL);
     ESP_TX_HandleTerminal();
@@ -338,13 +452,53 @@ static void build_telemetry_frame(int16_t s0, int16_t s1, int16_t s2, int16_t s3
     s_tele_frame[30] = cs;
 }
 
+/* Build one low-rate report from the newest sample in the batch. The raw
+   batch tick range still describes the whole payload sent in this transaction. */
+static void timing_diag_fill_from_batch(
+    TimingDiagnosticSnapshot *snapshot,
+    const TelemetryBatch *batch,
+    uint16_t batch_id,
+    uint8_t pending_count,
+    uint16_t overwrite_total,
+    uint32_t tx_start_ms)
+{
+    const TelemetryTimingRecord *latest;
+    uint8_t count;
+
+    if (snapshot == NULL || batch == NULL) return;
+    memset(snapshot, 0, sizeof(*snapshot));
+    count = telemetry_batch_count(batch);
+    if (count == 0U) return;
+
+    latest = &batch->timing[count - 1U];
+    snapshot->flags = TIMING_DIAGNOSTIC_FLAG_SAMPLE_VALID
+                    | TIMING_DIAGNOSTIC_FLAG_TX_START;
+    snapshot->batch_id = batch_id;
+    snapshot->batch_count = count;
+    snapshot->pending_count = pending_count;
+    snapshot->overwrite_total = overwrite_total;
+    snapshot->t_imu_start_ms = latest->t_imu_start_ms;
+    snapshot->t_imu_done_ms = latest->t_imu_done_ms;
+    snapshot->t_sensor_done_ms = latest->t_sensor_done_ms;
+    snapshot->t_state_ms = latest->t_state_ms;
+    snapshot->t_enqueue_ms = latest->t_enqueue_ms;
+    snapshot->t_tx_start_ms = tx_start_ms;
+    snapshot->batch_first_tick_ms = batch->timing[0].generation_tick_ms;
+    snapshot->batch_last_tick_ms = latest->generation_tick_ms;
+    snapshot->sample_seq = latest->sample_seq;
+}
+
 /* 尝试把待发遥测交给 TX 状态机（仅当空闲且无 critical 待发）。 */
 static void ESP_TrySendTelemetry(void)
 {
     char cmd[24];
     const TelemetryBatch *inflight;
     uint16_t batch_len;
+    uint8_t pending_count;
+    uint32_t tx_start_ms;
     if (!telemetry_delivery_has_data(&s_tele_delivery)) return;
+    if (esp_transport_has_pending_clock_sync()) return;
+    if (esp_clock_quiet_active(&s_clock_quiet, mono_now_ms())) return;
     if (hstats_health_due(&g_health_stats)) return;  /* 健康帧优先：让行（仲裁） */
     if (cipsend_tx_busy(&g_cipsend_tx)) return;
     if (twin_control_has_pending_status()) return;
@@ -360,41 +514,71 @@ static void ESP_TrySendTelemetry(void)
     inflight = telemetry_delivery_inflight(&s_tele_delivery);
     if (inflight == NULL) return;
     batch_len = telemetry_batch_length(inflight);
+    pending_count = telemetry_batch_count(&s_tele_delivery.pending);
     build_cipsend_cmd(cmd, batch_len);
+    tx_start_ms = mono_now_ms();
     if (cipsend_tx_start(&g_cipsend_tx, cmd, (uint16_t)strlen(cmd),
                          telemetry_batch_data(inflight), batch_len,
                          CIPSEND_TX_PRIORITY_DROPPABLE, CIPSEND_TX_TAG_TELEMETRY,
-                         mono_now_ms())) {
+                         tx_start_ms)) {
+        telemetry_delivery_mark_inflight_tx_start(&s_tele_delivery,
+                                                  tx_start_ms);
+        s_timing_batch_id++;
+        timing_diag_fill_from_batch(&s_timing_report, inflight,
+                                    s_timing_batch_id, pending_count,
+                                    s_timing_overwrite_total, tx_start_ms);
+        s_timing_telemetry_inflight = 1U;
         hstats_tx_started(&g_health_stats, CIPSEND_TX_TAG_TELEMETRY,
-                          mono_now_ms());
+                          tx_start_ms);
     }
 }
 
 /* 遥测入队（pending FIFO）：由 ESP_TrySendTelemetry 择机批量发送。
-   tick 为采样时的真实单调毫秒（mono_now_ms），不再是 g_loop_count*5。 */
+   generation_tick_ms 在帧生成边界采集，不等同于传感器采样时刻。 */
 static void Telemetry_Queue(int16_t s0, int16_t s1, int16_t s2, int16_t s3,
                             int16_t m1, int16_t m2, int16_t m3, int16_t m4,
                             int16_t error, int16_t pid_output,
-                            uint32_t tick, int32_t yaw,
-                            uint8_t imu_validity)
+                            int32_t yaw, uint8_t imu_validity)
 {
+    uint32_t generation_tick_ms;
+    TelemetryTimingRecord timing;
     uint8_t overwrote;
+    uint8_t appended;
     if (!g_tcp_client_connected || g_tcp_client_id > 4) {
         telemetry_delivery_clear(&s_tele_delivery);
         return;
     }
+    generation_tick_ms = mono_now_ms();
+    timing = s_timing_work;
+    timing.generation_tick_ms = generation_tick_ms;
+    timing.t_state_ms = generation_tick_ms;
+    timing.t_enqueue_ms = 0U;
+    timing.t_tx_start_ms = 0U;
+    timing.t_send_ok_ms = 0U;
+    timing.sample_seq = ++s_timing_sample_seq;
     build_telemetry_frame(s0, s1, s2, s3, m1, m2, m3, m4,
-                          error, pid_output, tick, yaw, imu_validity);
-    if (telemetry_delivery_append(&s_tele_delivery, s_tele_frame,
-                                  TELEMETRY_BATCH_FRAME_SIZE, &overwrote)) {
+                          error, pid_output, generation_tick_ms,
+                          yaw, imu_validity);
+    appended = telemetry_delivery_append_timed(
+            &s_tele_delivery, s_tele_frame,
+            TELEMETRY_BATCH_FRAME_SIZE, &timing, &overwrote);
+    if (overwrote) {
+        hstats_telemetry_overwritten(&g_health_stats);
+        if (s_timing_overwrite_total != 0xFFFFU) {
+            s_timing_overwrite_total++;
+        }
+    }
+    if (!appended) return;
+    {
+        telemetry_delivery_mark_last_pending_enqueue(&s_tele_delivery,
+                                                     mono_now_ms());
         hstats_telemetry_generated(&g_health_stats);
-        if (overwrote) hstats_telemetry_overwritten(&g_health_stats);
         ESP_TrySendTelemetry();
     }
 }
 
-/* 发送二进制诊断帧。0x7E 旧诊断帧可丢弃；0x7D IMU 身份诊断帧
-   保留到 SEND OK。若 TX 忙则本次放弃。
+/* 发送二进制诊断帧。0x7E 旧诊断帧可丢弃；0x7D IMU 身份诊断帧和
+   0x7F 时序诊断帧走独立 tag。若 TX 忙则本次放弃。
    Health baseline: 0x02 健康帧走 CIPSEND_TX_TAG_DIAG_HEALTH（专属归属）；
    0x7E 旧诊断帧仍走 CIPSEND_TX_TAG_DIAG。返回是否成功开启事务（start
    成功处触发 hstats_tx_started；失败由调用方记 health_dropped）。 */
@@ -403,7 +587,10 @@ static uint8_t ESP_SendDiagFrame(const uint8_t *frame, uint16_t frame_len)
     uint8_t tag;
     uint8_t started;
     char cmd[24];
+    uint32_t start_ms;
     if (!g_tcp_client_connected || g_tcp_client_id > 4) return 0U;
+    if (esp_transport_has_pending_clock_sync()) return 0U;
+    if (esp_clock_quiet_active(&s_clock_quiet, mono_now_ms())) return 0U;
     if (cipsend_tx_busy(&g_cipsend_tx)) return 0U;
     if (twin_control_has_pending_status()) return 0U;
     if (txfq_has_retry(&g_tx_queue)) return 0U;
@@ -413,16 +600,19 @@ static uint8_t ESP_SendDiagFrame(const uint8_t *frame, uint16_t frame_len)
         tag = CIPSEND_TX_TAG_DIAG_HEALTH;
     } else if (frame_len >= 4U && frame[2] == IMU_DIAGNOSTIC_TYPE) {
         tag = CIPSEND_TX_TAG_IMU_DIAGNOSTIC;
+    } else if (frame_len >= 4U && frame[2] == TIMING_DIAGNOSTIC_TYPE) {
+        tag = CIPSEND_TX_TAG_TIMING_DIAGNOSTIC;
     } else {
         tag = CIPSEND_TX_TAG_DIAG;
     }
     build_cipsend_cmd(cmd, frame_len);
+    start_ms = mono_now_ms();
     started = cipsend_tx_start(&g_cipsend_tx, cmd, (uint16_t)strlen(cmd),
                                frame, frame_len,
                                CIPSEND_TX_PRIORITY_DROPPABLE, tag,
-                               mono_now_ms());
+                               start_ms);
     if (started) {
-        hstats_tx_started(&g_health_stats, tag, mono_now_ms());
+        hstats_tx_started(&g_health_stats, tag, start_ms);
     }
     return started;
 }
@@ -445,7 +635,30 @@ static void ESP_TrySendImuDiagnostic(void)
     (void)ESP_SendDiagFrame(frame, IMU_DIAGNOSTIC_FRAME_SIZE);
 }
 
-/* 发送队列（非阻塞）：ACK → STATUS → telemetry，严格串行。
+/* Emit at most one timing report per second so the diagnostic stream does
+   not become another source of persistent queue pressure. */
+static void ESP_TrySendTimingDiagnostic(void)
+{
+    uint32_t now_ms;
+    uint8_t frame[TIMING_DIAGNOSTIC_FRAME_SIZE];
+
+    if (!s_timing_diag_pending || s_timing_diag_inflight) return;
+    if (hstats_health_due(&g_health_stats)) return;
+    now_ms = mono_now_ms();
+    if ((uint32_t)(now_ms - s_last_timing_diag_ms)
+            < TIMING_DIAGNOSTIC_PERIOD_MS) {
+        return;
+    }
+    if (timing_diagnostic_encode(frame, &s_timing_report)
+            != TIMING_DIAGNOSTIC_FRAME_SIZE) return;
+    if (ESP_SendDiagFrame(frame, TIMING_DIAGNOSTIC_FRAME_SIZE)) {
+        s_last_timing_diag_ms = now_ms;
+        s_timing_diag_pending = 0U;
+        s_timing_diag_inflight = 1U;
+    }
+}
+
+/* 发送队列（非阻塞）：ACK → STATUS → ClockSync → telemetry，严格串行。
    每次只尝试开启一个事务；失败时 critical 重试缓冲保留到下一轮。
    critical 帧的可靠性只在当前连接代次内保证：跨连接（代次改变 /
    CLOSED）时旧 ACK/STATUS 会被 txfq 丢弃，不会发给新客户端。 */
@@ -501,23 +714,11 @@ static void ESP_SendQueuedFrames(uint8_t allow_telemetry)
 
     /* --- Clock sync response: after safety frames, before telemetry --- */
     if (esp_transport_has_pending_clock_sync()) {
-        uint32_t start_tick_ms = mono_now_ms();
-        if (esp_transport_peek_pending_clock_sync(&s_clock_sync_inflight)) {
-            uint16_t clock_sync_len = TWIN_CONTROL_CLOCK_SYNC_FRAME_LEN;
-            build_cipsend_cmd(cmd, clock_sync_len);
-            if (cipsend_tx_start_late_data(
-                    &g_cipsend_tx, cmd, (uint16_t)strlen(cmd),
-                    clock_sync_len, CIPSEND_TX_PRIORITY_CRITICAL,
-                    CIPSEND_TX_TAG_CLOCK_SYNC, start_tick_ms,
-                    fill_clock_sync_payload, &s_clock_sync_inflight)) {
-                hstats_tx_started(&g_health_stats, CIPSEND_TX_TAG_CLOCK_SYNC,
-                                  start_tick_ms);
-            }
-        }
+        (void)ESP_TrySendClockSync();
         return;
     }
 
-    /* --- Telemetry (latest-wins slot) --- */
+    /* --- Telemetry (FIFO pending queue) --- */
     if (allow_telemetry) ESP_TrySendTelemetry();
 }
 
@@ -726,7 +927,10 @@ static void health_emit(void)
             || esp_transport_has_pending_status();
         if (hstats_health_gate_defer(&g_health_stats,
                                      (uint8_t)(cipsend_tx_busy(&g_cipsend_tx)
-                                               || !s_control_cycle_ready),
+                                               || !s_control_cycle_ready
+                                               || esp_transport_has_pending_clock_sync()
+                                               || esp_clock_quiet_active(
+                                                      &s_clock_quiet, now_ms)),
                                      ack_status_pending)) {
         if (!ESP_SendDiagFrame(buf, HEALTH_FRAME_TOTAL_LEN)) {
             hstats_health_dropped(&g_health_stats);   /* start 失败 */
@@ -743,6 +947,8 @@ static void health_emit(void)
    ESP_SendQueuedFrames 之后调用；断连/无客户端 → 放弃待发帧。 */
 static void health_flush_pending(void)
 {
+    if (esp_transport_has_pending_clock_sync()) return;
+    if (esp_clock_quiet_active(&s_clock_quiet, mono_now_ms())) return;
     if (!s_control_cycle_ready) return;
     if (!hstats_health_can_flush(&g_health_stats,
                                  cipsend_tx_busy(&g_cipsend_tx),
@@ -777,6 +983,7 @@ static void ESP_FlushAfterControl(void)
 {
     s_control_cycle_ready = 1U;
     ESP_DrainPendingStatus();
+    ESP_TrySendTimingDiagnostic();
     ESP_SendQueuedFrames(1U);
     health_flush_pending();
     ESP_TrySendImuDiagnostic();
@@ -833,6 +1040,7 @@ int main(void)
     TwinControlParams active_params = baseline_params;
     twin_control_init(&baseline_params);
     esp_transport_init(&g_tcp_client_connected, &g_tcp_client_id);
+    esp_clock_quiet_init(&s_clock_quiet);
 
     /* Task 4B-4 final fix: TX connection-boundary coordinator.
        Initialised after cipsend_tx, txfq, and transport so all
@@ -937,6 +1145,7 @@ int main(void)
         /* 读取IMU。Task 4B-4 fix: yaw dt 用相邻采样的真实单调时间差，
            并做边界保护（零 dt → 1ms；异常大间隔 → 100ms）。 */
         {
+            s_timing_work.t_imu_start_ms = mono_now_ms();
             uint32_t now_ms = mono_now_ms();
             uint32_t raw_dt_ms = mono_elapsed_ms(s_last_yaw_ms, now_ms);
             uint32_t dt_ms = raw_dt_ms;
@@ -946,6 +1155,7 @@ int main(void)
             s_last_yaw_ms = now_ms;
             MPU6050_SetDtClamped(dt_clamped);
             MPU6050_ReadAll();
+            s_timing_work.t_imu_done_ms = mono_now_ms();
             MPU6050_UpdateYaw((float)dt_ms / 1000.0f);
         }
 
@@ -954,6 +1164,7 @@ int main(void)
         uint8_t b1 = !Sensor1_Get_State();
         uint8_t b2 = !Sensor2_Get_State();
         uint8_t b3 = !Sensor3_Get_State();
+        s_timing_work.t_sensor_done_ms = mono_now_ms();
 
         uint8_t pattern = (b0 << 3) | (b1 << 2) | (b2 << 1) | b3;
         if (pattern == last_pattern)
@@ -999,7 +1210,6 @@ int main(void)
                 if (telemetry_rate_due(mono_now_ms(), s_last_telemetry_ms)) {
                     s_last_telemetry_ms = mono_now_ms();
                     Telemetry_Queue(0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                    s_last_telemetry_ms,
                                     (int32_t)(mpu_data.yaw * 100),
                                     MPU6050_GetValidityFlags());
                 }
@@ -1029,7 +1239,7 @@ int main(void)
                 Telemetry_Queue(0, 0, 0, 0,
                                 (int16_t)sm_l, (int16_t)sm_r,
                                 (int16_t)sm_r, (int16_t)sm_l,
-                                0, 0, s_last_telemetry_ms,
+                                0, 0,
                                 (int32_t)(mpu_data.yaw * 100),
                                 MPU6050_GetValidityFlags());
             }
@@ -1163,7 +1373,6 @@ int main(void)
                                 (int16_t)sm_l, (int16_t)sm_r,
                                 (int16_t)sm_r, (int16_t)sm_l,
                                  (int16_t)(error * 100), (int16_t)pid,
-                                 s_last_telemetry_ms,
                                  (int32_t)(mpu_data.yaw * 100),
                                  MPU6050_GetValidityFlags());
             }

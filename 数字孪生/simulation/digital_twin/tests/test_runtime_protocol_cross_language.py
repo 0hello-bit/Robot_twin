@@ -35,6 +35,7 @@ FIRMWARE_DIR = ROOT / "firmware" / "stm32_line_follower" / "User"
 PROTOCOL_SOURCE = FIRMWARE_DIR / "twin_control_protocol.c"
 RUNNER_SOURCE = Path(__file__).with_name("twin_control_trace_runner.c")
 BUILD_DIR = ROOT / ".test_build"
+OBJECT_DIR = ROOT / "build" / "obj"
 RUNNER_EXE = BUILD_DIR / "twin_control_trace_runner.exe"
 RUNNER_RESPONSE = BUILD_DIR / "twin_control_trace_runner.rsp"
 VCVARS_CANDIDATES = (
@@ -151,10 +152,11 @@ def _run_msvc_compile(response_file: Path) -> subprocess.CompletedProcess[str]:
 def trace_runner() -> Path:
     """Compile the runner afresh from its C source and the production module."""
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
+    OBJECT_DIR.mkdir(parents=True, exist_ok=True)
     for artifact in (
         RUNNER_EXE,
-        BUILD_DIR / "twin_control_trace_runner.obj",
-        BUILD_DIR / "twin_control_protocol.obj",
+        OBJECT_DIR / "twin_control_trace_runner.obj",
+        OBJECT_DIR / "twin_control_protocol.obj",
     ):
         artifact.unlink(missing_ok=True)
 
@@ -168,6 +170,7 @@ def trace_runner() -> Path:
                 '/I"{0}"'.format(FIRMWARE_DIR),
                 '"{0}"'.format(RUNNER_SOURCE),
                 '"{0}"'.format(PROTOCOL_SOURCE),
+                '/Fo"{0}{1}{1}"'.format(OBJECT_DIR, os.sep),
                 '/Fe"{0}"'.format(RUNNER_EXE),
             ]
         ),
@@ -181,6 +184,20 @@ def trace_runner() -> Path:
     )
     assert RUNNER_EXE.is_file()
     return RUNNER_EXE
+
+
+def test_trace_runner_emits_fresh_objects_into_build_obj(trace_runner: Path):
+    response_mtime_ns = RUNNER_RESPONSE.stat().st_mtime_ns
+    response = RUNNER_RESPONSE.read_text(encoding="mbcs")
+
+    assert any(
+        line.lower().startswith("/fo") and str(OBJECT_DIR).lower() in line.lower()
+        for line in response.splitlines()
+    )
+    for name in ("twin_control_trace_runner.obj", "twin_control_protocol.obj"):
+        artifact = OBJECT_DIR / name
+        assert artifact.is_file()
+        assert artifact.stat().st_mtime_ns >= response_mtime_ns
 
 
 def _parse_observation(line: str) -> Observation:

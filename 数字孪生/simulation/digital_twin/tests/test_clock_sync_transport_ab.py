@@ -21,6 +21,7 @@ from clock_sync_transport_ab import (  # noqa: E402
     build_udp_smoke_verdict,
 )
 from real_world.runtime_protocol import ClockSyncProbe, frame  # noqa: E402
+from v1_twin.v1_twin_causal_sync import build_causal_sync_report  # noqa: E402
 
 
 def test_timeout_then_late_reply_is_not_rematched():
@@ -38,8 +39,11 @@ def test_timeout_then_late_reply_is_not_rematched():
     assert observation["matched"] is False
     assert observation["late_reply"] is True
     assert observation["pc_rx_ns"] == 1_300_000_000
-    assert observation["mcu_rx_tick_ms"] == 2000
-    assert observation["mcu_tx_tick_ms"] == 2001
+    assert observation["timestamp_schema_version"] == 1
+    assert observation["event_semantics"] == "legacy_unclassified"
+    assert observation["included_in_fit"] is False
+    assert observation["legacy_first_tick_ms"] == 2000
+    assert observation["legacy_second_tick_ms"] == 2001
 
 
 def test_duplicate_reply_is_counted_without_creating_a_second_observation():
@@ -87,6 +91,144 @@ def test_summary_keeps_timeout_and_late_reply_in_sent_denominator():
     assert summary["sent_count"] == 1
     assert summary["matched_count"] == 0
     assert summary["lost_count"] == 1
+
+
+def test_v2_ledger_keeps_each_boundary_identity_and_delay_diagnostic_only():
+    ledger = ClockSyncReplyLedger("tcp")
+    ledger.begin(107, 7_000_000_000)
+
+    reply = frame("T,107,2000,2001,2002,2003,2")
+    assert ledger.receive(reply, 7_010_000_000) == "matched"
+
+    observation = ledger.observations()[0]
+    assert "mcu_rx_tick_ms" not in observation
+    assert "mcu_tx_tick_ms" not in observation
+    assert observation["q_event_id"] == (
+        "tcp:clock:107:q_uart_rx_isr_observed"
+    )
+    assert observation["q_parse_event_id"] == (
+        "tcp:clock:107:q_parse_done"
+    )
+    assert observation["t_event_id"] == (
+        "tcp:clock:107:t_cipsend_transaction_started"
+    )
+    assert observation["t_payload_event_id"] == (
+        "tcp:clock:107:t_payload_generated"
+    )
+    assert observation["q_parse_causal_parent_event_id"] == observation["q_event_id"]
+    assert observation["t_payload_causal_parent_event_id"] == observation["t_event_id"]
+    assert len({
+        observation["q_event_id"],
+        observation["q_parse_event_id"],
+        observation["t_event_id"],
+        observation["t_payload_event_id"],
+    }) == 4
+    assert observation["q_parse_role"] == "diagnostic_only"
+    assert observation["t_payload_role"] == "diagnostic_only"
+    assert observation["fit_requested"] is True
+    assert observation["included_in_fit"] is False
+    assert observation["fit_exclusion_reason"] == "uncertainty_unverified"
+    assert observation["q_parse_delay_from_q_event_ms"] == 1
+    assert observation["t_payload_delay_from_t_event_ms"] == 1
+
+    causal_records = ledger.causal_records()
+    assert causal_records == []
+
+
+def test_v2_reported_boundaries_are_not_zero_age_observations():
+    ledger = ClockSyncReplyLedger("tcp")
+    ledger.begin(109, 9_000_000_000)
+
+    reply = frame("T,109,4000,4003,4005,4008,2")
+    assert ledger.receive(reply, 9_010_000_000) == "matched"
+
+    observation = ledger.observations()[0]
+    assert observation["q_parse_event_validity"] == "reported_boundary"
+    assert observation["q_parse_event_observed_tick_ms"] is None
+    assert observation["q_parse_event_data_age_ms"] is None
+    assert observation["t_payload_event_validity"] == "reported_boundary"
+    assert observation["t_payload_event_observed_tick_ms"] is None
+    assert observation["t_payload_event_data_age_ms"] is None
+    assert observation["q_parse_role"] == "diagnostic_only"
+    assert observation["t_payload_role"] == "diagnostic_only"
+
+
+def test_v2_uncertainty_is_unknown_until_a_bound_is_verified():
+    ledger = ClockSyncReplyLedger("tcp")
+    ledger.begin(110, 10_000_000_000)
+
+    assert ledger.receive(
+        frame("T,110,5000,5002,5004,5006,2"), 10_010_000_000
+    ) == "matched"
+    observation = ledger.observations()[0]
+    assert observation["pc_tx_event_uncertainty_ns"] is None
+    assert observation["q_event_uncertainty_ns"] is None
+    assert observation["t_event_uncertainty_ns"] is None
+    assert observation["pc_rx_event_uncertainty_ns"] is None
+    assert build_causal_sync_report(ledger.causal_records())["verdict"] == (
+        "INSUFFICIENT EVIDENCE"
+    )
+
+
+def test_causal_records_reject_wrong_reported_parent_even_with_uncertainty():
+    ledger = ClockSyncReplyLedger("tcp")
+    ledger.begin(113, 13_000_000_000)
+    assert ledger.receive(
+        frame("T,113,8000,8002,8004,8006,2"), 13_010_000_000
+    ) == "matched"
+
+    observation = ledger._observations[0]
+    observation["pc_tx_event_uncertainty_ns"] = 1_000_000
+    observation["q_event_uncertainty_ns"] = 1_000_000
+    observation["t_event_uncertainty_ns"] = 1_000_000
+    observation["pc_rx_event_uncertainty_ns"] = 1_000_000
+    observation["included_in_fit"] = True
+    observation["q_parse_causal_parent_event_id"] = observation["t_event_id"]
+
+    assert ledger.causal_records() == []
+
+
+def test_udp_records_never_become_causal_input():
+    ledger = ClockSyncReplyLedger("udp")
+    ledger.begin(112, 12_000_000_000)
+    assert ledger.receive(
+        frame("T,112,7000,7002,7004,7006,2"), 12_010_000_000
+    ) == "matched"
+
+    # Exercise the transport boundary independently of the uncertainty gate.
+    observation = ledger._observations[0]
+    for field in (
+        "pc_tx_event_uncertainty_ns",
+        "q_event_uncertainty_ns",
+        "t_event_uncertainty_ns",
+        "pc_rx_event_uncertainty_ns",
+    ):
+        observation[field] = 1_000_000
+    assert ledger.causal_records() == []
+
+
+def test_v1_ledger_is_replay_evidence_only_and_never_formal_causal_input():
+    ledger = ClockSyncReplyLedger("tcp")
+    ledger.begin(108, 8_000_000_000)
+
+    assert ledger.receive(frame("T,108,3000,3001"), 8_010_000_000) == "matched"
+
+    observation = ledger.observations()[0]
+    assert observation["timestamp_schema_version"] == 1
+    assert observation["event_semantics"] == "legacy_unclassified"
+    assert observation["included_in_fit"] is False
+    assert ledger.causal_records() == []
+
+
+def test_v1_rtt_is_kept_in_legacy_replay_summary_only():
+    ledger = ClockSyncReplyLedger("tcp")
+    ledger.begin(111, 11_000_000_000)
+
+    assert ledger.receive(frame("T,111,6000,6001"), 11_010_000_000) == "matched"
+    summary = ledger.summary()
+    assert summary["matched_count"] == 0
+    assert summary["legacy_replay"]["matched_count"] == 1
+    assert summary["legacy_replay"]["transport_rtt_sample_count"] == 1
 
 
 def test_tcp_status_line_does_not_create_a_fake_clock_reply():

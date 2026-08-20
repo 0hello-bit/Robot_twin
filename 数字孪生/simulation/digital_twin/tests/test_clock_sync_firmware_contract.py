@@ -14,7 +14,8 @@ def test_clock_probe_uses_existing_protocol_and_transport_path():
     main = (FIRMWARE / "main.c").read_text(encoding="utf-8")
 
     assert 'strcmp(fields[0], "Q")' in protocol
-    assert "twin_control_receive_byte_at" in transport
+    assert "twin_control_receive_byte_timed" in transport
+    assert "esp_transport_process_byte_at" in transport
     assert "esp_transport_peek_pending_clock_sync" in main
     assert "esp_transport_consume_pending_clock_sync" in main
     assert "CIPSEND_TX_TAG_TELEMETRY" in main
@@ -23,8 +24,11 @@ def test_clock_probe_uses_existing_protocol_and_transport_path():
     clock_block_start = main.index("/* --- Clock sync response")
     clock_block_end = main.index("/* --- Telemetry", clock_block_start)
     clock_block = main[clock_block_start:clock_block_end]
-    assert "CIPSEND_TX_TAG_CLOCK_SYNC" in clock_block
     assert "CIPSEND_TX_TAG_TELEMETRY" not in clock_block
+    helper_start = main.index("static uint8_t ESP_TrySendClockSync")
+    helper_end = main.index("/* Phase 2+3", helper_start)
+    helper_block = main[helper_start:helper_end]
+    assert "CIPSEND_TX_TAG_CLOCK_SYNC" in helper_block
 
 
 def test_telemetry_timestamp_is_captured_at_generation_boundary():
@@ -159,10 +163,21 @@ def test_clock_sync_has_a_transaction_tag_distinct_from_legacy_diag():
     diag_block_end = main.index("/* 发送队列", diag_block_start)
     diag_block = main[diag_block_start:diag_block_end]
 
-    assert "CIPSEND_TX_TAG_CLOCK_SYNC" in clock_block
+    helper_start = main.index("static uint8_t ESP_TrySendClockSync")
+    helper_end = main.index("/* Phase 2+3", helper_start)
+    helper_block = main[helper_start:helper_end]
+    assert "CIPSEND_TX_TAG_CLOCK_SYNC" in helper_block
     assert "CIPSEND_TX_TAG_DIAG" not in clock_block
     assert "terminal_tag == CIPSEND_TX_TAG_CLOCK_SYNC" in terminal_block
     assert "tag = CIPSEND_TX_TAG_DIAG" in diag_block
+
+
+def test_firmware_joins_the_current_2_4ghz_lan_for_tcp_testing():
+    main = (FIRMWARE / "main.c").read_text(encoding="utf-8")
+
+    assert '#define WIFI_SSID   "HUAWEI-1CR2M9"' in main
+    assert '#define WIFI_PWD    "xiang87777114"' in main
+    assert '#define TCP_PORT    8888' in main
 
 
 def test_clock_sync_event_arms_a_firmware_quiet_window():
@@ -216,55 +231,80 @@ def test_quiet_window_is_cleared_at_connection_boundaries():
     assert "esp_clock_quiet_reset" in service_block
 
 
-def test_esp_capability_diagnostic_uses_existing_transport_and_cipsend():
-    project = (FIRMWARE.parent / "project.uvprojx").read_text(encoding="utf-8")
+def test_droppable_paths_block_while_clock_sync_is_pending():
+    main = (FIRMWARE / "main.c").read_text(encoding="utf-8")
+
+    telemetry_start = main.index("static void ESP_TrySendTelemetry")
+    telemetry_end = main.index("/* 遥测入队", telemetry_start)
+    diag_start = main.index("static uint8_t ESP_SendDiagFrame")
+    diag_end = main.index("static void ESP_TrySendImuDiagnostic", diag_start)
+    health_start = main.index("static void health_emit")
+    health_end = main.index("static void ESP_DrainPendingStatus", health_start)
+
+    for block in (
+        main[telemetry_start:telemetry_end],
+        main[diag_start:diag_end],
+        main[health_start:health_end],
+    ):
+        assert "esp_transport_has_pending_clock_sync" in block
+
+    telemetry_block = main[telemetry_start:telemetry_end]
+    diag_block = main[diag_start:diag_end]
+    assert telemetry_block.index("esp_transport_has_pending_clock_sync") < telemetry_block.index(
+        "cipsend_tx_start("
+    )
+    assert diag_block.index("esp_transport_has_pending_clock_sync") < diag_block.index(
+        "cipsend_tx_start("
+    )
+    assert health_start < main.index("ESP_SendDiagFrame", health_start)
+    health_flush_start = main.index("static void health_flush_pending")
+    health_flush_end = main.index("static void ESP_DrainPendingStatus", health_flush_start)
+    health_flush_block = main[health_flush_start:health_flush_end]
+    assert health_flush_block.index("esp_transport_has_pending_clock_sync") < health_flush_block.index(
+        "ESP_SendDiagFrame"
+    )
+
+
+def test_disconnect_event_survives_closed_then_connect_in_one_rx_drain():
+    transport = (FIRMWARE / "esp_runtime_transport.c").read_text(encoding="utf-8")
+    clear_start = transport.index("static void clear_pending_frames")
+    clear_end = transport.index("static void process_at_line", clear_start)
+    clear_block = transport[clear_start:clear_end]
+    assert "s_disconnect_event = 0U" not in clear_block
+
+
+def test_closed_event_reaches_main_timing_state_reset():
     header = (FIRMWARE / "esp_runtime_transport.h").read_text(encoding="utf-8")
     transport = (FIRMWARE / "esp_runtime_transport.c").read_text(encoding="utf-8")
     main = (FIRMWARE / "main.c").read_text(encoding="utf-8")
 
-    assert "esp_at_diagnostic.c" in project
-    assert "esp_at_diagnostic.h" in project
-    assert '#include "esp_at_diagnostic.h"' in transport
-    for symbol in (
-        "esp_at_diagnostic_feed_request_byte",
-        "esp_at_diagnostic_feed_response_byte",
-        "esp_at_diagnostic_command",
-        "esp_at_diagnostic_mark_command_sent_at",
-        "esp_at_diagnostic_peek_response",
-        "esp_at_diagnostic_consume_response",
-    ):
-        assert symbol in transport
-    assert "esp_transport_diagnostic_busy" in header
-    assert "esp_transport_diagnostic_busy" in main
-    assert "CIPSEND_TX_TAG_DIAG" in main
-    assert "cipsend_tx_start(" in main
-    assert "ESP_Send(esp" not in main
-    assert "sprintf(cmd, \"AT+%" not in main
-    assert "ESP_ServiceCapabilityDiagnostic" in main
-    assert "uart_tx_sink" in main
-    assert "esp_transport_diagnostic_command" in main
-    assert "esp_transport_diagnostic_mark_command_sent" in main
-    assert "esp_transport_diagnostic_response_ready" in main
-    assert "esp_transport_diagnostic_consume_response" in main
+    assert "esp_transport_take_disconnect_event" in header
+    assert "s_disconnect_event = 1U" in transport
+    service_start = main.index("static void ESP_ServiceTX")
+    service_end = main.index("/* 构建 31 字节遥测帧", service_start)
+    service_block = main[service_start:service_end]
+    assert "esp_transport_take_disconnect_event" in service_block
+    assert "reset_timing_diagnostic_state" in service_block
 
-    telemetry_start = main.index("static void ESP_TrySendTelemetry")
-    telemetry_end = main.index("/* 遥测入队", telemetry_start)
-    telemetry_block = main[telemetry_start:telemetry_end]
-    assert "esp_transport_diagnostic_busy" in telemetry_block
 
-    diag_start = main.index("static uint8_t ESP_SendDiagFrame")
-    diag_end = main.index("static void ESP_TrySendImuDiagnostic", diag_start)
-    diag_block = main[diag_start:diag_end]
-    assert "esp_transport_diagnostic_busy" in diag_block
+def test_timing_diagnostic_state_is_cleared_at_connection_boundaries():
+    main = (FIRMWARE / "main.c").read_text(encoding="utf-8")
 
-    terminal_block_start = main.index("static void ESP_TX_HandleTerminal")
-    terminal_block_end = main.index("/* Phase 1:", terminal_block_start)
-    terminal_block = main[terminal_block_start:terminal_block_end]
-    assert "terminal_tag == CIPSEND_TX_TAG_DIAG" in terminal_block
-    assert "esp_transport_diagnostic_consume_response" in terminal_block
+    disconnected_start = main.index("static void ESP_MarkDisconnected")
+    disconnected_end = main.index("/* 终态处理", disconnected_start)
+    disconnected_block = main[disconnected_start:disconnected_end]
+    service_start = main.index("static void ESP_ServiceTX")
+    service_end = main.index("/* 构建 31 字节遥测帧", service_start)
+    service_block = main[service_start:service_end]
 
-    queued_start = main.index("static void ESP_SendQueuedFrames")
-    queued_end = main.index("/******************************************************************************", queued_start)
-    queued_block = main[queued_start:queued_end]
-    assert "esp_transport_diagnostic_busy" in queued_block
-    assert "esp_transport_diagnostic_response_ready" in queued_block
+    for block in (disconnected_block, service_block):
+        assert "reset_timing_diagnostic_state" in block
+
+
+def test_esp_capability_diagnostic_is_deferred_from_tcp_only_firmware():
+    """The separate ESP AT capability channel is outside this firmware change."""
+    project = (FIRMWARE.parent / "project.uvprojx").read_text(encoding="utf-8")
+    assert "esp_at_diagnostic.c" not in project
+    assert "esp_at_diagnostic.h" not in project
+    assert not (FIRMWARE / "esp_at_diagnostic.c").exists()
+    assert not (FIRMWARE / "esp_at_diagnostic.h").exists()

@@ -5,12 +5,22 @@
 #include "ipd_parser.h"
 #include "twin_control_protocol.h"
 
+/* Keep the droppable streams quiet after a ClockSync request is accepted so
+ * the matching T response is not measured behind a newly started telemetry
+ * or diagnostic transaction. */
+#define ESP_CLOCK_QUIET_WINDOW_MS 2000U
+
+typedef struct {
+    uint32_t until_ms;
+    uint8_t armed;
+} EspClockQuietWindow;
+
 /* Initialise the ESP transport layer.
    Must be called once before any ProcessByte calls. */
 void esp_transport_init(volatile uint8_t *tcp_connected_flag,
                          volatile uint8_t *tcp_client_id_ptr);
 
-/* Process one byte from the ESP UART.
+/* Process one byte from the ESP UART using the compatibility timing path.
    - AT responses, noise, CONNECT/CLOSED lines are handled internally.
    - +IPD headers are parsed; payload bytes feed twin_control_receive_byte().
    - If a P/R frame produces a terminal TwinControlResult, the ACK is
@@ -20,9 +30,13 @@ void esp_transport_init(volatile uint8_t *tcp_connected_flag,
 */
 void esp_transport_process_byte(uint8_t byte);
 
-/* Set the monotonic tick used when the next RX byte reaches the protocol
-   parser.  The firmware caller updates this immediately before processing
-   each byte; host callers may leave the default at zero. */
+/* Timed RX path.  The first tick is captured by the UART ISR and the second
+   is the main-context parser observation.  They are deliberately separate. */
+void esp_transport_process_byte_at(uint8_t byte, uint32_t uart_rx_tick_ms,
+                                   uint8_t uart_rx_timestamp_valid,
+                                   uint32_t parse_observed_tick_ms);
+
+/* Set the compatibility parser-observed tick used by the legacy byte API. */
 void esp_transport_set_now_ms(uint32_t now_ms);
 
 /* Returns non-zero if an ACK has been queued by the last ProcessByte call. */
@@ -38,6 +52,12 @@ uint8_t esp_transport_has_pending_status(void);
 /* Returns non-zero if a Q request has produced a pending T response. */
 uint8_t esp_transport_has_pending_clock_sync(void);
 
+/* Consume the one-shot event raised when a new Q response is queued. */
+uint8_t esp_transport_take_clock_sync_event(void);
+
+/* Consume the one-shot event raised when the active TCP client closes. */
+uint8_t esp_transport_take_disconnect_event(void);
+
 /* Copy the pending Q sample without consuming it.  The caller may use the
  * copy to prepare a late-materialized CIPSEND payload. */
 uint8_t esp_transport_peek_pending_clock_sync(TwinControlClockSync *output);
@@ -45,6 +65,12 @@ uint8_t esp_transport_peek_pending_clock_sync(TwinControlClockSync *output);
 /* Consume the pending Q sample only after its CIPSEND transaction has
  * actually been accepted by the TX state machine. */
 void esp_transport_consume_pending_clock_sync(void);
+
+/* Wrap-safe quiet-window helpers used by main.c and host tests. */
+void esp_clock_quiet_init(EspClockQuietWindow *window);
+void esp_clock_quiet_arm(EspClockQuietWindow *window, uint32_t now_ms);
+uint8_t esp_clock_quiet_active(EspClockQuietWindow *window, uint32_t now_ms);
+void esp_clock_quiet_reset(EspClockQuietWindow *window);
 
 /* Retrieve and clear the pending ACK text (null-terminated ASCII, with \n).
    Returns 0 if no pending ACK. */
@@ -57,11 +83,11 @@ uint16_t esp_transport_get_pending_status(char *output, uint16_t output_size);
 /* Queue one Q result without replacing an outstanding response. */
 uint8_t esp_transport_queue_clock_sync(const TwinControlClockSync *clock_sync);
 
-/* Encode and consume the pending T response with the dispatch tick supplied
-   by the caller immediately before the CIPSEND transaction is started. */
+/* Encode and consume the pending T response with the named CIPSEND transaction
+   start boundary supplied by the caller. */
 uint16_t esp_transport_get_pending_clock_sync(char *output,
-                                              uint16_t output_size,
-                                              uint32_t mcu_tx_tick_ms);
+                                               uint16_t output_size,
+                                               uint32_t t_transaction_started_tick_ms);
 
 /* Queue a status frame for sending.  Called by main.c on STOP/TIMEOUT/
    track-loss / run-timeout events. */

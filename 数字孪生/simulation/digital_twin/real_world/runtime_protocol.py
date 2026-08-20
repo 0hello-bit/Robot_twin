@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 import math
 import re
 import threading
+from typing import Optional
 
 
 MIN_SPEED_MAX = 260
@@ -247,13 +248,143 @@ class ClockSyncProbe:
         return frame(body)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class ClockSyncReply:
-    """MCU timestamps returned for one clock-sync probe."""
+    """Clock boundaries returned for one Q/T probe.
+
+    Schema v2 stores the two causal endpoints under their event names.  The
+    legacy fields are populated only for schema v1 replay records, so a v2
+    timestamp cannot accidentally be consumed through a compatibility name.
+    The positional constructor is retained for existing v1 callers.
+    """
 
     sequence: int
-    mcu_rx_tick_ms: int
-    mcu_tx_tick_ms: int
+    q_uart_rx_isr_tick_ms: Optional[int]
+    t_transaction_started_tick_ms: Optional[int]
+    q_parse_done_tick_ms: Optional[int]
+    t_payload_generated_tick_ms: Optional[int]
+    timestamp_schema_version: int
+    legacy_first_tick_ms: Optional[int]
+    legacy_second_tick_ms: Optional[int]
+
+    def __init__(
+        self,
+        sequence: int,
+        first_tick_ms: int,
+        second_tick_ms: int,
+        q_parse_done_tick_ms: Optional[int] = None,
+        t_payload_generated_tick_ms: Optional[int] = None,
+        timestamp_schema_version: int = 1,
+    ) -> None:
+        if (
+            isinstance(sequence, bool)
+            or not isinstance(sequence, int)
+            or sequence <= 0
+        ):
+            raise ProtocolError("sequence must be a positive integer")
+        for value, name in (
+            (first_tick_ms, "first_tick_ms"),
+            (second_tick_ms, "second_tick_ms"),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ProtocolError("{0} must be a non-negative integer".format(name))
+        if (
+            isinstance(timestamp_schema_version, bool)
+            or not isinstance(timestamp_schema_version, int)
+        ):
+            raise ProtocolError("timestamp_schema_version must be an integer")
+
+        if timestamp_schema_version == 1:
+            if q_parse_done_tick_ms is not None or t_payload_generated_tick_ms is not None:
+                raise ProtocolError("legacy clock reply cannot contain v2 boundaries")
+            if second_tick_ms < first_tick_ms:
+                raise ProtocolError(
+                    "legacy_second_tick_ms must be >= legacy_first_tick_ms"
+                )
+            values = {
+                "sequence": sequence,
+                "q_uart_rx_isr_tick_ms": None,
+                "t_transaction_started_tick_ms": None,
+                "q_parse_done_tick_ms": None,
+                "t_payload_generated_tick_ms": None,
+                "timestamp_schema_version": 1,
+                "legacy_first_tick_ms": first_tick_ms,
+                "legacy_second_tick_ms": second_tick_ms,
+            }
+        elif timestamp_schema_version == 2:
+            if q_parse_done_tick_ms is None or t_payload_generated_tick_ms is None:
+                raise ProtocolError("schema v2 requires all named clock boundaries")
+            for value, name in (
+                (q_parse_done_tick_ms, "q_parse_done_tick_ms"),
+                (t_payload_generated_tick_ms, "t_payload_generated_tick_ms"),
+            ):
+                if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                    raise ProtocolError("{0} must be a non-negative integer".format(name))
+            if q_parse_done_tick_ms < first_tick_ms:
+                raise ProtocolError(
+                    "q_parse_done_tick_ms must be >= q_uart_rx_isr_tick_ms"
+                )
+            if second_tick_ms < q_parse_done_tick_ms:
+                raise ProtocolError(
+                    "t_transaction_started_tick_ms must be >= q_parse_done_tick_ms"
+                )
+            if t_payload_generated_tick_ms < second_tick_ms:
+                raise ProtocolError(
+                    "t_payload_generated_tick_ms must be >= t_transaction_started_tick_ms"
+                )
+            values = {
+                "sequence": sequence,
+                "q_uart_rx_isr_tick_ms": first_tick_ms,
+                "t_transaction_started_tick_ms": second_tick_ms,
+                "q_parse_done_tick_ms": q_parse_done_tick_ms,
+                "t_payload_generated_tick_ms": t_payload_generated_tick_ms,
+                "timestamp_schema_version": 2,
+                "legacy_first_tick_ms": None,
+                "legacy_second_tick_ms": None,
+            }
+        else:
+            raise ProtocolError("unsupported clock timestamp schema")
+
+        for field, value in values.items():
+            object.__setattr__(self, field, value)
+
+    @property
+    def q_event_timestamp_ms(self) -> Optional[int]:
+        return (
+            self.q_uart_rx_isr_tick_ms
+            if self.timestamp_schema_version == 2
+            else None
+        )
+
+    @property
+    def t_event_timestamp_ms(self) -> Optional[int]:
+        return (
+            self.t_transaction_started_tick_ms
+            if self.timestamp_schema_version == 2
+            else None
+        )
+
+    @property
+    def event_timestamp_valid(self) -> bool:
+        return (
+            self.timestamp_schema_version == 2
+            and self.q_event_timestamp_ms is not None
+            and self.q_parse_done_tick_ms is not None
+            and self.t_event_timestamp_ms is not None
+            and self.t_payload_generated_tick_ms is not None
+        )
+
+    @property
+    def q_parse_delay_ms(self) -> Optional[int]:
+        if not self.event_timestamp_valid:
+            return None
+        return self.q_parse_done_tick_ms - self.q_event_timestamp_ms
+
+    @property
+    def payload_materialization_delay_ms(self) -> Optional[int]:
+        if not self.event_timestamp_valid:
+            return None
+        return self.t_payload_generated_tick_ms - self.t_event_timestamp_ms
 
 
 @dataclass(frozen=True)
@@ -396,23 +527,80 @@ def parse_status(text):
 
 
 def parse_clock_sync_reply(text):
-    """Parse a checksummed ``T,sequence,mcu_rx,mcu_tx`` response."""
-    fields = _split_and_verify(text, "T", 5)
-    sequence_text, rx_text, tx_text = fields[1], fields[2], fields[3]
+    """Parse legacy T v1 or explicit-boundary T v2 responses.
+
+    v1 is accepted for replay compatibility only.  Its two ticks are not
+    eligible to represent the v2 UART and transaction boundaries.
+    """
+    if not isinstance(text, str) or not text.endswith("\n"):
+        raise ProtocolError("frame must be newline-terminated")
+    field_count = len(text[:-1].split(","))
+    if field_count == 5:
+        fields = _split_and_verify(text, "T", 5)
+        sequence_text, rx_text, tx_text = fields[1], fields[2], fields[3]
+        for value, name in (
+            (sequence_text, "sequence"),
+            (rx_text, "legacy_first_tick_ms"),
+            (tx_text, "legacy_second_tick_ms"),
+        ):
+            if not re.fullmatch(r"[0-9]+", value):
+                raise ProtocolError("{0} must be a non-negative integer".format(name))
+            if int(value) > MAX_VERSION:
+                raise ProtocolError("{0} exceeds uint32".format(name))
+        sequence = int(sequence_text)
+        rx_tick = int(rx_text)
+        tx_tick = int(tx_text)
+        if sequence == 0:
+            raise ProtocolError("sequence must be a positive integer")
+        if tx_tick < rx_tick:
+            raise ProtocolError(
+                "legacy_second_tick_ms must be >= legacy_first_tick_ms"
+            )
+        return ClockSyncReply(sequence, rx_tick, tx_tick)
+
+    if field_count != 8:
+        return _split_and_verify(text, "T", 5)  # raises the uniform error
+
+    fields = _split_and_verify(text, "T", 8)
+    sequence_text, q_rx_text, q_parse_text = fields[1], fields[2], fields[3]
+    t_start_text, t_payload_text, schema_text = fields[4], fields[5], fields[6]
     for value, name in (
         (sequence_text, "sequence"),
-        (rx_text, "mcu_rx_tick_ms"),
-        (tx_text, "mcu_tx_tick_ms"),
+        (q_rx_text, "q_uart_rx_isr_tick_ms"),
+        (q_parse_text, "q_parse_done_tick_ms"),
+        (t_start_text, "t_transaction_started_tick_ms"),
+        (t_payload_text, "t_payload_generated_tick_ms"),
+        (schema_text, "timestamp_schema_version"),
     ):
         if not re.fullmatch(r"[0-9]+", value):
             raise ProtocolError("{0} must be a non-negative integer".format(name))
         if int(value) > MAX_VERSION:
             raise ProtocolError("{0} exceeds uint32".format(name))
     sequence = int(sequence_text)
-    rx_tick = int(rx_text)
-    tx_tick = int(tx_text)
+    q_rx_tick = int(q_rx_text)
+    q_parse_tick = int(q_parse_text)
+    t_start_tick = int(t_start_text)
+    t_payload_tick = int(t_payload_text)
+    schema_version = int(schema_text)
     if sequence == 0:
         raise ProtocolError("sequence must be a positive integer")
-    if tx_tick < rx_tick:
-        raise ProtocolError("mcu_tx_tick_ms must be >= mcu_rx_tick_ms")
-    return ClockSyncReply(sequence, rx_tick, tx_tick)
+    if schema_version != 2:
+        raise ProtocolError("unsupported clock timestamp schema")
+    if q_parse_tick < q_rx_tick:
+        raise ProtocolError("q_parse_done_tick_ms must be >= q_uart_rx_isr_tick_ms")
+    if t_start_tick < q_parse_tick:
+        raise ProtocolError(
+            "t_transaction_started_tick_ms must be >= q_parse_done_tick_ms"
+        )
+    if t_payload_tick < t_start_tick:
+        raise ProtocolError(
+            "t_payload_generated_tick_ms must be >= t_transaction_started_tick_ms"
+        )
+    return ClockSyncReply(
+        sequence,
+        q_rx_tick,
+        t_start_tick,
+        q_parse_done_tick_ms=q_parse_tick,
+        t_payload_generated_tick_ms=t_payload_tick,
+        timestamp_schema_version=schema_version,
+    )

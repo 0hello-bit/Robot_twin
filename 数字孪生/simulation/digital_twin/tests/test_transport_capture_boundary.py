@@ -19,8 +19,12 @@ sys.path.insert(0, TOOLS)
 sys.path.insert(0, SHAKEDOWN)
 
 from real_world.runtime_protocol import RunStatus  # noqa: E402
+from real_world.frame_parser import (  # noqa: E402
+    FRAME_TYPE_TIMING_DIAGNOSTIC,
+    PAYLOAD_LEN_TIMING_DIAGNOSTIC,
+)
 from capture_sync_run import TelemetryCaptureBoundary  # noqa: E402
-from transport_soak import RawIoLogger  # noqa: E402
+from transport_soak import MixedStreamParser, RawIoLogger  # noqa: E402
 
 
 def test_recv_batch_timestamp_is_shared_and_decode_time_is_diagnostic():
@@ -36,6 +40,18 @@ def test_recv_batch_timestamp_is_shared_and_decode_time_is_diagnostic():
     assert first["arrival_pc_ns"] == second["arrival_pc_ns"] == 1_000
     assert first["decode_pc_ns"] == 1_010
     assert second["decode_pc_ns"] == 1_020
+
+
+def test_boundary_labels_mcu_generation_and_decode_arrival_delta():
+    boundary = TelemetryCaptureBoundary("sync", "run-1")
+    boundary.observe_status(RunStatus("sync", "run-1", "RUNNING", "START", 10))
+
+    boundary.begin_recv(1_000)
+    record = boundary.observe_frame(tick_ms=30, decode_pc_ns=1_010)
+
+    assert record["mcu_generation_tick_ms"] == 30
+    assert record["pc_arrival_ns"] == 1_000
+    assert record["pc_decode_minus_arrival_ns"] == 10
 
 
 def test_pre_and_post_window_frames_are_boundary_evidence_only():
@@ -73,3 +89,18 @@ def test_raw_io_can_record_one_arrival_timestamp_for_a_recv_batch():
     event = log.events()[0]
     assert event["arrival_pc_ns"] == 4_321
     assert event["pc_recv_ns"] == 4_321
+
+
+def test_mixed_stream_dispatches_timing_diagnostic_frames():
+    payload = bytes(PAYLOAD_LEN_TIMING_DIAGNOSTIC)
+    checksum = FRAME_TYPE_TIMING_DIAGNOSTIC ^ len(payload)
+    for value in payload:
+        checksum ^= value
+    frame = bytes([0xAA, 0x55, FRAME_TYPE_TIMING_DIAGNOSTIC, len(payload)])
+    observed = []
+    parser = MixedStreamParser(on_timing=observed.append)
+
+    for value in frame + payload + bytes([checksum]):
+        parser.feed(value)
+
+    assert observed == [payload]

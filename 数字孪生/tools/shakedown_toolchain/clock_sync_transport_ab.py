@@ -28,7 +28,23 @@ from real_world.runtime_protocol import (  # noqa: E402
     parse_command,
     parse_clock_sync_reply,
 )
-from v1_twin.v1_twin_causal_sync import build_causal_sync_report  # noqa: E402
+from v1_twin.v1_twin_causal_sync import (  # noqa: E402
+    ClockExchangeSample,
+    build_causal_sync_report,
+)
+from v1_twin.clock_event_identity import (  # noqa: E402
+    CLOCK_DOMAIN_MCU_MONOTONIC_MS,
+    CLOCK_DOMAIN_PC_MONOTONIC_NS,
+    EVENT_PC_Q_SENT,
+    EVENT_PC_T_RECEIVED,
+    EVENT_Q_PARSE_DONE,
+    EVENT_Q_UART_RX_ISR,
+    EVENT_T_PAYLOAD_GENERATED,
+    EVENT_T_TRANSACTION_STARTED,
+    OBSERVED_BOUNDARY,
+    REPORTED_BOUNDARY,
+    ClockExchangeIdentity,
+)
 from v1_twin.clock_sync_transport import (  # noqa: E402
     ClockSyncTransportObservation,
     ClockSyncTransportProfile,
@@ -50,14 +66,125 @@ def _wall_now_ns():
 class ClockSyncReplyLedger:
     """Account for every primary Q and every associated T outcome."""
 
-    def __init__(self, transport):
+    def __init__(self, transport, capture_id="local"):
         if transport not in ("tcp", "udp"):
             raise ValueError("transport must be tcp or udp")
         self.transport = transport
+        self.capture_id = str(capture_id)
+        # Validate the scope once so sequence reuse across captures cannot
+        # silently reuse an event identity.
+        ClockExchangeIdentity(
+            transport=self.transport,
+            capture_id=self.capture_id,
+            sequence=1,
+        )
         self._pending = {}
         self._observations = []
         self._by_sequence = {}
         self._unmatched_replies = []
+
+    def _identity(self, sequence):
+        return ClockExchangeIdentity(
+            transport=self.transport,
+            capture_id=self.capture_id,
+            sequence=int(sequence),
+        )
+
+    def _attach_reply_events(self, observation, reply):
+        """Attach named v2 boundaries; legacy ticks stay replay-only."""
+        identity = self._identity(reply.sequence)
+        observation["timestamp_schema_version"] = int(
+            reply.timestamp_schema_version
+        )
+        observation.update({
+            "capture_id": self.capture_id,
+            "observation_id": identity.exchange_id,
+            "pc_tx_event_id": identity.event(EVENT_PC_Q_SENT),
+            "pc_tx_event_kind": EVENT_PC_Q_SENT,
+            "pc_tx_event_clock_domain": CLOCK_DOMAIN_PC_MONOTONIC_NS,
+            "pc_tx_event_validity": OBSERVED_BOUNDARY,
+            # The transport path has no independently measured physical
+            # uncertainty bound yet; keep it unknown so causal fitting fails
+            # closed instead of treating a clock resolution as evidence.
+            "pc_tx_event_uncertainty_ns": None,
+            "pc_tx_event_observed_ns": int(observation["pc_tx_ns"]),
+            "pc_tx_event_data_age_ns": 0,
+            "pc_rx_event_id": identity.event(EVENT_PC_T_RECEIVED),
+            "pc_rx_event_kind": EVENT_PC_T_RECEIVED,
+            "pc_rx_event_clock_domain": CLOCK_DOMAIN_PC_MONOTONIC_NS,
+            "pc_rx_event_validity": OBSERVED_BOUNDARY,
+            "pc_rx_event_uncertainty_ns": None,
+            "pc_rx_event_observed_ns": (
+                int(observation["pc_rx_ns"])
+                if observation["pc_rx_ns"] is not None
+                else None
+            ),
+            "pc_rx_event_data_age_ns": 0,
+        })
+        if not reply.event_timestamp_valid:
+            observation.update({
+                "event_semantics": "legacy_unclassified",
+                "sample_role": "legacy_replay",
+                "included_in_fit": False,
+                "fit_requested": True,
+                "fit_exclusion_reason": "legacy_timestamp_schema",
+                "legacy_first_tick_ms": int(reply.legacy_first_tick_ms),
+                "legacy_second_tick_ms": int(reply.legacy_second_tick_ms),
+            })
+            return
+
+        observation.update({
+            "sample_role": "formal",
+            "fit_requested": True,
+            "included_in_fit": False,
+            "fit_exclusion_reason": "uncertainty_unverified",
+            "q_event_id": identity.event(EVENT_Q_UART_RX_ISR),
+            "q_event_tick_ms": int(reply.q_event_timestamp_ms),
+            "q_event_observed_tick_ms": int(reply.q_event_timestamp_ms),
+            "q_event_data_age_ms": 0,
+            "q_event_kind": EVENT_Q_UART_RX_ISR,
+            "q_event_clock_domain": CLOCK_DOMAIN_MCU_MONOTONIC_MS,
+            "q_event_validity": OBSERVED_BOUNDARY,
+            "q_event_uncertainty_ns": None,
+            "q_parse_event_id": identity.event(EVENT_Q_PARSE_DONE),
+            "q_parse_causal_parent_event_id": identity.event(
+                EVENT_Q_UART_RX_ISR
+            ),
+            "q_parse_done_tick_ms": int(reply.q_parse_done_tick_ms),
+            "q_parse_event_observed_tick_ms": None,
+            "q_parse_event_data_age_ms": None,
+            "q_parse_event_kind": EVENT_Q_PARSE_DONE,
+            "q_parse_event_clock_domain": CLOCK_DOMAIN_MCU_MONOTONIC_MS,
+            "q_parse_event_validity": REPORTED_BOUNDARY,
+            "q_parse_event_uncertainty_ns": None,
+            "q_parse_role": "diagnostic_only",
+            "q_parse_delay_from_q_event_ms": int(reply.q_parse_delay_ms),
+            "t_event_id": identity.event(EVENT_T_TRANSACTION_STARTED),
+            "t_event_tick_ms": int(reply.t_event_timestamp_ms),
+            "t_event_observed_tick_ms": int(reply.t_event_timestamp_ms),
+            "t_event_data_age_ms": 0,
+            "t_event_kind": EVENT_T_TRANSACTION_STARTED,
+            "t_event_clock_domain": CLOCK_DOMAIN_MCU_MONOTONIC_MS,
+            "t_event_validity": OBSERVED_BOUNDARY,
+            "t_event_uncertainty_ns": None,
+            "t_payload_event_id": identity.event(EVENT_T_PAYLOAD_GENERATED),
+            "t_payload_causal_parent_event_id": identity.event(
+                EVENT_T_TRANSACTION_STARTED
+            ),
+            "t_payload_generated_tick_ms": int(
+                reply.t_payload_generated_tick_ms
+            ),
+            "t_payload_event_observed_tick_ms": None,
+            "t_payload_event_data_age_ms": None,
+            "t_payload_event_kind": EVENT_T_PAYLOAD_GENERATED,
+            "t_payload_event_clock_domain": CLOCK_DOMAIN_MCU_MONOTONIC_MS,
+            "t_payload_event_validity": REPORTED_BOUNDARY,
+            "t_payload_event_uncertainty_ns": None,
+            "t_payload_role": "diagnostic_only",
+            "t_payload_delay_from_t_event_ms": int(
+                reply.payload_materialization_delay_ms
+            ),
+        })
 
     def begin(self, sequence, pc_tx_ns):
         sequence = int(sequence)
@@ -86,8 +213,12 @@ class ClockSyncReplyLedger:
             "late_reply": False,
             "duplicate_count": 0,
             "reordered": False,
-            "mcu_rx_tick_ms": None,
-            "mcu_tx_tick_ms": None,
+            "timestamp_schema_version": None,
+            "event_semantics": "no_reply",
+            "sample_role": "unclassified",
+            "included_in_fit": False,
+            "fit_requested": True,
+            "fit_exclusion_reason": "no_reply",
             "rtt_total_ns": None,
             "rtt_transport_ns": None,
             "pc_clock_source": PC_CLOCK_SOURCE,
@@ -107,9 +238,14 @@ class ClockSyncReplyLedger:
     @staticmethod
     def _rtt_fields(pending, reply, pc_rx_ns):
         total = int(pc_rx_ns) - int(pending["pc_tx_ns"])
-        device_interval = (
-            int(reply.mcu_tx_tick_ms) - int(reply.mcu_rx_tick_ms)
-        ) * 1_000_000
+        q_tick = reply.q_event_timestamp_ms
+        t_tick = reply.t_event_timestamp_ms
+        if q_tick is None or t_tick is None:
+            # v1 is retained only for transport replay metrics; it is never
+            # promoted to a causal event endpoint.
+            q_tick = reply.legacy_first_tick_ms
+            t_tick = reply.legacy_second_tick_ms
+        device_interval = (int(t_tick) - int(q_tick)) * 1_000_000
         return total, total - device_interval
 
     def receive(self, line, pc_rx_ns):
@@ -133,12 +269,11 @@ class ClockSyncReplyLedger:
                 "late_reply": False,
                 "duplicate_count": 0,
                 "reordered": False,
-                "mcu_rx_tick_ms": int(reply.mcu_rx_tick_ms),
-                "mcu_tx_tick_ms": int(reply.mcu_tx_tick_ms),
                 "rtt_total_ns": total,
                 "rtt_transport_ns": transport,
                 "pc_clock_source": PC_CLOCK_SOURCE,
             }
+            self._attach_reply_events(observation, reply)
             self._by_sequence[reply.sequence] = len(self._observations)
             self._observations.append(observation)
             return "matched"
@@ -152,12 +287,11 @@ class ClockSyncReplyLedger:
             else:
                 total, transport = self._rtt_fields(observation, reply, pc_rx_ns)
                 observation["pc_rx_ns"] = pc_rx_ns
-                observation["mcu_rx_tick_ms"] = int(reply.mcu_rx_tick_ms)
-                observation["mcu_tx_tick_ms"] = int(reply.mcu_tx_tick_ms)
                 observation["rtt_total_ns"] = total
                 observation["rtt_transport_ns"] = transport
                 observation["late_reply"] = True
                 observation["outcome"] = "late_reply"
+                self._attach_reply_events(observation, reply)
                 outcome = "late_reply"
             self._unmatched_replies.append({
                 "transport": self.transport,
@@ -192,9 +326,10 @@ class ClockSyncReplyLedger:
     def unmatched_replies(self):
         return [dict(item) for item in self._unmatched_replies]
 
-    def _contract_observations(self):
+    def _contract_observations(self, observations=None):
+        source = self._observations if observations is None else observations
         result = []
-        for item in self._observations:
+        for item in source:
             if item["matched"]:
                 transport_rtt = item["rtt_transport_ns"]
                 result.append(ClockSyncTransportObservation(
@@ -221,10 +356,23 @@ class ClockSyncReplyLedger:
         return result
 
     def summary(self):
-        all_items = self._contract_observations()
-        summary = summarize_clock_sync_transport(all_items)
+        formal_items = [
+            item for item in self._observations
+            if item.get("timestamp_schema_version") != 1
+        ]
+        legacy_items = [
+            item for item in self._observations
+            if item.get("timestamp_schema_version") == 1
+        ]
+        summary = summarize_clock_sync_transport(
+            self._contract_observations(formal_items)
+        )
+        summary["legacy_replay"] = summarize_clock_sync_transport(
+            self._contract_observations(legacy_items)
+        )
+        summary["legacy_replay_observation_count"] = len(legacy_items)
         summary["invalid_transport_rtt_count"] = sum(
-            1 for item in self._observations
+            1 for item in formal_items
             if item["matched"] and (
                 item["rtt_transport_ns"] is None
                 or item["rtt_transport_ns"] < 0
@@ -234,26 +382,42 @@ class ClockSyncReplyLedger:
         return summary
 
     def causal_records(self):
+        if self.transport != "tcp":
+            # UDP remains a separate smoke capability probe; it is never a
+            # formal causal-clock input for the TCP-only firmware path.
+            return []
         records = []
         for item in self._observations:
-            if not item["matched"]:
+            if not item["matched"] or not item.get("included_in_fit"):
                 continue
-            if item["mcu_rx_tick_ms"] is None:
+            if item.get("timestamp_schema_version") != 2:
                 continue
-            records.append({
-                "sequence": item["sequence"],
-                "pc_tx_ns": item["pc_tx_ns"],
-                "mcu_rx_tick_ms": item["mcu_rx_tick_ms"],
-                "mcu_tx_tick_ms": item["mcu_tx_tick_ms"],
-                "pc_rx_ns": item["pc_rx_ns"],
-                "sample_role": "formal",
-                "included_in_fit": True,
-            })
+            if any(
+                item.get(field) is None
+                for field in (
+                    "pc_tx_event_uncertainty_ns",
+                    "q_event_uncertainty_ns",
+                    "t_event_uncertainty_ns",
+                    "pc_rx_event_uncertainty_ns",
+                )
+            ):
+                # A causal fit must not promote a clock-resolution default to
+                # a measured uncertainty bound.
+                continue
+            try:
+                ClockExchangeSample.from_dict(item)
+            except (TypeError, ValueError):
+                # Do not expose a record to callers until every event identity,
+                # parent link, and delayed-boundary field passes the canonical
+                # causal sample contract.
+                continue
+            records.append(dict(item))
         return records
 
     def to_dict(self):
         return {
             "transport": self.transport,
+            "capture_id": self.capture_id,
             "pc_clock_source": PC_CLOCK_SOURCE,
             "observations": self.observations(),
             "unmatched_replies": self.unmatched_replies(),
@@ -464,10 +628,12 @@ def _connect_socket(host, port, transport, udp_listen_port=None):
 
 def run_transport(*, host, transport, tcp_port=8888, udp_target_port=9998,
                   udp_listen_port=9999, count=16, period_s=0.25,
-                  timeout_s=1.0, late_grace_s=0.5, sequence_start=1):
+                  timeout_s=1.0, late_grace_s=0.5, sequence_start=1,
+                  capture_id=None):
     profile = ClockSyncTransportProfile(transport)
     profile.validate()
-    ledger = ClockSyncReplyLedger(transport)
+    capture_id = str(capture_id or (transport + "-" + _run_id()))
+    ledger = ClockSyncReplyLedger(transport, capture_id=capture_id)
     raw_events = []
     parse_errors = []
     sock = None
@@ -523,6 +689,7 @@ def run_transport(*, host, transport, tcp_port=8888, udp_target_port=9998,
     causal_sync = build_causal_sync_report(causal_records)
     result = {
         "transport": transport,
+        "capture_id": capture_id,
         "profile": profile.to_dict(),
         "host": host,
         "tcp_port": int(tcp_port),
@@ -631,7 +798,7 @@ def main(argv=None):
         "mode": "clock_sync_only",
         "smoke": bool(args.smoke),
         "control_commands_sent": [],
-        "payload_contract": "q_t_v1",
+        "payload_contract": "q_t_v2_explicit_boundaries",
         "pc_clock_source": PC_CLOCK_SOURCE,
         "single_outstanding": True,
         "primary_retries": False,
@@ -655,6 +822,7 @@ def main(argv=None):
             timeout_s=args.timeout,
             late_grace_s=args.late_grace,
             sequence_start=args.sequence_start,
+            capture_id=transport + "-" + _run_id(),
         )
         if args.smoke:
             report["runs"][transport]["smoke_verdict"] = (

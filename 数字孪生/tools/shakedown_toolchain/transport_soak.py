@@ -54,7 +54,9 @@ sys.path.insert(0, str(_WORKSPACE_ROOT / "simulation" / "digital_twin"))
 from real_world.frame_parser import (  # noqa: E402
     FRAME_TYPE_TELEMETRY,
     FRAME_TYPE_HEALTH,
+    FRAME_TYPE_TIMING_DIAGNOSTIC,
     PAYLOAD_LEN_HEALTH,
+    PAYLOAD_LEN_TIMING_DIAGNOSTIC,
     FrameParser,
     decode_telemetry,
     decode_health,
@@ -177,12 +179,14 @@ class MixedStreamParser(object):
     的『帧内』状态门控），分段与粘包自然成立。
     """
 
-    def __init__(self, on_telemetry=None, on_line=None, on_health=None):
+    def __init__(self, on_telemetry=None, on_line=None, on_health=None,
+                 on_timing=None):
         self._fp = _BusyAwareFrameParser()
         self._ascii = bytearray()
         self._on_telemetry = on_telemetry
         self._on_line = on_line
         self._on_health = on_health
+        self._on_timing = on_timing
 
     def feed(self, byte: int) -> None:
         if self._fp.busy:
@@ -223,6 +227,10 @@ class MixedStreamParser(object):
         elif ftype == FRAME_TYPE_HEALTH and len(payload) == PAYLOAD_LEN_HEALTH \
                 and self._on_health is not None:
             self._on_health(payload)
+        elif (ftype == FRAME_TYPE_TIMING_DIAGNOSTIC
+              and len(payload) == PAYLOAD_LEN_TIMING_DIAGNOSTIC
+              and self._on_timing is not None):
+            self._on_timing(payload)
 
     def reset(self) -> None:
         self._fp.reset()
