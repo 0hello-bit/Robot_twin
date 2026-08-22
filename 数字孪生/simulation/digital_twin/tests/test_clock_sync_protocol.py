@@ -38,6 +38,16 @@ def test_clock_reply_round_trips_sequence_and_mcu_ticks():
     assert reply == ClockSyncReply(7, 1234, 1235)
 
 
+def test_clock_reply_v3_round_trips_mcu_endpoint_uncertainty():
+    reply = parse_clock_sync_reply(frame(
+        "T,7,0000001234,0000001235,0000001236,0000001237,3,001000000,001000000"
+    ))
+
+    assert reply.timestamp_schema_version == 3
+    assert reply.q_event_uncertainty_ns == 1_000_000
+    assert reply.t_event_uncertainty_ns == 1_000_000
+
+
 def test_clock_reply_rejects_tampered_checksum():
     with pytest.raises(ProtocolError, match="checksum"):
         parse_clock_sync_reply("T,7,1234,1235,00\n")
@@ -116,6 +126,86 @@ def test_capture_v2_uncertainty_is_unknown_until_a_bound_is_verified():
     report = build_causal_sync_report(collector.records())
     assert report["verdict"] == "INSUFFICIENT EVIDENCE"
     assert "uncertainty" in report["reason"]
+
+
+def test_capture_v3_keeps_unbounded_pc_edges_out_of_causal_fit():
+    collector = ClockExchangeCollector()
+    collector.begin_probe(
+        9, 2_000_000_000, sample_role="formal", included_in_fit=True
+    )
+    reply = parse_clock_sync_reply(frame(
+        "T,9,0000002234,0000002235,0000002236,0000002237,3,001000000,001000000"
+    ))
+
+    assert collector.complete_probe(reply, 2_012_000_000) is True
+    record = collector.records()[0]
+
+    for field in ("q_event_uncertainty_ns", "t_event_uncertainty_ns"):
+        assert isinstance(record[field], int)
+        assert record[field] > 0
+    assert record["pc_tx_event_uncertainty_ns"] is None
+    assert record["pc_rx_event_uncertainty_ns"] is None
+    assert record["included_in_fit"] is False
+    assert record["fit_exclusion_reason"] == "uncertainty_unverified"
+    report = build_causal_sync_report([record])
+    assert report["fit_input_count"] == 0
+    assert report["verdict"] == "INSUFFICIENT EVIDENCE"
+
+
+def test_pc_endpoint_interval_admits_formal_v3_exchange():
+    collector = ClockExchangeCollector()
+    collector.begin_probe(
+        10,
+        pc_tx_interval_ns=(1_000, 1_100),
+        sample_role="formal",
+        included_in_fit=True,
+    )
+    reply = parse_clock_sync_reply(frame(
+        "T,10,0000002234,0000002235,0000002236,0000002237,3,001000000,001000000"
+    ))
+
+    assert collector.complete_probe(
+        reply,
+        pc_rx_interval_ns=(2_000, 2_200),
+    ) is True
+    record = collector.records()[0]
+
+    assert record["pc_tx_ns"] == 1_050
+    assert record["pc_rx_ns"] == 2_100
+    assert record["pc_tx_event_uncertainty_ns"] == 50
+    assert record["pc_rx_event_uncertainty_ns"] == 100
+    assert record["pc_tx_boundary_start_ns"] == 1_000
+    assert record["pc_tx_boundary_end_ns"] == 1_100
+    assert record["pc_rx_boundary_start_ns"] == 2_000
+    assert record["pc_rx_boundary_end_ns"] == 2_200
+    assert record["pc_endpoint_uncertainty_model"] == (
+        "application_call_interval_midpoint_v1"
+    )
+    assert record["included_in_fit"] is True
+
+
+def test_pc_endpoint_interval_rejects_malformed_bounds():
+    collector = ClockExchangeCollector()
+
+    with pytest.raises(ValueError, match="ordered"):
+        collector.begin_probe(
+            11,
+            pc_tx_interval_ns=(2_000, 1_000),
+            sample_role="formal",
+            included_in_fit=True,
+        )
+
+    collector.begin_probe(
+        11,
+        pc_tx_interval_ns=(1_000, 1_000),
+        sample_role="formal",
+        included_in_fit=True,
+    )
+    reply = parse_clock_sync_reply(frame(
+        "T,11,0000002234,0000002235,0000002236,0000002237,3,001000000,001000000"
+    ))
+    with pytest.raises(ValueError, match="ordered"):
+        collector.complete_probe(reply, pc_rx_interval_ns=(3_000, 2_000))
 
 
 def test_clock_exchange_collector_preserves_unmatched_sequence_evidence():

@@ -119,7 +119,10 @@ TRACK_REFERENCE_MIN_MEAN_GRAY = 1.0
 CLOCK_PROBE_PERIOD_S = 0.25
 CLOCK_PREFLIGHT_EXCHANGES = 8
 CLOCK_POSTFLIGHT_EXCHANGES = 8
+CLOCK_ACTIVE_RUN_PROBES = 4
+CLOCK_ACTIVE_RUN_PROBE_PERIOD_S = 3.0
 CLOCK_QUIET_PROBE_TIMEOUT_S = 1.0
+PC_ENDPOINT_UNCERTAINTY_MODEL = "application_call_interval_midpoint_v1"
 # A lost reply is retained as evidence, then one fresh sequence may replace
 # that sample. Persistent loss still fails closed before START.
 CLOCK_QUIET_RETRY_LIMIT = 1
@@ -349,6 +352,31 @@ def clock_reply_pc_timestamp(arrival_pc_ns=None, fallback_pc_ns=None):
     if fallback_pc_ns is None:
         return capture_pc_clock_ns()
     return int(fallback_pc_ns)
+
+
+def _normalize_pc_endpoint_interval(interval_ns, field_name):
+    """Return an application-call midpoint and conservative half-width."""
+    if interval_ns is None:
+        return None
+    if (
+        not isinstance(interval_ns, (tuple, list))
+        or len(interval_ns) != 2
+    ):
+        raise ValueError("{0} must contain start and end timestamps".format(field_name))
+    start_ns, end_ns = interval_ns
+    if any(
+        isinstance(value, bool) or not isinstance(value, int)
+        for value in (start_ns, end_ns)
+    ):
+        raise ValueError("{0} timestamps must be integers".format(field_name))
+    if start_ns < 0 or end_ns < 0 or end_ns < start_ns:
+        raise ValueError("{0} timestamps must be ordered and non-negative".format(field_name))
+    return {
+        "start_ns": int(start_ns),
+        "end_ns": int(end_ns),
+        "midpoint_ns": (int(start_ns) + int(end_ns)) // 2,
+        "uncertainty_ns": (int(end_ns) - int(start_ns) + 1) // 2,
+    }
 
 OUTPUT_FILENAMES = (
     "camera.avi",
@@ -593,14 +621,27 @@ class ClockExchangeCollector:
     def begin_probe(
         self,
         sequence,
-        pc_tx_ns,
+        pc_tx_ns=None,
+        pc_tx_interval_ns=None,
         phase=None,
         sample_role=None,
         included_in_fit=None,
     ):
         sequence = int(sequence)
-        pc_tx_ns = int(pc_tx_ns)
-        if sequence <= 0 or pc_tx_ns < 0:
+        if pc_tx_ns is not None and (
+            isinstance(pc_tx_ns, bool) or not isinstance(pc_tx_ns, int)
+        ):
+            raise ValueError("clock probe timestamp must be an integer")
+        if pc_tx_ns is not None and pc_tx_interval_ns is not None:
+            raise ValueError("clock probe timestamp and interval are exclusive")
+        tx_interval = _normalize_pc_endpoint_interval(
+            pc_tx_interval_ns, "pc_tx_interval_ns"
+        )
+        if pc_tx_ns is None and tx_interval is None:
+            raise ValueError("clock probe PC send timestamp is required")
+        if pc_tx_ns is not None and pc_tx_ns < 0:
+            raise ValueError("clock probe timestamp must be non-negative")
+        if sequence <= 0:
             raise ValueError("clock probe sequence/timestamp must be positive")
         if phase is not None and not str(phase):
             raise ValueError("clock probe phase must not be empty")
@@ -621,13 +662,63 @@ class ClockExchangeCollector:
             if sequence in self._pending:
                 raise ValueError("clock probe sequence is already pending")
             pending = {
-                "pc_tx_ns": pc_tx_ns,
+                "pc_tx_ns": (
+                    int(pc_tx_ns)
+                    if pc_tx_ns is not None else tx_interval["midpoint_ns"]
+                ),
+                "pc_tx_interval": tx_interval,
                 "phase": (str(phase) if phase is not None else None),
             }
             pending["sample_role"] = str(sample_role)
             pending["included_in_fit"] = bool(included_in_fit)
             self._pending[sequence] = pending
         return ClockSyncProbe(sequence).encode().encode("ascii")
+
+    def set_probe_tx_interval(self, sequence, pc_tx_interval_ns):
+        """Complete the send boundary after the blocking sendall returns."""
+        tx_interval = _normalize_pc_endpoint_interval(
+            pc_tx_interval_ns, "pc_tx_interval_ns"
+        )
+        if tx_interval is None:
+            raise ValueError("pc_tx_interval_ns is required")
+        with self._lock:
+            pending = self._pending.get(int(sequence))
+            if pending is None:
+                for record in self._records:
+                    if int(record.get("sequence", -1)) != int(sequence):
+                        continue
+                    record["pc_tx_ns"] = tx_interval["midpoint_ns"]
+                    record["pc_tx_event_observed_ns"] = tx_interval[
+                        "midpoint_ns"
+                    ]
+                    record["pc_tx_event_uncertainty_ns"] = tx_interval[
+                        "uncertainty_ns"
+                    ]
+                    record["pc_tx_boundary_start_ns"] = tx_interval[
+                        "start_ns"
+                    ]
+                    record["pc_tx_boundary_end_ns"] = tx_interval[
+                        "end_ns"
+                    ]
+                    record["pc_endpoint_uncertainty_model"] = (
+                        PC_ENDPOINT_UNCERTAINTY_MODEL
+                        if record.get("pc_rx_boundary_start_ns") is not None
+                        and record.get("pc_rx_boundary_end_ns") is not None
+                        else None
+                    )
+                    if (
+                        record.get("fit_requested")
+                        and record.get("q_event_uncertainty_ns") is not None
+                        and record.get("t_event_uncertainty_ns") is not None
+                        and record.get("pc_rx_event_uncertainty_ns") is not None
+                    ):
+                        record["included_in_fit"] = True
+                        record["fit_exclusion_reason"] = None
+                    return True
+                return False
+            pending["pc_tx_ns"] = tx_interval["midpoint_ns"]
+            pending["pc_tx_interval"] = tx_interval
+            return True
 
     def cancel_probe(self, sequence):
         with self._lock:
@@ -637,16 +728,36 @@ class ClockExchangeCollector:
         with self._lock:
             return bool(self._pending)
 
-    def complete_probe(self, reply, pc_rx_ns):
+    def complete_probe(self, reply, pc_rx_ns=None, pc_rx_interval_ns=None):
         if not isinstance(reply, ClockSyncReply):
             raise TypeError("clock reply must be ClockSyncReply")
-        pc_rx_ns = int(pc_rx_ns)
+        if pc_rx_ns is not None and pc_rx_interval_ns is not None:
+            raise ValueError("clock receive timestamp and interval are exclusive")
+        rx_interval = _normalize_pc_endpoint_interval(
+            pc_rx_interval_ns, "pc_rx_interval_ns"
+        )
+        if pc_rx_ns is None and rx_interval is None:
+            raise ValueError("clock probe PC receive timestamp is required")
+        if pc_rx_ns is not None and (
+            isinstance(pc_rx_ns, bool) or not isinstance(pc_rx_ns, int)
+        ):
+            raise ValueError("clock receive timestamp must be an integer")
+        if pc_rx_ns is not None and pc_rx_ns < 0:
+            raise ValueError("clock receive timestamp must be non-negative")
         with self._lock:
             pending = self._pending.pop(reply.sequence, None)
             if pending is None:
                 self._unmatched_replies.append(int(reply.sequence))
                 return False
-            pc_tx_ns = int(pending["pc_tx_ns"])
+            tx_interval = pending.get("pc_tx_interval")
+            pc_tx_ns = int(
+                tx_interval["midpoint_ns"]
+                if tx_interval is not None else pending["pc_tx_ns"]
+            )
+            pc_rx_ns = int(
+                rx_interval["midpoint_ns"]
+                if rx_interval is not None else pc_rx_ns
+            )
             if pc_rx_ns < pc_tx_ns:
                 self._unmatched_replies.append(int(reply.sequence))
                 return False
@@ -679,6 +790,18 @@ class ClockExchangeCollector:
                     ),
                 }
             else:
+                pc_tx_event_uncertainty_ns = (
+                    tx_interval["uncertainty_ns"] if tx_interval else None
+                )
+                pc_rx_event_uncertainty_ns = (
+                    rx_interval["uncertainty_ns"] if rx_interval else None
+                )
+                fit_admitted = bool(
+                    pending_included_in_fit
+                    and reply.event_uncertainty_valid
+                    and pc_tx_event_uncertainty_ns is not None
+                    and pc_rx_event_uncertainty_ns is not None
+                )
                 identity = ClockExchangeIdentity(
                     transport="tcp",
                     capture_id=self.capture_id,
@@ -693,10 +816,14 @@ class ClockExchangeCollector:
                     "pc_tx_event_kind": EVENT_PC_Q_SENT,
                     "pc_tx_event_clock_domain": CLOCK_DOMAIN_PC_MONOTONIC_NS,
                     "pc_tx_event_validity": OBSERVED_BOUNDARY,
-                    # No independent physical bound has been measured for
-                    # this host-side boundary yet.
-                    "pc_tx_event_uncertainty_ns": None,
+                    "pc_tx_event_uncertainty_ns": pc_tx_event_uncertainty_ns,
                     "pc_tx_event_observed_ns": int(pc_tx_ns),
+                    "pc_tx_boundary_start_ns": (
+                        tx_interval["start_ns"] if tx_interval else None
+                    ),
+                    "pc_tx_boundary_end_ns": (
+                        tx_interval["end_ns"] if tx_interval else None
+                    ),
                     "pc_tx_event_data_age_ns": 0,
                     "q_event_id": identity.event(EVENT_Q_UART_RX_ISR),
                     "q_event_tick_ms": int(reply.q_event_timestamp_ms),
@@ -705,7 +832,10 @@ class ClockExchangeCollector:
                     "q_event_kind": EVENT_Q_UART_RX_ISR,
                     "q_event_clock_domain": CLOCK_DOMAIN_MCU_MONOTONIC_MS,
                     "q_event_validity": OBSERVED_BOUNDARY,
-                    "q_event_uncertainty_ns": None,
+                    "q_event_uncertainty_ns": (
+                        int(reply.q_event_uncertainty_ns)
+                        if reply.event_uncertainty_valid else None
+                    ),
                     "q_parse_event_id": identity.event(EVENT_Q_PARSE_DONE),
                     "q_parse_causal_parent_event_id": identity.event(
                         EVENT_Q_UART_RX_ISR
@@ -714,7 +844,10 @@ class ClockExchangeCollector:
                     "q_parse_event_kind": EVENT_Q_PARSE_DONE,
                     "q_parse_event_clock_domain": CLOCK_DOMAIN_MCU_MONOTONIC_MS,
                     "q_parse_event_validity": REPORTED_BOUNDARY,
-                    "q_parse_event_uncertainty_ns": None,
+                    "q_parse_event_uncertainty_ns": (
+                        int(reply.q_event_uncertainty_ns)
+                        if reply.event_uncertainty_valid else None
+                    ),
                     "q_parse_event_observed_tick_ms": None,
                     "q_parse_event_data_age_ms": None,
                     "q_parse_role": "diagnostic_only",
@@ -725,7 +858,10 @@ class ClockExchangeCollector:
                     "t_event_kind": EVENT_T_TRANSACTION_STARTED,
                     "t_event_clock_domain": CLOCK_DOMAIN_MCU_MONOTONIC_MS,
                     "t_event_validity": OBSERVED_BOUNDARY,
-                    "t_event_uncertainty_ns": None,
+                    "t_event_uncertainty_ns": (
+                        int(reply.t_event_uncertainty_ns)
+                        if reply.event_uncertainty_valid else None
+                    ),
                     "t_payload_event_id": identity.event(
                         EVENT_T_PAYLOAD_GENERATED
                     ),
@@ -738,7 +874,10 @@ class ClockExchangeCollector:
                     "t_payload_event_kind": EVENT_T_PAYLOAD_GENERATED,
                     "t_payload_event_clock_domain": CLOCK_DOMAIN_MCU_MONOTONIC_MS,
                     "t_payload_event_validity": REPORTED_BOUNDARY,
-                    "t_payload_event_uncertainty_ns": None,
+                    "t_payload_event_uncertainty_ns": (
+                        int(reply.t_event_uncertainty_ns)
+                        if reply.event_uncertainty_valid else None
+                    ),
                     "t_payload_event_observed_tick_ms": None,
                     "t_payload_event_data_age_ms": None,
                     "t_payload_role": "diagnostic_only",
@@ -747,21 +886,36 @@ class ClockExchangeCollector:
                     "pc_rx_event_kind": EVENT_PC_T_RECEIVED,
                     "pc_rx_event_clock_domain": CLOCK_DOMAIN_PC_MONOTONIC_NS,
                     "pc_rx_event_validity": OBSERVED_BOUNDARY,
-                    "pc_rx_event_uncertainty_ns": None,
+                    "pc_rx_event_uncertainty_ns": pc_rx_event_uncertainty_ns,
                     "pc_rx_event_observed_ns": int(pc_rx_ns),
+                    "pc_rx_boundary_start_ns": (
+                        rx_interval["start_ns"] if rx_interval else None
+                    ),
+                    "pc_rx_boundary_end_ns": (
+                        rx_interval["end_ns"] if rx_interval else None
+                    ),
+                    "pc_endpoint_uncertainty_model": (
+                        PC_ENDPOINT_UNCERTAINTY_MODEL
+                        if tx_interval and rx_interval else None
+                    ),
                     "pc_rx_event_data_age_ns": 0,
                     "timestamp_schema_version": int(
                         reply.timestamp_schema_version
                     ),
                     "sample_role": pending_sample_role,
                     # This flag is actual fit admission, not the caller's
-                    # request.  No uncertainty bound is measured here yet.
+                    # request.  MCU v2 remains excluded because its reply did
+                    # not carry a verifiable endpoint error bound.
                     "fit_requested": bool(pending_included_in_fit),
-                    "included_in_fit": False,
+                    "included_in_fit": fit_admitted,
                     "fit_exclusion_reason": (
-                        "uncertainty_unverified"
-                        if pending_included_in_fit
-                        else "sample_role_excluded"
+                        None
+                        if fit_admitted
+                        else (
+                            "uncertainty_unverified"
+                            if pending_included_in_fit
+                            else "sample_role_excluded"
+                        )
                     ),
                 }
             if pending["phase"] is not None:
@@ -1535,6 +1689,10 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
     next_heartbeat = None
     next_clock_probe = None
     next_clock_sequence = 1
+    active_run_pending_sequence = None
+    active_run_pending_deadline = None
+    active_run_sent = 0
+    active_run_completed = 0
 
     def send_heartbeat(force=False):
         """Keep the firmware's one-second lease alive on the capture thread."""
@@ -1567,16 +1725,21 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
             return True
         sequence = next_clock_sequence
         next_clock_sequence += 1
-        pc_tx_ns = capture_pc_clock_ns()
+        pc_tx_start_ns = capture_pc_clock_ns()
         try:
             command = clock_exchanges.begin_probe(
                 sequence,
-                pc_tx_ns,
+                pc_tx_interval_ns=(pc_tx_start_ns, pc_tx_start_ns),
                 phase=phase,
                 sample_role=sample_role,
                 included_in_fit=included_in_fit,
             )
             sock.sendall(command)
+            pc_tx_end_ns = capture_pc_clock_ns()
+            if not clock_exchanges.set_probe_tx_interval(
+                sequence, (pc_tx_start_ns, pc_tx_end_ns)
+            ):
+                raise RuntimeError("clock probe send boundary was lost")
             raw_io.log_send(command)
             next_clock_probe = time.monotonic() + CLOCK_PROBE_PERIOD_S
             return True
@@ -1590,14 +1753,19 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
             next_clock_probe = time.monotonic() + CLOCK_PROBE_PERIOD_S
             return False
 
-    # Q/T calibration is intentionally outside the motion window. The ESP
-    # path has one CIPSEND transaction, so active probes would measure queue
-    # contention from telemetry instead of only clock transport quality.
+    # Keep a small, bounded active-run sample set. These probes share the
+    # existing control socket but never issue a motion command or alter the
+    # heartbeat/START/STOP state machine.
     clock_sampling = {
-        "policy": "quiet_pre_start_post_stop",
+        "policy": "quiet_pre_start_active_run_post_stop",
         "probe_period_s": float(CLOCK_PROBE_PERIOD_S),
         "pre_start_requested": int(CLOCK_PREFLIGHT_EXCHANGES),
         "post_stop_requested": int(CLOCK_POSTFLIGHT_EXCHANGES),
+        "active_run_requested": int(CLOCK_ACTIVE_RUN_PROBES),
+        "active_run_probe_period_s": float(CLOCK_ACTIVE_RUN_PROBE_PERIOD_S),
+        "active_run_probes_sent": 0,
+        "active_run_probes_completed": 0,
+        "active_run_probe_timeouts": 0,
         "pre_start_retries": 0,
         "post_stop_retries": 0,
         "active_run_probes": 0,
@@ -1619,7 +1787,14 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
         target = max(0, int(count))
         if target == 0:
             return True
-        initial_count = len(clock_exchanges.records())
+
+        def phase_record_count():
+            return sum(
+                1 for record in clock_exchanges.records()
+                if record.get("phase") == phase
+            )
+
+        initial_count = phase_record_count()
         # The first exchange establishes the quiet-window arm boundary. It is
         # retained as evidence but excluded from the causal fit because it may
         # still observe the tail of a preceding CIPSEND transaction.
@@ -1630,7 +1805,7 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
             while True:
                 attempts += 1
                 probe_sequence = next_clock_sequence
-                before_count = len(clock_exchanges.records())
+                before_count = phase_record_count()
                 wait_for_clock_probe_slot()
                 if not send_clock_probe(
                     force=True,
@@ -1649,12 +1824,12 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                     return False
                 deadline = time.monotonic() + CLOCK_QUIET_PROBE_TIMEOUT_S
                 with status_cv:
-                    while len(clock_exchanges.records()) <= before_count:
+                    while phase_record_count() <= before_count:
                         remaining = deadline - time.monotonic()
                         if remaining <= 0.0 or reader_error:
                             break
                         status_cv.wait(remaining)
-                if len(clock_exchanges.records()) > before_count:
+                if phase_record_count() > before_count:
                     break
 
                 # Do not leave a timed-out sequence pending: the replacement
@@ -1682,7 +1857,134 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                 if not can_retry:
                     return False
                 clock_sampling[retry_key] += 1
-        return len(clock_exchanges.records()) >= initial_count + len(sample_plan)
+        return phase_record_count() >= initial_count + len(sample_plan)
+
+    def maybe_send_active_run_probe():
+        """Issue one non-blocking formal Q sample when the run schedule allows."""
+        nonlocal active_run_pending_sequence
+        nonlocal active_run_pending_deadline
+        nonlocal active_run_sent
+        nonlocal active_run_completed
+
+        target = max(0, int(CLOCK_ACTIVE_RUN_PROBES))
+        now = time.monotonic()
+        if active_run_pending_sequence is not None:
+            records = clock_exchanges.records()
+            if any(
+                int(record.get("sequence", -1)) == active_run_pending_sequence
+                for record in records
+            ):
+                active_run_pending_sequence = None
+                active_run_pending_deadline = None
+                active_run_completed += 1
+                clock_sampling["active_run_probes_completed"] = (
+                    active_run_completed
+                )
+            elif (
+                active_run_pending_deadline is not None
+                and now >= active_run_pending_deadline
+            ):
+                sequence = active_run_pending_sequence
+                clock_exchanges.cancel_probe(sequence)
+                active_run_pending_sequence = None
+                active_run_pending_deadline = None
+                clock_sampling["active_run_probe_timeouts"] += 1
+                clock_sync_parse_errors.append({
+                    "stage": "active_run_receive",
+                    "phase": "active_run",
+                    "sample_role": "formal",
+                    "sequence": int(sequence),
+                    "error": "clock probe reply timeout",
+                })
+            else:
+                return
+
+        if active_run_sent >= target:
+            return
+
+        next_active_probe = clock_sampling.get("_next_active_probe_monotonic")
+        if next_active_probe is not None and now < next_active_probe:
+            return
+        if clock_exchanges.has_pending():
+            return
+
+        wait_for_clock_probe_slot()
+        send_time = time.monotonic()
+        sequence = next_clock_sequence
+        if not send_clock_probe(
+            force=True,
+            phase="active_run",
+            sample_role="formal",
+            included_in_fit=True,
+        ):
+            clock_sampling["active_run_probe_send_errors"] = (
+                clock_sampling.get("active_run_probe_send_errors", 0) + 1
+            )
+            clock_sampling["_next_active_probe_monotonic"] = (
+                send_time + float(CLOCK_ACTIVE_RUN_PROBE_PERIOD_S)
+            )
+            return
+
+        active_run_pending_sequence = sequence
+        active_run_pending_deadline = (
+            send_time + float(CLOCK_QUIET_PROBE_TIMEOUT_S)
+        )
+        active_run_sent += 1
+        clock_sampling["active_run_probes_sent"] = active_run_sent
+        clock_sampling["_next_active_probe_monotonic"] = (
+            send_time + float(CLOCK_ACTIVE_RUN_PROBE_PERIOD_S)
+        )
+
+    def finalize_active_run_probe_accounting():
+        """Reconcile a final reply after the collection loop has stopped."""
+        nonlocal active_run_pending_sequence
+        nonlocal active_run_pending_deadline
+        nonlocal active_run_completed
+
+        sequence = active_run_pending_sequence
+        if sequence is None:
+            return
+        deadline = active_run_pending_deadline
+        with status_cv:
+            while True:
+                records = clock_exchanges.records()
+                if any(
+                    int(record.get("sequence", -1)) == sequence
+                    for record in records
+                ):
+                    break
+                remaining = (
+                    deadline - time.monotonic()
+                    if deadline is not None else 0.0
+                )
+                if remaining <= 0.0 or reader_error:
+                    break
+                status_cv.wait(remaining)
+
+        records = clock_exchanges.records()
+        if any(
+            int(record.get("sequence", -1)) == sequence
+            for record in records
+        ):
+            active_run_pending_sequence = None
+            active_run_pending_deadline = None
+            active_run_completed += 1
+            clock_sampling["active_run_probes_completed"] = (
+                active_run_completed
+            )
+            return
+
+        clock_exchanges.cancel_probe(sequence)
+        active_run_pending_sequence = None
+        active_run_pending_deadline = None
+        clock_sampling["active_run_probe_timeouts"] += 1
+        clock_sync_parse_errors.append({
+            "stage": "active_run_finalize",
+            "phase": "active_run",
+            "sample_role": "formal",
+            "sequence": int(sequence),
+            "error": "clock probe reply pending at capture finalization",
+        })
 
     def apply_analysis_result(result):
         frame_number = int(result["frame_index"])
@@ -1854,7 +2156,7 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                 return
             clock_exchanges.complete_probe(
                 reply,
-                clock_reply_pc_timestamp(current_recv["arrival_pc_ns"]),
+                pc_rx_interval_ns=current_recv.get("rx_interval_ns"),
             )
             with status_cv:
                 status_cv.notify_all()
@@ -1880,7 +2182,9 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                                    on_timing=on_timing)
         while not stop_reader.is_set():
             try:
+                recv_start_ns = capture_pc_clock_ns()
                 data = sock.recv(4096)
+                recv_end_ns = capture_pc_clock_ns()
             except socket.timeout:
                 continue
             except OSError:
@@ -1892,8 +2196,9 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
                 break
             if not data:
                 break
-            arrival_pc_ns = capture_pc_clock_ns()
+            arrival_pc_ns = recv_end_ns
             current_recv["arrival_pc_ns"] = arrival_pc_ns
+            current_recv["rx_interval_ns"] = (recv_start_ns, recv_end_ns)
             boundary.begin_recv(arrival_pc_ns, recv_batch_bytes=len(data))
             raw_io.log_recv(data, arrival_pc_ns=arrival_pc_ns)
             try:
@@ -1953,12 +2258,14 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
         # 采集 duration_s 秒
         try:
             start = time.monotonic_ns()
+            clock_sampling["_next_active_probe_monotonic"] = time.monotonic()
             duration_ns = int(duration_s * 1e9)
             camera_frame_number = 0
             while time.monotonic_ns() - start < duration_ns:
                 if not send_heartbeat():
                     outcome = "heartbeat_failed"
                     return telemetry, poses, actions, outcome
+                maybe_send_active_run_probe()
                 ok, frame = cap.read()
                 t_pc_ns = capture_pc_clock_ns() if ok else None
                 frame_record = {
@@ -2125,6 +2432,7 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
             })
             if outcome == "ok":
                 outcome = "video_finalize_failed"
+        finalize_active_run_probe_accounting()
         boundary.close_window("collection_end_or_cleanup")
         def status_cursor():
             with status_cv:
@@ -2181,6 +2489,11 @@ def run_sync_capture_session(sock, cap, tracker, run_id,
         diagnostics["health"] = compute_health_summary(health_frames)
         diagnostics["telemetry_boundary"] = boundary.to_dict()
         diagnostics["clock_exchanges"] = clock_exchanges.to_dict()
+        clock_sampling["active_run_probes"] = sum(
+            1 for record in diagnostics["clock_exchanges"]["records"]
+            if record.get("phase") == "active_run"
+        )
+        clock_sampling.pop("_next_active_probe_monotonic", None)
         diagnostics["formal_telemetry_count"] = boundary.formal_count
         diagnostics["boundary_telemetry_count"] = boundary.boundary_count
         diagnostics["raw_io"] = raw_io.write()

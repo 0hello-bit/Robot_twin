@@ -170,6 +170,60 @@ class QuietClockSocket:
         self.closed = True
 
 
+class V3ClockReplySocket(QuietClockSocket):
+    """Return v3 ClockSync replies with explicit endpoint bounds."""
+
+    def sendall(self, data):
+        data = bytes(data)
+        text = data.decode("ascii")
+        if text.startswith("Q,"):
+            sequence = int(text.split(",")[1])
+            rx_tick = 1_000 + sequence
+            self.pending.append(
+                protocol_frame(
+                    "T,{0},{1},{2},{3},{4},3,1000000,1000000".format(
+                        sequence, rx_tick, rx_tick + 1,
+                        rx_tick + 2, rx_tick + 3,
+                    )
+                ).encode("ascii")
+            )
+            self.sent.append(data)
+            return
+        super().sendall(data)
+
+
+class DeferredV3ClockReplySocket(V3ClockReplySocket):
+    """Release Q replies only after a known wall-clock boundary."""
+
+    def __init__(self, release_after_s):
+        super().__init__()
+        self.release_at = time.monotonic() + float(release_after_s)
+        self.deferred = []
+
+    def sendall(self, data):
+        data = bytes(data)
+        text = data.decode("ascii")
+        if text.startswith("Q,"):
+            sequence = int(text.split(",")[1])
+            rx_tick = 1_000 + sequence
+            self.deferred.append(
+                protocol_frame(
+                    "T,{0},{1},{2},{3},{4},3,1000000,1000000".format(
+                        sequence, rx_tick, rx_tick + 1,
+                        rx_tick + 2, rx_tick + 3,
+                    )
+                ).encode("ascii")
+            )
+            self.sent.append(data)
+            return
+        super().sendall(data)
+
+    def recv(self, size):
+        if self.deferred and time.monotonic() >= self.release_at:
+            self.pending.append(self.deferred.pop(0))
+        return super().recv(size)
+
+
 class DropFirstClockReplySocket(QuietClockSocket):
     """Drop one Q reply while preserving the rest of the fake session."""
 
@@ -225,6 +279,7 @@ class NoopTracker:
 def test_causal_clock_probes_stay_outside_motion_window(monkeypatch):
     monkeypatch.setattr(capture_sync_run, "CLOCK_PREFLIGHT_EXCHANGES", 2)
     monkeypatch.setattr(capture_sync_run, "CLOCK_POSTFLIGHT_EXCHANGES", 2)
+    monkeypatch.setattr(capture_sync_run, "CLOCK_ACTIVE_RUN_PROBES", 0)
     monkeypatch.setattr(capture_sync_run, "CLOCK_QUIET_PROBE_TIMEOUT_S", 0.5)
 
     sock = QuietClockSocket()
@@ -281,9 +336,117 @@ def test_causal_clock_probes_stay_outside_motion_window(monkeypatch):
     ]
 
 
+def test_causal_clock_sampling_includes_bounded_active_run_probes(monkeypatch):
+    monkeypatch.setattr(capture_sync_run, "CLOCK_PREFLIGHT_EXCHANGES", 0)
+    monkeypatch.setattr(capture_sync_run, "CLOCK_POSTFLIGHT_EXCHANGES", 0)
+    monkeypatch.setattr(capture_sync_run, "CLOCK_ACTIVE_RUN_PROBES", 1)
+    monkeypatch.setattr(capture_sync_run, "CLOCK_ACTIVE_RUN_PROBE_PERIOD_S", 0.01)
+    monkeypatch.setattr(capture_sync_run, "CLOCK_PROBE_PERIOD_S", 0.0)
+    monkeypatch.setattr(capture_sync_run, "CLOCK_QUIET_PROBE_TIMEOUT_S", 0.5)
+
+    sock = V3ClockReplySocket()
+    diagnostics = {}
+    _telemetry, _poses, actions, outcome = capture_sync_run.run_sync_capture_session(
+        sock,
+        OneFrameCamera(),
+        NoopTracker(),
+        "run-active-clock",
+        0.2,
+        0.5,
+        diagnostics=diagnostics,
+    )
+
+    assert outcome == "ok"
+    assert actions["start_sent"] is True
+    active_records = [
+        record for record in diagnostics["clock_exchanges"]["records"]
+        if record.get("phase") == "active_run"
+    ]
+    assert len(active_records) == 1
+    assert active_records[0]["sample_role"] == "formal"
+    assert active_records[0]["fit_requested"] is True
+    assert active_records[0]["included_in_fit"] is True
+    assert active_records[0]["fit_exclusion_reason"] is None
+    assert active_records[0]["q_event_uncertainty_ns"] == 1_000_000
+    assert active_records[0]["q_parse_event_uncertainty_ns"] == 1_000_000
+    assert active_records[0]["t_event_uncertainty_ns"] == 1_000_000
+    assert active_records[0]["t_payload_event_uncertainty_ns"] == 1_000_000
+    assert active_records[0]["pc_tx_event_uncertainty_ns"] >= 0
+    assert active_records[0]["pc_rx_event_uncertainty_ns"] >= 0
+
+
+def test_active_run_completion_count_reconciles_final_pending_reply(monkeypatch):
+    monkeypatch.setattr(capture_sync_run, "CLOCK_PREFLIGHT_EXCHANGES", 0)
+    monkeypatch.setattr(capture_sync_run, "CLOCK_POSTFLIGHT_EXCHANGES", 0)
+    monkeypatch.setattr(capture_sync_run, "CLOCK_ACTIVE_RUN_PROBES", 4)
+    monkeypatch.setattr(capture_sync_run, "CLOCK_ACTIVE_RUN_PROBE_PERIOD_S", 0.01)
+    monkeypatch.setattr(capture_sync_run, "CLOCK_PROBE_PERIOD_S", 0.0)
+    monkeypatch.setattr(capture_sync_run, "CLOCK_QUIET_PROBE_TIMEOUT_S", 0.5)
+
+    diagnostics = {}
+    _telemetry, _poses, actions, outcome = (
+        capture_sync_run.run_sync_capture_session(
+            V3ClockReplySocket(),
+            OneFrameCamera(),
+            NoopTracker(),
+            "run-active-count",
+            0.2,
+            0.5,
+            diagnostics=diagnostics,
+        )
+    )
+
+    assert outcome == "ok", actions
+    sampling = diagnostics["clock_sync_sampling"]
+    active_records = [
+        record for record in diagnostics["clock_exchanges"]["records"]
+        if record.get("phase") == "active_run"
+    ]
+    assert sampling["active_run_probes_sent"] == 4
+    assert sampling["active_run_probes_completed"] == 4
+    assert sampling["active_run_probe_timeouts"] == 0
+    assert sampling["active_run_probes"] == len(active_records) == 4
+
+
+def test_active_reply_is_settled_before_post_stop_sampling(monkeypatch):
+    monkeypatch.setattr(capture_sync_run, "CLOCK_PREFLIGHT_EXCHANGES", 0)
+    monkeypatch.setattr(capture_sync_run, "CLOCK_POSTFLIGHT_EXCHANGES", 1)
+    monkeypatch.setattr(capture_sync_run, "CLOCK_ACTIVE_RUN_PROBES", 1)
+    monkeypatch.setattr(capture_sync_run, "CLOCK_ACTIVE_RUN_PROBE_PERIOD_S", 0.01)
+    monkeypatch.setattr(capture_sync_run, "CLOCK_PROBE_PERIOD_S", 0.0)
+    monkeypatch.setattr(capture_sync_run, "CLOCK_QUIET_PROBE_TIMEOUT_S", 0.5)
+
+    diagnostics = {}
+    _telemetry, _poses, actions, outcome = (
+        capture_sync_run.run_sync_capture_session(
+            DeferredV3ClockReplySocket(0.1),
+            OneFrameCamera(),
+            NoopTracker(),
+            "run-active-bound",
+            0.05,
+            0.5,
+            diagnostics=diagnostics,
+        )
+    )
+
+    assert outcome == "ok", actions
+    assert diagnostics["clock_sync_sampling"]["post_stop_ok"] is True
+    phases = [
+        record.get("phase")
+        for record in diagnostics["clock_exchanges"]["records"]
+    ]
+    assert phases.count("active_run") == 1, (
+        phases,
+        diagnostics["clock_sync_sampling"],
+        diagnostics["clock_exchanges"],
+    )
+    assert phases.count("post_stop_quiet") == 2
+
+
 def test_clock_exchange_uses_recv_boundary_timestamp_in_session(monkeypatch):
     monkeypatch.setattr(capture_sync_run, "CLOCK_PREFLIGHT_EXCHANGES", 1)
     monkeypatch.setattr(capture_sync_run, "CLOCK_POSTFLIGHT_EXCHANGES", 0)
+    monkeypatch.setattr(capture_sync_run, "CLOCK_ACTIVE_RUN_PROBES", 0)
     monkeypatch.setattr(capture_sync_run, "CLOCK_QUIET_PROBE_TIMEOUT_S", 0.5)
 
     clock_value = {"value": 0}
@@ -315,12 +478,17 @@ def test_clock_exchange_uses_recv_boundary_timestamp_in_session(monkeypatch):
         if event["dir"] == "RX"
         and bytes.fromhex(event["bytes_hex"]).startswith(b"T,")
     )
-    assert record["pc_rx_ns"] == t_reply["pc_recv_ns"]
+    assert record["pc_rx_boundary_end_ns"] == t_reply["pc_recv_ns"]
+    assert record["pc_rx_ns"] == (
+        record["pc_rx_boundary_start_ns"]
+        + record["pc_rx_boundary_end_ns"]
+    ) // 2
 
 
 def test_quiet_clock_retries_one_lost_probe_with_a_new_sequence(monkeypatch):
     monkeypatch.setattr(capture_sync_run, "CLOCK_PREFLIGHT_EXCHANGES", 1)
     monkeypatch.setattr(capture_sync_run, "CLOCK_POSTFLIGHT_EXCHANGES", 0)
+    monkeypatch.setattr(capture_sync_run, "CLOCK_ACTIVE_RUN_PROBES", 0)
     monkeypatch.setattr(capture_sync_run, "CLOCK_QUIET_PROBE_TIMEOUT_S", 0.01)
 
     sock = DropFirstClockReplySocket()
@@ -345,6 +513,7 @@ def test_quiet_clock_retries_one_lost_probe_with_a_new_sequence(monkeypatch):
 def test_quiet_clock_sampler_spaces_probes_for_firmware_response_slot(monkeypatch):
     monkeypatch.setattr(capture_sync_run, "CLOCK_PREFLIGHT_EXCHANGES", 2)
     monkeypatch.setattr(capture_sync_run, "CLOCK_POSTFLIGHT_EXCHANGES", 0)
+    monkeypatch.setattr(capture_sync_run, "CLOCK_ACTIVE_RUN_PROBES", 0)
     monkeypatch.setattr(capture_sync_run, "CLOCK_PROBE_PERIOD_S", 0.25)
     monkeypatch.setattr(capture_sync_run, "CLOCK_QUIET_PROBE_TIMEOUT_S", 0.2)
 
